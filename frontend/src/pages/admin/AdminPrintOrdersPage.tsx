@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, RefreshCw } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useState } from "react";
-import { getAdminPrintOrders, updatePrintOrderStatus, updatePrintSettings, getPrintSettings } from "../../api/print.api";
+import { getAdminPrintOrders, updatePrintOrderStatus, updatePrintSettings } from "../../api/print.api";
 
 const statusColors: Record<string, string> = {
   PENDING: "bg-amber-50 text-amber-700",
@@ -22,16 +22,16 @@ export default function AdminPrintOrdersPage() {
   });
 
   const { data: ordersData, isLoading } = useQuery({ queryKey: ["admin-print-orders"], queryFn: getAdminPrintOrders });
-  const { data: settingsData } = useQuery({
-    queryKey: ["print-settings-admin"],
-    queryFn: getPrintSettings,
-    onSuccess: (data: any) => {
-      if (data?.data) {
-        const s = data.data;
-        setSettingsForm({ colorPrice: String(s.colorPrice), bwPrice: String(s.bwPrice), singleSideExtra: String(s.singleSideExtra), bothSideDiscount: String(s.bothSideDiscount), spiralExtra: String(s.spiralExtra), staplerExtra: String(s.staplerExtra) });
-      }
-    },
-  } as any);
+  // const { data: settingsData } = useQuery({
+  //   queryKey: ["print-settings-admin"],
+  //   queryFn: getPrintSettings,
+  //   onSuccess: (data: any) => {
+  //     if (data?.data) {
+  //       const s = data.data;
+  //       setSettingsForm({ colorPrice: String(s.colorPrice), bwPrice: String(s.bwPrice), singleSideExtra: String(s.singleSideExtra), bothSideDiscount: String(s.bothSideDiscount), spiralExtra: String(s.spiralExtra), staplerExtra: String(s.staplerExtra) });
+  //     }
+  //   },
+  // } as any);
 
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updatePrintOrderStatus(id, status),

@@ -1,27 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft, Check, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
+import { ArrowLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Truck, Zap } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
 import { useAuthStore } from "../../store/auth.store";
 import BookCard from "../../components/ui/BookCard";
-import { getBookReviews, createReview } from "../../api/reviews.api";
+// import { getBookReviews} from "../../api/reviews.api";
 import type { ApiErrorResponse } from "../../types";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(price);
 
-function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
-  return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <Star key={star} size={size} className={star <= rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
-      ))}
-    </div>
-  );
-}
+// function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
+//   return (
+//     <div className="flex items-center gap-0.5">
+//       {[1, 2, 3, 4, 5].map((star) => (
+//         <Star key={star} size={size} className={star <= rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
+//       ))}
+//     </div>
+//   );
+// }
 
 export default function BookDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,11 +30,11 @@ export default function BookDetailPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [pincode, setPincode] = useState("");
   const [pincodeMsg, setPincodeMsg] = useState("");
-  const [activeTab, setActiveTab] = useState<"details">("details");
+  // const [activeTab, setActiveTab] = useState<"details">("details");
   const [qty, setQty] = useState(1);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
-  const [reviewSuccess, setReviewSuccess] = useState(false);
+  // const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
+  // const [reviewSuccess, setReviewSuccess] = useState(false);
 
   const { data: cartData } = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isAuthenticated });
   const { data, error, isLoading, isError } = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id!), enabled: Boolean(id) });
@@ -56,18 +56,18 @@ export default function BookDetailPage() {
   const cartBookIds = new Set(cartData?.data?.items.map((item) => item.bookId) ?? []);
   const apiError = error as AxiosError<ApiErrorResponse> | null;
   const errorStatus = apiError?.response?.status;
-  const { data: reviewsData, refetch: refetchReviews } = useQuery({
-    queryKey: ["book-reviews", id],
-    queryFn: () => getBookReviews(id!),
-    enabled: Boolean(id),
-  });
-  const submitReviewMutation = useMutation({
-    mutationFn: () => createReview(id!, reviewForm),
-    onSuccess: () => { setReviewSuccess(true); setReviewForm({ rating: 5, title: "", comment: "" }); void refetchReviews(); },
-  });
+  // const { data: reviewsData, refetcnpm h: refetchReviews } = useQuery({
+  //   queryKey: ["book-reviews", id],
+  //   queryFn: () => getBookReviews(id!),
+  //   enabled: Boolean(id),
+  // });
+  // const submitReviewMutation = useMutation({
+  //   mutationFn: () => createReview(id!, reviewForm),
+  //   onSuccess: () => { setReviewSuccess(true); setReviewForm({ rating: 5, title: "", comment: "" }); void refetchReviews(); },
+  // });
   const relatedBooks = relatedBooksData?.data?.books?.filter((b) => b.id !== book?.id) ?? [];
-  const bookReviews = reviewsData?.data?.reviews ?? [];
-  const bookRating = reviewsData?.data?.rating ?? { average: 0, count: 0 };
+  // const bookReviews = reviewsData?.data?.reviews ?? [];
+  // const bookRating = reviewsData?.data?.rating ?? { average: 0, count: 0 };
 
   const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
   const originalPrice = comparePrice;
@@ -219,13 +219,13 @@ export default function BookDetailPage() {
           </p>
 
           {/* Rating Row - hidden */}
-          {false && <div className="flex items-center gap-3">
+          {/* {false && <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5">
               <Star size={13} className="fill-amber-400 text-amber-400" />
               <span className="text-sm font-bold text-amber-700">{bookRating.average > 0 ? bookRating.average : "—"}</span>
             </div>
             <span className="text-sm text-text-muted">{bookRating.count} ratings & reviews</span>
-          </div>}
+          </div>} */}
 
           {/* Price */}
           <div className="flex items-baseline gap-3">
@@ -298,7 +298,7 @@ export default function BookDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-black/8">
+      {/* <div className="border-b border-black/8">
         <div className="flex gap-6">
           {(["details"] as const).map((tab) => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)}
@@ -307,7 +307,7 @@ export default function BookDetailPage() {
             </button>
           ))}
         </div>
-      </div>
+      </div> */}
 
       {/* Tab Content */}
       {true ? (
@@ -346,7 +346,7 @@ export default function BookDetailPage() {
       ) : (
         <div className="space-y-5 hidden">
           {/* Rating Summary */}
-          <div className="rounded-2xl border border-black/8 bg-white p-5">
+          {/* <div className="rounded-2xl border border-black/8 bg-white p-5">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <div className="flex flex-col items-center gap-2 sm:border-r sm:border-black/8 sm:pr-6">
                 <span className="font-serif text-5xl font-bold text-text-primary">{bookRating.average > 0 ? bookRating.average : "0"}</span>
@@ -372,31 +372,11 @@ export default function BookDetailPage() {
                 ))}
               </div>
             </div>
-          </div>
+          </div> */}
 
           {/* Reviews List */}
           <div className="space-y-3">
-            {mockReviews.map((review) => (
-              <div key={review.id} className="rounded-2xl border border-black/8 bg-white p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1d1a17] text-sm font-bold text-white">
-                      {review.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">{review.name}</p>
-                      <p className="text-xs text-text-muted">{review.date}</p>
-                    </div>
-                  </div>
-                  <StarRating rating={review.rating} size={13} />
-                </div>
-                <p className="mt-3 text-sm font-medium text-text-primary">{review.title}</p>
-                <p className="mt-1 text-sm text-text-muted leading-6">{review.comment}</p>
-                <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600">
-                  <Check size={12} /> Verified Purchase
-                </div>
-              </div>
-            ))}
+            
           </div>
         </div>
       )}
