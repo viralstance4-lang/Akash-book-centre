@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURN_REQUESTED
+  RETURNED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum PaymentMethod {
+  ONLINE
+  COD
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(100)
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+
+  refreshTokens RefreshToken[]
+  cart          Cart?
+  orders        Order[]
+  printOrders   PrintOrder[]
+  reviews       Review[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Genre {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  books     Book[]
+}
+
+model Book {
+  id             String                  @id @default(uuid()) @db.Uuid
+  title          String                  @db.VarChar(255)
+  author         String                  @db.VarChar(255)
+  isbn           String                  @unique
+  description    String?
+  price          Decimal                 @db.Decimal(10, 2)
+  comparePrice   Decimal?                @db.Decimal(10, 2)
+  coverImageUrl  String
+  coverPublicId  String
+  images         BookImage[]
+  genreId        String                  @db.Uuid
+  stock          Int                     @default(0)
+  language       String                  @default("English")
+  publication    String?
+  searchVector   Unsupported("tsvector")?
+  isFeatured     Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  genre          Genre                   @relation(fields: [genreId], references: [id])
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+  reviews        Review[]
+  @@index([genreId])
+}
+
+model BookImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  bookId    String   @db.Uuid
+  imageUrl  String
+  publicId  String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  @@index([bookId])
+}
+
+model Review {
+  id         String   @id @default(uuid()) @db.Uuid
+  bookId     String   @db.Uuid
+  userId     String   @db.Uuid
+  rating     Int
+  title      String?
+  comment    String
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  book       Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([bookId])
+  @@index([userId])
+}
+
+model Cart {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @unique @db.Uuid
+  createdAt DateTime   @default(now())
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+}
+
+model CartItem {
+  id       String @id @default(uuid()) @db.Uuid
+  cartId   String @db.Uuid
+  bookId   String @db.Uuid
+  quantity Int
+  cart     Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  book     Book   @relation(fields: [bookId], references: [id])
+  @@unique([cartId, bookId])
+  @@index([cartId])
+  @@index([bookId])
+}
+
+model Order {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  status          OrderStatus   @default(PENDING)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  discountAmount  Decimal?      @db.Decimal(10, 2)
+  couponCode      String?
+  shippingAddress Json
+  paymentMethod   PaymentMethod @default(ONLINE)
+  customerEmail   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id])
+  items           OrderItem[]
+  payment         Payment?
+  @@index([userId])
+}
+
+model OrderItem {
+  id              String  @id @default(uuid()) @db.Uuid
+  orderId         String  @db.Uuid
+  bookId          String  @db.Uuid
+  quantity        Int
+  priceAtPurchase Decimal @db.Decimal(10, 2)
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  book            Book    @relation(fields: [bookId], references: [id])
+  @@index([orderId])
+  @@index([bookId])
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @unique @db.Uuid
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal       @db.Decimal(10, 2)
+  method            PaymentMethod @default(ONLINE)
+  createdAt         DateTime      @default(now())
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Banner {
+  id          String   @id @default(uuid()) @db.Uuid
+  imageUrl    String
+  publicId    String
+  redirectUrl String
+  title       String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model Coupon {
+  id             String     @id @default(uuid()) @db.Uuid
+  code           String     @unique
+  discountType   String
+  discountValue  Decimal    @db.Decimal(10, 2)
+  minOrderAmount Decimal?   @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int        @default(0)
+  isActive       Boolean    @default(true)
+  expiresAt      DateTime?
+  createdAt      DateTime   @default(now())
+  uses           CouponUse[]
+}
+
+model CouponUse {
+  id        String   @id @default(uuid()) @db.Uuid
+  couponId  String   @db.Uuid
+  userId    String   @db.Uuid
+  orderId   String   @db.Uuid
+  createdAt DateTime @default(now())
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  @@index([couponId])
+  @@index([userId])
+}
+
+model PrintSettings {
+  id               String  @id @default(uuid()) @db.Uuid
+  colorPrice       Decimal @db.Decimal(10, 2)
+  bwPrice          Decimal @db.Decimal(10, 2)
+  singleSideExtra  Decimal @default(0) @db.Decimal(10, 2)
+  bothSideDiscount Decimal @default(0) @db.Decimal(10, 2)
+  spiralExtra      Decimal @default(0) @db.Decimal(10, 2)
+  staplerExtra     Decimal @default(0) @db.Decimal(10, 2)
+}
+
+model PrintOrder {
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String        @db.Uuid
+  fileUrl       String
+  filePublicId  String
+  colorType     String
+  printSide     String
+  orientation   String
+  bindingType   String
+  pageCount     Int
+  totalPrice    Decimal       @db.Decimal(10, 2)
+  status        String        @default("PENDING")
+  paymentMethod PaymentMethod @default(ONLINE)
+  customerEmail String?
+  colorPrice    Decimal?      @db.Decimal(10, 2)
+  bwPrice       Decimal?      @db.Decimal(10, 2)
+  bindingExtra  Decimal?      @db.Decimal(10, 2)
+  sideExtra     Decimal?      @db.Decimal(10, 2)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id])
+  @@index([userId])
+}
+
+model SiteSettings {
+  id              String   @id @default(uuid()) @db.Uuid
+  storeName       String   @default("BucketList Books")
+  tagline         String   @default("")
+  logoUrl         String?
+  logoPublicId    String?
+  logoWidth       Int      @default(120)
+  logoHeight      Int      @default(40)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Page {
+  id        String   @id @default(uuid()) @db.Uuid
+  title     String
+  slug      String   @unique
+  content   String
+  isActive  Boolean  @default(true)
+  showInFooter Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FeaturedSection {
+  id     String @id @default(uuid()) @db.Uuid
+  bookId String @db.Uuid
+  order  Int    @default(0)
+  @@index([bookId])
+}

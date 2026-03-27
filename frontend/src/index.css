@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #f5f3ee;
+  --color-bg-card: #ffffff;
+  --color-bg-outer: #e8e5df;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #5a5a5a;
+  --color-text-muted: #9a9a9a;
+  --color-accent: #cc3333;
+  --color-border: #e0ddd7;
+
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "DM Sans", sans-serif;
+}
+
+* {
+  font-family: var(--font-sans);
+}
+
+body {
+  background-color: #e8e5df;
+}
+
+/* Hide scrollbar for horizontal pill rows on mobile */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Better range input styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1d1a17;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 6px rgba(29,26,23,0.2);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1d1a17;
+  cursor: pointer;
+  border: 2px solid white;
+}
