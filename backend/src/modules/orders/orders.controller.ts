@@ -7,6 +7,7 @@ import {
   getOrderById,
   getUserOrders,
   placeOrder as placeOrderService,
+  requestReturn as requestReturnService,
   updateOrderStatus as updateOrderStatusService,
 } from "./orders.service";
 
@@ -48,6 +49,13 @@ export const cancelOrder: RequestHandler<{ id: string }> = async (req, res, next
   try {
     const order = await cancelOrderService(getUserIdOrThrow(req.user?.id), req.params.id);
     res.status(200).json({ success: true, message: "Order cancelled successfully", data: order });
+  } catch (error) { next(error); }
+};
+
+export const requestReturn: RequestHandler<{ id: string }> = async (req, res, next) => {
+  try {
+    const order = await requestReturnService(getUserIdOrThrow(req.user?.id), req.params.id);
+    res.status(200).json({ success: true, message: "Return requested successfully", data: order });
   } catch (error) { next(error); }
 };
 

@@ -2,6 +2,7 @@ import crypto from "crypto";
 
 import env from "../../config/env";
 import AppError from "../../lib/AppError";
+import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
 import prisma from "../../lib/prisma";
 
 export const verifyPayment = async (
@@ -130,6 +131,27 @@ export const verifyPayment = async (
       },
     }),
   ]);
+
+  // Send invoice emails after successful payment
+  const customerEmail = (updatedOrder as any).customerEmail ?? undefined;
+  const shippingAddress = (updatedOrder as any).shippingAddress ?? {};
+  const orderData = {
+    orderId: updatedOrder.id,
+    items: updatedOrder.items.map((i) => ({
+      title: i.book.title,
+      quantity: i.quantity,
+      price: Number(i.priceAtPurchase),
+      bindingType: (i as any).bindingType ?? "NONE",
+      bindingExtra: Number((i as any).bindingExtra ?? 0),
+    })),
+    total: Number(updatedOrder.payment?.amount ?? 0),
+    paymentMethod: "ONLINE",
+    shippingAddress,
+    createdAt: updatedOrder.createdAt.toISOString(),
+    customerEmail,
+  };
+  if (customerEmail) sendOrderInvoice(customerEmail, orderData).catch(() => {});
+  sendAdminOrderNotification(orderData).catch(() => {});
 
   return updatedOrder;
 };

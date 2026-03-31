@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { Search, Trash2 } from "lucide-react";
+import { Search, Shield, ShieldOff, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { deleteUser, getUser, getUsers } from "../../api/admin.api";
+import { deleteUser, getUser, getUsers, updateUserRole } from "../../api/admin.api";
 import type { ApiErrorResponse } from "../../types";
 
 const formatPrice = (value: number) =>
@@ -42,6 +42,20 @@ export default function AdminUsersPage() {
     onError: (mutationError) => {
       const apiError = mutationError as AxiosError<ApiErrorResponse>;
       setError(apiError.response?.data?.message ?? "Unable to delete this user.");
+    },
+  });
+
+  const roleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: "USER" | "ADMIN" }) =>
+      updateUserRole(id, role),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-user", selectedUserId] });
+      setError("");
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setError(apiError.response?.data?.message ?? "Unable to update role.");
     },
   });
 
@@ -159,6 +173,28 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => {
+                const newRole = selectedUser.role === "ADMIN" ? "USER" : "ADMIN";
+                const confirmed = window.confirm(
+                  `Make ${selectedUser.name} a ${newRole}?`,
+                );
+                if (!confirmed) return;
+                setError("");
+                roleMutation.mutate({ id: selectedUser.id, role: newRole });
+              }}
+              disabled={roleMutation.isPending}
+              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm text-text-primary hover:bg-[#f4efe7] disabled:opacity-60 transition-colors"
+            >
+              {selectedUser.role === "ADMIN" ? <ShieldOff size={15} /> : <Shield size={15} />}
+              {roleMutation.isPending
+                ? "Updating..."
+                : selectedUser.role === "ADMIN"
+                  ? "Revoke Admin"
+                  : "Make Admin"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
                 const shouldDelete = window.confirm(
                   `Delete ${selectedUser.name}'s account?`,
                 );
@@ -171,7 +207,7 @@ export default function AdminUsersPage() {
                 deleteMutation.mutate(selectedUser.id);
               }}
               disabled={deleteMutation.isPending}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#8f2d22] px-4 py-3 text-sm text-white disabled:opacity-60"
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#8f2d22] px-4 py-3 text-sm text-white disabled:opacity-60"
             >
               <Trash2 size={15} />
               {deleteMutation.isPending ? "Deleting..." : "Delete user"}

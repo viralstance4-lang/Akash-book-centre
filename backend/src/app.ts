@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type RequestHandler } from "express";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
+import env from "./config/env";
 
 import authRouter from "./auth/auth.routes";
 import logger from "./config/logger";
@@ -35,7 +36,15 @@ const cookieParser: RequestHandler = (req, res, next) => {
 };
 
 app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+app.use(globalRateLimiter);
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl) and the configured CORS origin
+    if (!origin || origin === env.CORS_ORIGIN) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+}));
 app.use(cookieParser);
 app.use(express.json());
 app.use(pinoHttp({ logger }));

@@ -21,7 +21,7 @@ export const getUsers = async (page: number, limit: number, search?: string) => 
       }
     : {};
 
-  const [users, total] = await prisma.$transaction([
+  const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: {
@@ -91,6 +91,23 @@ export const getUserById = async (id: string) => {
     orderCount: user._count.orders,
     totalSpend,
   };
+};
+
+export const updateUserRole = async (
+  id: string,
+  role: "USER" | "ADMIN",
+  requestingAdminId: string,
+) => {
+  if (id === requestingAdminId) {
+    throw new AppError("You cannot change your own role", 400, "CANNOT_CHANGE_SELF_ROLE");
+  }
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  return prisma.user.update({
+    where: { id },
+    data: { role },
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  });
 };
 
 export const deleteUser = async (id: string, requestingAdminId: string) => {

@@ -3,6 +3,7 @@ import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { getCart, removeCartItem, updateCartItem } from "../../api/cart.api";
+import { getSettings } from "../../api/settings.api";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
@@ -12,6 +13,8 @@ export default function CartPage() {
   const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
+  const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
+  const spiralPrice = Number(settingsData?.data?.spiralBindingPrice ?? 30);
 
   const updateQuantityMutation = useMutation({
     mutationFn: ({ bookId, quantity }: { bookId: string; quantity: number }) => updateCartItem(bookId, quantity),
@@ -26,6 +29,8 @@ export default function CartPage() {
   const cart = data?.data;
   const items = cart?.items ?? [];
   const subtotal = items.reduce((sum, item) => sum + Number(item.book.price) * item.quantity, 0);
+  const bindingTotal = items.reduce((sum, item) => sum + (item.bindingType === "SPIRAL" ? spiralPrice : 0), 0);
+  const total = subtotal + bindingTotal;
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   if (isLoading) {
@@ -85,11 +90,20 @@ export default function CartPage() {
                       {item.book.title}
                     </Link>
                     <p className="mt-0.5 text-xs text-text-muted sm:text-sm">{item.book.author}</p>
+                    {item.bindingType !== "NONE" && (
+                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        item.bindingType === "SPIRAL"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}>
+                        {item.bindingType === "SPIRAL" ? `Spiral Binding (+${formatPrice(spiralPrice)})` : "Staple Binding"}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-serif text-base text-[#8f2d22] sm:text-xl">
-                      {formatPrice(Number(item.book.price))}
+                      {formatPrice(Number(item.book.price) + (item.bindingType === "SPIRAL" ? spiralPrice : 0))}
                     </p>
 
                     <div className="flex items-center gap-2">
@@ -132,6 +146,11 @@ export default function CartPage() {
             <div className="flex items-center justify-between text-sm text-text-muted">
               <span>Subtotal</span><span>{formatPrice(subtotal)}</span>
             </div>
+            {bindingTotal > 0 && (
+              <div className="flex items-center justify-between text-sm text-amber-600">
+                <span>Binding Charges</span><span>+{formatPrice(bindingTotal)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm text-text-muted">
               <span>Shipping</span><span className="text-emerald-600">Free</span>
             </div>
@@ -139,7 +158,7 @@ export default function CartPage() {
 
           <div className="mt-4 flex items-center justify-between">
             <span className="font-serif text-xl text-text-primary">Total</span>
-            <span className="font-serif text-2xl text-[#8f2d22]">{formatPrice(subtotal)}</span>
+            <span className="font-serif text-2xl text-[#8f2d22]">{formatPrice(total)}</span>
           </div>
 
           <button type="button" onClick={() => navigate("/checkout")}

@@ -15,6 +15,8 @@ const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
   SHIPPED: "bg-violet-100 text-violet-800",
   DELIVERED: "bg-emerald-100 text-emerald-800",
   CANCELLED: "bg-rose-100 text-rose-800",
+  RETURN_REQUESTED: "bg-orange-100 text-orange-800",
+  RETURNED: "bg-gray-100 text-gray-700",
 };
 
 const formatPrice = (value: number) =>
@@ -28,6 +30,11 @@ export default function AdminOrdersPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<OrderStatus | "">("");
+  const statusLabel: Record<OrderStatus, string> = {
+    PENDING: "Pending", CONFIRMED: "Confirmed", SHIPPED: "Shipped",
+    DELIVERED: "Delivered", CANCELLED: "Cancelled",
+    RETURN_REQUESTED: "Return Requested", RETURNED: "Returned",
+  };
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -77,15 +84,12 @@ export default function AdminOrdersPage() {
             <option value="">All statuses</option>
             {(
               [
-                "PENDING",
-                "CONFIRMED",
-                "SHIPPED",
-                "DELIVERED",
-                "CANCELLED",
+                "PENDING", "CONFIRMED", "SHIPPED", "DELIVERED",
+                "CANCELLED", "RETURN_REQUESTED", "RETURNED",
               ] as OrderStatus[]
             ).map((value) => (
               <option key={value} value={value}>
-                {value}
+                {statusLabel[value]}
               </option>
             ))}
           </select>
@@ -123,9 +127,9 @@ export default function AdminOrdersPage() {
                   </div>
                   <div>
                     <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs uppercase tracking-[0.16em] ${ORDER_STATUS_STYLES[order.status]}`}
+                      className={`inline-flex rounded-full px-3 py-1 text-xs uppercase tracking-[0.16em] ${ORDER_STATUS_STYLES[order.status] ?? "bg-gray-100 text-gray-700"}`}
                     >
-                      {order.status}
+                      {statusLabel[order.status] ?? order.status}
                     </span>
                     <p className="mt-2 text-sm text-text-muted">
                       Items {order.itemCount ?? order.items.length}
@@ -135,12 +139,14 @@ export default function AdminOrdersPage() {
                     <p className="font-serif text-2xl text-[#8f2d22]">
                       {formatPrice(Number(order.totalAmount))}
                     </p>
-                    <p className="mt-1 text-sm text-text-muted">
-                      Payment{" "}
-                      {order.paymentStatus ??
-                        order.payment?.status ??
-                        "PENDING"}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 md:justify-end">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${order.paymentMethod === "COD" || order.payment?.method === "COD" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                        {order.paymentMethod ?? order.payment?.method ?? "ONLINE"}
+                      </span>
+                      <span className="text-xs text-text-muted">
+                        {order.paymentStatus ?? order.payment?.status ?? "PENDING"}
+                      </span>
+                    </div>
                   </div>
                 </button>
               ))}
@@ -184,8 +190,21 @@ export default function AdminOrdersPage() {
             </h2>
             <p className="mt-3 text-sm text-text-muted">
               {selectedOrder.user?.name ?? "Customer"} ·{" "}
-              {selectedOrder.user?.email ?? ""}
+              {selectedOrder.user?.email ?? selectedOrder.customerEmail ?? ""}
             </p>
+
+            {/* Payment method + status */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${selectedOrder.paymentMethod === "COD" || selectedOrder.payment?.method === "COD" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                {selectedOrder.paymentMethod ?? selectedOrder.payment?.method ?? "ONLINE"}
+              </span>
+              <span className={`inline-flex rounded-full px-3 py-1 text-xs uppercase tracking-[0.16em] ${ORDER_STATUS_STYLES[selectedOrder.status]}`}>
+                {selectedOrder.status}
+              </span>
+              <span className={`inline-flex rounded-full px-3 py-1 text-xs uppercase tracking-wide ${selectedOrder.payment?.status === "SUCCESS" ? "bg-emerald-100 text-emerald-700" : selectedOrder.payment?.status === "FAILED" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                Payment: {selectedOrder.payment?.status ?? "PENDING"}
+              </span>
+            </div>
 
             <div className="mt-5 rounded-[1.1rem] bg-white p-4">
               <p className="mb-2 text-[0.68rem] uppercase tracking-[0.2em] text-text-muted">
@@ -215,20 +234,38 @@ export default function AdminOrdersPage() {
             </div>
 
             <div className="mt-5 space-y-3">
-              {selectedOrder.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-[1.1rem] bg-white p-3 text-sm"
-                >
-                  <p className="font-medium text-text-primary">
-                    {item.book.title}
-                  </p>
-                  <p className="mt-1 text-text-muted">
-                    Qty {item.quantity} ·{" "}
-                    {formatPrice(Number(item.priceAtPurchase))}
-                  </p>
-                </div>
-              ))}
+              <p className="text-[0.68rem] uppercase tracking-[0.2em] text-text-muted">
+                Items ({selectedOrder.items.length})
+              </p>
+              {selectedOrder.items.map((item) => {
+                const bindingType = (item as any).bindingType ?? "NONE";
+                const bindingExtra = Number((item as any).bindingExtra ?? 0);
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-[1.1rem] bg-white p-3 text-sm"
+                  >
+                    <p className="font-medium text-text-primary">
+                      {item.book.title}
+                    </p>
+                    <p className="mt-1 text-text-muted">
+                      Qty {item.quantity} · {formatPrice(Number(item.priceAtPurchase))}
+                    </p>
+                    {bindingType !== "NONE" && (
+                      <p className="mt-1">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${bindingType === "SPIRAL" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                          {bindingType === "SPIRAL" ? "Spiral" : "Staple"} Binding{bindingExtra > 0 ? ` +₹${bindingExtra}` : ""}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between rounded-[1.1rem] bg-white px-4 py-3 text-sm">
+              <span className="text-text-muted">Order Total</span>
+              <span className="font-bold text-[#1d1a17]">{formatPrice(Number(selectedOrder.totalAmount))}</span>
             </div>
 
             <div className="mt-5 rounded-[1.1rem] bg-white p-4">

@@ -13,6 +13,8 @@ type MulterFileLike = {
 };
 
 export const uploadImage = async (file: MulterFileLike, folder = "books") => {
+  // Use resource_type "auto" so Cloudinary handles both images and PDFs correctly
+  const isPrintFolder = folder === "print-orders";
   const result = await new Promise<{
     secure_url: string;
     public_id: string;
@@ -20,6 +22,7 @@ export const uploadImage = async (file: MulterFileLike, folder = "books") => {
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: `bookstore/${folder}`,
+        resource_type: isPrintFolder ? "auto" : "image",
       },
       (error: any, uploadResult: any) => {
         if (error) {
@@ -51,7 +54,12 @@ export const deleteImage = async (publicId: string) => {
     return;
   }
 
-  await cloudinary.uploader.destroy(publicId);
+  // Try deleting as image first, then as raw (for PDFs)
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+  } catch {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "raw" }).catch(() => {});
+  }
 };
 
 export default cloudinary;

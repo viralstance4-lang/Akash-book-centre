@@ -47,6 +47,7 @@ export const addItemToCart: RequestHandler = async (req, res, next) => {
       getUserIdOrThrow(req.user?.id),
       req.body.bookId,
       parseQuantity(req.body.quantity),
+      req.body.bindingType ?? "NONE",
     );
 
     res.status(200).json({

@@ -1,47 +1,67 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Truck, Zap } from "lucide-react";
+import { ArrowLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
+import { createReview, getBookReviews } from "../../api/reviews.api";
+import { getSettings } from "../../api/settings.api";
 import { useAuthStore } from "../../store/auth.store";
 import BookCard from "../../components/ui/BookCard";
-// import { getBookReviews} from "../../api/reviews.api";
 import type { ApiErrorResponse } from "../../types";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(price);
 
-// function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
-//   return (
-//     <div className="flex items-center gap-0.5">
-//       {[1, 2, 3, 4, 5].map((star) => (
-//         <Star key={star} size={size} className={star <= rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
-//       ))}
-//     </div>
-//   );
-// }
+function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star key={star} size={size} className={star <= rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
+      ))}
+    </div>
+  );
+}
 
 export default function BookDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
   const [pincode, setPincode] = useState("");
   const [pincodeMsg, setPincodeMsg] = useState("");
-  // const [activeTab, setActiveTab] = useState<"details">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "reviews">("details");
   const [qty, setQty] = useState(1);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  // const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
-  // const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [bindingType, setBindingType] = useState<"NONE" | "SPIRAL" | "STAPLE">("NONE");
+  const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
+  const [reviewSuccess, setReviewSuccess] = useState(false);
 
   const { data: cartData } = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isAuthenticated });
   const { data, error, isLoading, isError } = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id!), enabled: Boolean(id) });
+  const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
+  const spiralBindingPrice = Number(settingsData?.data?.spiralBindingPrice ?? 30);
+
+  const { data: reviewsData, refetch: refetchReviews } = useQuery({
+    queryKey: ["book-reviews", id],
+    queryFn: () => getBookReviews(id!),
+    enabled: Boolean(id),
+  });
 
   const addToCartMutation = useMutation({
-    mutationFn: (bookId: string) => addToCart(bookId, qty),
+    mutationFn: (bookId: string) => addToCart(bookId, qty, bindingType),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
+  });
+
+  const submitReviewMutation = useMutation({
+    mutationFn: () => createReview(id!, reviewForm),
+    onSuccess: () => {
+      setReviewSuccess(true);
+      setReviewForm({ rating: 5, title: "", comment: "" });
+      void refetchReviews();
+    },
   });
 
   const { data: relatedBooksData } = useQuery({
@@ -56,22 +76,15 @@ export default function BookDetailPage() {
   const cartBookIds = new Set(cartData?.data?.items.map((item) => item.bookId) ?? []);
   const apiError = error as AxiosError<ApiErrorResponse> | null;
   const errorStatus = apiError?.response?.status;
-  // const { data: reviewsData, refetcnpm h: refetchReviews } = useQuery({
-  //   queryKey: ["book-reviews", id],
-  //   queryFn: () => getBookReviews(id!),
-  //   enabled: Boolean(id),
-  // });
-  // const submitReviewMutation = useMutation({
-  //   mutationFn: () => createReview(id!, reviewForm),
-  //   onSuccess: () => { setReviewSuccess(true); setReviewForm({ rating: 5, title: "", comment: "" }); void refetchReviews(); },
-  // });
   const relatedBooks = relatedBooksData?.data?.books?.filter((b) => b.id !== book?.id) ?? [];
-  // const bookReviews = reviewsData?.data?.reviews ?? [];
-  // const bookRating = reviewsData?.data?.rating ?? { average: 0, count: 0 };
+  const bookReviews = reviewsData?.data?.reviews ?? [];
+  const bookRating = reviewsData?.data?.rating ?? { average: 0, count: 0 };
 
   const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
   const originalPrice = comparePrice;
   const discount = book && comparePrice > Number(book.price) ? Math.round(((comparePrice - Number(book.price)) / comparePrice) * 100) : 0;
+  const bindingExtra = bindingType === "SPIRAL" ? spiralBindingPrice : 0;
+  const effectivePrice = Number(book?.price ?? 0) + bindingExtra;
 
   const handleAddToCart = () => {
     if (!book) return;
@@ -138,7 +151,6 @@ export default function BookDetailPage() {
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left — Image Gallery */}
         <div className="flex flex-col gap-3">
-          {/* Main Image */}
           <div className="group relative overflow-hidden rounded-2xl border border-black/8 bg-[#f8f4ee]">
             <img
               src={selectedImage ?? book.coverImageUrl}
@@ -157,7 +169,7 @@ export default function BookDetailPage() {
             )}
           </div>
 
-          {/* Thumbnail Strip — show if extra images exist */}
+          {/* Thumbnail Strip */}
           {(() => {
             const extraImages = (book as any).images ?? [];
             const allImages = extraImages.length > 0
@@ -169,12 +181,8 @@ export default function BookDetailPage() {
                 {allImages.map((img: any, idx: number) => {
                   const isActive = (selectedImage ?? book.coverImageUrl) === img.imageUrl;
                   return (
-                    <button
-                      key={img.id}
-                      type="button"
-                      onClick={() => setSelectedImage(img.imageUrl)}
-                      className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all ${isActive ? "border-[#1d1a17] opacity-100" : "border-transparent opacity-60 hover:opacity-100"}`}
-                    >
+                    <button key={img.id} type="button" onClick={() => setSelectedImage(img.imageUrl)}
+                      className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all ${isActive ? "border-[#1d1a17] opacity-100" : "border-transparent opacity-60 hover:opacity-100"}`}>
                       <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
                     </button>
                   );
@@ -218,27 +226,59 @@ export default function BookDetailPage() {
             By <span className="font-medium text-text-primary">{book.author}</span>
           </p>
 
-          {/* Rating Row - hidden */}
-          {/* {false && <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5">
-              <Star size={13} className="fill-amber-400 text-amber-400" />
-              <span className="text-sm font-bold text-amber-700">{bookRating.average > 0 ? bookRating.average : "—"}</span>
+          {/* Rating Row */}
+          {bookRating.count > 0 && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5">
+                <Star size={13} className="fill-amber-400 text-amber-400" />
+                <span className="text-sm font-bold text-amber-700">{bookRating.average}</span>
+              </div>
+              <span className="text-sm text-text-muted">{bookRating.count} ratings & reviews</span>
             </div>
-            <span className="text-sm text-text-muted">{bookRating.count} ratings & reviews</span>
-          </div>} */}
+          )}
 
           {/* Price */}
           <div className="flex items-baseline gap-3">
-            <span className="font-serif text-3xl font-bold text-text-primary">{formatPrice(book.price)}</span>
+            <span className="font-serif text-3xl font-bold text-text-primary">{formatPrice(effectivePrice)}</span>
             <span className="text-base text-text-muted line-through">{formatPrice(originalPrice)}</span>
             <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">{discount}% off</span>
           </div>
-
           <p className="text-xs text-emerald-600 font-medium">✓ Inclusive of all taxes</p>
+
+          {/* Binding Type Selector */}
+          <div className="rounded-2xl border border-black/8 bg-[#f8f4ee] p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted">Binding Type</p>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { value: "STAPLE" as const, label: "Staple Binding", sub: "Standard · No extra charge" },
+                { value: "SPIRAL" as const, label: "Spiral Binding", sub: `Premium · +${formatPrice(spiralBindingPrice)}` },
+              ]).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setBindingType(opt.value)}
+                  className={`flex flex-col gap-0.5 rounded-xl border-2 px-4 py-3 text-left transition-all ${
+                    bindingType === opt.value
+                      ? "border-[#1d1a17] bg-white shadow-sm"
+                      : "border-black/10 hover:border-black/25"
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-text-primary">{opt.label}</span>
+                  <span className={`text-xs ${opt.value === "SPIRAL" ? "text-amber-600 font-medium" : "text-text-muted"}`}>
+                    {opt.sub}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {bindingType === "SPIRAL" && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                ₹{spiralBindingPrice} spiral binding charge will be added to your order.
+              </p>
+            )}
+          </div>
 
           {/* Quantity + Add to Cart */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            {/* Qty selector */}
             <div className="flex items-center rounded-xl border border-black/10 bg-white">
               <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))}
                 className="flex h-11 w-11 items-center justify-center rounded-l-xl text-text-primary hover:bg-[#f4efe7] transition-colors text-lg font-bold">−</button>
@@ -247,7 +287,6 @@ export default function BookDetailPage() {
                 className="flex h-11 w-11 items-center justify-center rounded-r-xl text-text-primary hover:bg-[#f4efe7] transition-colors text-lg font-bold disabled:opacity-40">+</button>
             </div>
 
-            {/* Add to Bag */}
             <button type="button" onClick={handleAddToCart} disabled={addToCartMutation.isPending || isOutOfStock}
               className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all disabled:opacity-55 sm:flex-none sm:px-6 ${
                 isInCart ? "border border-emerald-500 bg-emerald-50 text-emerald-700" : "border border-[#1d1a17] bg-white text-[#1d1a17] hover:bg-[#f4efe7]"
@@ -256,7 +295,6 @@ export default function BookDetailPage() {
               {isInCart ? "Added to Bag" : addToCartMutation.isPending ? "Adding..." : "Add to Bag"}
             </button>
 
-            {/* Buy Now */}
             <button type="button" onClick={handleBuyNow} disabled={isOutOfStock}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1d1a17] py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-black disabled:opacity-55 sm:flex-none sm:px-6">
               <Zap size={16} /> Buy Now
@@ -298,19 +336,19 @@ export default function BookDetailPage() {
       </div>
 
       {/* Tabs */}
-      {/* <div className="border-b border-black/8">
+      <div className="border-b border-black/8">
         <div className="flex gap-6">
-          {(["details"] as const).map((tab) => (
+          {(["details", "reviews"] as const).map((tab) => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)}
               className={`pb-3 text-sm font-medium capitalize transition-all ${activeTab === tab ? "border-b-2 border-[#1d1a17] text-text-primary" : "text-text-muted hover:text-text-primary"}`}>
               {tab === "details" ? "Product Details" : `Reviews (${bookRating.count})`}
             </button>
           ))}
         </div>
-      </div> */}
+      </div>
 
       {/* Tab Content */}
-      {true ? (
+      {activeTab === "details" ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Product Info Table */}
           <div className="rounded-2xl border border-black/8 bg-white overflow-hidden">
@@ -339,45 +377,99 @@ export default function BookDetailPage() {
           <div className="rounded-2xl border border-black/8 bg-white p-5">
             <h3 className="font-serif text-lg text-text-primary mb-4">About this Book</h3>
             <p className="text-sm leading-7 text-text-muted">
-              {book.description || "A thoughtfully curated title from our collection. This book offers valuable insights and engaging content for readers of all levels. Whether you're a beginner or an expert, this book will enrich your reading experience with well-researched content and clear explanations."}
+              {book.description || "A thoughtfully curated title from our collection. This book offers valuable insights and engaging content for readers of all levels."}
             </p>
           </div>
         </div>
       ) : (
-        <div className="space-y-5 hidden">
+        <div className="space-y-5">
           {/* Rating Summary */}
-          {/* <div className="rounded-2xl border border-black/8 bg-white p-5">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-              <div className="flex flex-col items-center gap-2 sm:border-r sm:border-black/8 sm:pr-6">
-                <span className="font-serif text-5xl font-bold text-text-primary">{bookRating.average > 0 ? bookRating.average : "0"}</span>
-                <StarRating rating={5} size={18} />
-                <span className="text-sm text-text-muted">{bookRating.count} reviews</span>
-              </div>
-              <div className="flex-1 space-y-2">
-                {[
-                  { stars: 5, count: 53, pct: 84 },
-                  { stars: 4, count: 7, pct: 11 },
-                  { stars: 3, count: 3, pct: 5 },
-                  { stars: 2, count: 0, pct: 0 },
-                  { stars: 1, count: 0, pct: 0 },
-                ].map(({ stars, count, pct }) => (
-                  <div key={stars} className="flex items-center gap-3">
-                    <span className="w-4 text-xs text-text-muted">{stars}</span>
-                    <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
-                    <div className="flex-1 h-2 rounded-full bg-[#f4efe7]">
-                      <div className="h-2 rounded-full bg-amber-400 transition-all" style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className="w-5 text-xs text-text-muted">{count}</span>
-                  </div>
-                ))}
+          {bookRating.count > 0 && (
+            <div className="rounded-2xl border border-black/8 bg-white p-5">
+              <div className="flex items-center gap-5">
+                <div className="flex flex-col items-center gap-2 border-r border-black/8 pr-6">
+                  <span className="font-serif text-5xl font-bold text-text-primary">{bookRating.average}</span>
+                  <StarRating rating={Math.round(bookRating.average)} size={18} />
+                  <span className="text-sm text-text-muted">{bookRating.count} reviews</span>
+                </div>
               </div>
             </div>
-          </div> */}
+          )}
 
           {/* Reviews List */}
-          <div className="space-y-3">
-            
-          </div>
+          {bookReviews.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-black/10 bg-white px-6 py-10 text-center text-sm text-text-muted">
+              No approved reviews yet. Be the first to review this book!
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {bookReviews.map((review) => (
+                <div key={review.id} className="rounded-2xl border border-black/8 bg-white p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <StarRating rating={review.rating} size={13} />
+                    <span className="text-xs text-text-muted">{new Date(review.createdAt).toLocaleDateString("en-IN")}</span>
+                  </div>
+                  {review.title && <p className="text-sm font-semibold text-text-primary mb-1">{review.title}</p>}
+                  <p className="text-sm text-text-muted leading-6">{review.comment}</p>
+                  <p className="mt-2 text-xs font-medium text-text-primary">{review.user?.name ?? "Anonymous"}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Submit Review */}
+          {isAuthenticated ? (
+            <div className="rounded-2xl border border-black/8 bg-white p-5 space-y-4">
+              <h3 className="font-serif text-lg text-text-primary">Write a Review</h3>
+              {reviewSuccess ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  ✅ Review submitted! It will appear after admin approval.
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="mb-2 text-xs uppercase tracking-widest text-text-muted">Your Rating</p>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button key={star} type="button" onClick={() => setReviewForm((f) => ({ ...f, rating: star }))}>
+                          <Star size={22} className={star <= reviewForm.rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Review title (optional)"
+                    value={reviewForm.title}
+                    onChange={(e) => setReviewForm((f) => ({ ...f, title: e.target.value }))}
+                    className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white"
+                  />
+                  <textarea
+                    placeholder="Share your thoughts about this book..."
+                    value={reviewForm.comment}
+                    onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
+                    rows={4}
+                    className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white resize-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => submitReviewMutation.mutate()}
+                    disabled={submitReviewMutation.isPending || !reviewForm.comment.trim()}
+                    className="inline-flex items-center justify-center rounded-full bg-[#1d1a17] px-6 py-2.5 text-sm font-medium text-white hover:bg-black disabled:opacity-50 transition-all"
+                  >
+                    {submitReviewMutation.isPending ? "Submitting..." : "Submit Review"}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-text-muted">
+              <button type="button" onClick={() => navigate("/login")} className="font-medium text-accent hover:underline">
+                Login
+              </button>{" "}
+              to write a review.
+            </p>
+          )}
         </div>
       )}
 

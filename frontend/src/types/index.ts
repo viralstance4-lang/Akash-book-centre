@@ -5,9 +5,13 @@ export type OrderStatus =
   | "CONFIRMED"
   | "SHIPPED"
   | "DELIVERED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "RETURN_REQUESTED"
+  | "RETURNED";
 
 export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
+
+export type PaymentMethod = "ONLINE" | "COD";
 
 export type User = {
   id: string;
@@ -31,10 +35,14 @@ export type Book = {
   isbn: string;
   description?: string | null;
   price: number;
+  comparePrice?: number | null;
   coverImageUrl: string;
   coverPublicId: string;
   genreId: string;
   stock: number;
+  language?: string;
+  publication?: string | null;
+  isFeatured?: boolean;
   createdAt: string;
   updatedAt: string;
   genre?: Genre;
@@ -45,6 +53,7 @@ export type CartItem = {
   cartId: string;
   bookId: string;
   quantity: number;
+  bindingType: "NONE" | "SPIRAL" | "STAPLE";
   book: Pick<
     Book,
     "id" | "title" | "author" | "price" | "coverImageUrl" | "stock"
@@ -74,17 +83,20 @@ export type OrderItem = {
   bookId: string;
   quantity: number;
   priceAtPurchase: number;
+  bindingType: "NONE" | "SPIRAL" | "STAPLE";
+  bindingExtra: number;
   book: Pick<Book, "id" | "title" | "author" | "coverImageUrl" | "stock">;
 };
 
 export type Payment = {
   id: string;
   orderId: string;
-  razorpayOrderId: string;
+  razorpayOrderId: string | null;
   razorpayPaymentId?: string | null;
   razorpaySignature?: string | null;
   status: PaymentStatus;
   amount: number;
+  method: PaymentMethod;
   createdAt: string;
 };
 
@@ -93,7 +105,11 @@ export type Order = {
   userId: string;
   status: OrderStatus;
   totalAmount: number;
+  discountAmount?: number | null;
+  couponCode?: string | null;
   shippingAddress: ShippingAddress;
+  paymentMethod: PaymentMethod;
+  customerEmail?: string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

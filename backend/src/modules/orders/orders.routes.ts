@@ -9,6 +9,7 @@ import {
   getOrder,
   getOrders,
   placeOrder,
+  requestReturn,
   updateAdminOrderStatus,
 } from "./orders.controller";
 import { placeOrderSchema, updateOrderStatusSchema } from "./orders.schema";
@@ -22,6 +23,7 @@ ordersRouter.post("/", validate(placeOrderSchema), placeOrder);
 ordersRouter.get("/", getOrders);
 ordersRouter.get("/:id", getOrder);
 ordersRouter.post("/:id/cancel", cancelOrder);
+ordersRouter.post("/:id/return", requestReturn);
 
 adminOrdersRouter.use(authMiddleware, requireAdmin);
 adminOrdersRouter.get("/", getAdminOrdersList);

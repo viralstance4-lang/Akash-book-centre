@@ -10,8 +10,11 @@ export const placeOrderSchema = z.object({
     state: z.string().min(1, "State is required"),
     pincode: z.string().min(1, "Pincode is required"),
   }),
+  paymentMethod: z.enum(["ONLINE", "COD"]).optional().default("ONLINE"),
+  customerEmail: z.string().email().optional(),
+  couponCode: z.string().optional(),
 });
 
 export const updateOrderStatusSchema = z.object({
-  status: z.enum(["CONFIRMED", "SHIPPED", "DELIVERED"]),
+  status: z.enum(["CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"]),
 });

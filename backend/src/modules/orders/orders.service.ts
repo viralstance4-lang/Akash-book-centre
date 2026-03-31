@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import razorpay from "../../config/razorpay";
 import AppError from "../../lib/AppError";
 import prisma from "../../lib/prisma";
-import { sendOrderInvoice } from "../../lib/email";
+import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
 
 type ShippingAddress = { name: string; phone: string; line1: string; line2?: string; city: string; state: string; pincode: string };
 
@@ -23,8 +23,16 @@ export const placeOrder = async (userId: string, shippingAddress: ShippingAddres
     if (item.book.stock < item.quantity) throw new AppError("Insufficient stock", 400, "INSUFFICIENT_STOCK");
   }
 
+  const siteSettings = await prisma.siteSettings.findFirst();
+  const spiralBindingPrice = Number(siteSettings?.spiralBindingPrice ?? 30);
+
   const totalAmount = cart.items.reduce(
-    (total, item) => total.plus(new Prisma.Decimal(item.book.price).mul(item.quantity)),
+    (total, item) => {
+      const bindingExtra = item.bindingType === "SPIRAL" ? spiralBindingPrice : 0;
+      return total
+        .plus(new Prisma.Decimal(item.book.price).mul(item.quantity))
+        .plus(new Prisma.Decimal(bindingExtra));
+    },
     new Prisma.Decimal(0),
   );
 
@@ -43,14 +51,21 @@ export const placeOrder = async (userId: string, shippingAddress: ShippingAddres
     });
 
     await tx.orderItem.createMany({
-      data: cart.items.map((item) => ({ orderId: order.id, bookId: item.bookId, quantity: item.quantity, priceAtPurchase: item.book.price })),
+      data: cart.items.map((item) => ({
+        orderId: order.id,
+        bookId: item.bookId,
+        quantity: item.quantity,
+        priceAtPurchase: item.book.price,
+        bindingType: item.bindingType ?? "NONE",
+        bindingExtra: item.bindingType === "SPIRAL" ? spiralBindingPrice : 0,
+      })),
     });
 
     await tx.payment.create({
       data: {
         orderId: order.id,
         razorpayOrderId: razorpayOrder?.id ?? null,
-        status: paymentMethod === "COD" ? "PENDING" : "PENDING",
+        status: "PENDING",
         amount: totalAmount,
         method: paymentMethod,
       },
@@ -70,23 +85,31 @@ export const placeOrder = async (userId: string, shippingAddress: ShippingAddres
     return { ...createdOrder, razorpayOrderId: razorpayOrder?.id };
   });
 
-  // Send invoice email for COD orders immediately
-  if (paymentMethod === "COD" && customerEmail) {
-    sendOrderInvoice(customerEmail, {
+  if (paymentMethod === "COD") {
+    const orderData = {
       orderId: result.id,
-      items: result.items.map((i) => ({ title: i.book.title, quantity: i.quantity, price: Number(i.priceAtPurchase) })),
+      items: result.items.map((i) => ({
+        title: i.book.title,
+        quantity: i.quantity,
+        price: Number(i.priceAtPurchase),
+        bindingType: (i as any).bindingType ?? "NONE",
+        bindingExtra: Number((i as any).bindingExtra ?? 0),
+      })),
       total: Number(totalAmount),
       paymentMethod: "COD",
       shippingAddress,
       createdAt: result.createdAt.toISOString(),
-    }).catch(() => {});
+      customerEmail,
+    };
+    if (customerEmail) sendOrderInvoice(customerEmail, orderData).catch(() => {});
+    sendAdminOrderNotification(orderData).catch(() => {});
   }
 
   return result;
 };
 
 export const getUserOrders = async (userId: string, page: number, limit: number) => {
-  const [orders, total] = await prisma.$transaction([
+  const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where: { userId },
       include: { _count: { select: { items: true } }, payment: { select: { status: true, method: true } } },
@@ -132,7 +155,7 @@ export const getAdminOrders = async (page: number, limit: number, status?: strin
   if (status) where.status = status;
   if (userId) where.userId = userId;
   if (dateFrom || dateTo) { where.createdAt = {}; if (dateFrom) where.createdAt.gte = dateFrom; if (dateTo) where.createdAt.lte = dateTo; }
-  const [orders, total] = await prisma.$transaction([
+  const [orders, total] = await Promise.all([
     prisma.order.findMany({ where, include: { user: { select: { name: true, email: true } }, _count: { select: { items: true } }, payment: { select: { status: true, method: true } } }, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.order.count({ where }),
   ]);
@@ -140,9 +163,16 @@ export const getAdminOrders = async (page: number, limit: number, status?: strin
 };
 
 export const getAdminOrderById = async (orderId: string) => {
-  const order = await getOrderWithDetails(orderId);
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      user: { select: { id: true, name: true, email: true, role: true } },
+      items: { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true, stock: true } } } },
+      payment: true,
+    },
+  });
   if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
-  return prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { user: { select: { id: true, name: true, email: true, role: true } }, items: { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true, stock: true } } } }, payment: true } });
+  return order;
 };
 
 export const updateOrderStatus = async (orderId: string, status: string) => {

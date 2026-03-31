@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
-import { useState } from "react";
-import { getAdminPrintOrders, updatePrintOrderStatus, updatePrintSettings } from "../../api/print.api";
+import { useEffect, useState } from "react";
+import { getAdminPrintOrders, getPrintSettings, updatePrintOrderStatus, updatePrintSettings } from "../../api/print.api";
 
 const statusColors: Record<string, string> = {
   PENDING: "bg-amber-50 text-amber-700",
@@ -22,16 +22,21 @@ export default function AdminPrintOrdersPage() {
   });
 
   const { data: ordersData, isLoading } = useQuery({ queryKey: ["admin-print-orders"], queryFn: getAdminPrintOrders });
-  // const { data: settingsData } = useQuery({
-  //   queryKey: ["print-settings-admin"],
-  //   queryFn: getPrintSettings,
-  //   onSuccess: (data: any) => {
-  //     if (data?.data) {
-  //       const s = data.data;
-  //       setSettingsForm({ colorPrice: String(s.colorPrice), bwPrice: String(s.bwPrice), singleSideExtra: String(s.singleSideExtra), bothSideDiscount: String(s.bothSideDiscount), spiralExtra: String(s.spiralExtra), staplerExtra: String(s.staplerExtra) });
-  //     }
-  //   },
-  // } as any);
+  const { data: printSettingsData } = useQuery({ queryKey: ["print-settings"], queryFn: getPrintSettings });
+
+  useEffect(() => {
+    const s = printSettingsData?.data;
+    if (s) {
+      setSettingsForm({
+        colorPrice: String(s.colorPrice),
+        bwPrice: String(s.bwPrice),
+        singleSideExtra: String(s.singleSideExtra),
+        bothSideDiscount: String(s.bothSideDiscount),
+        spiralExtra: String(s.spiralExtra),
+        staplerExtra: String(s.staplerExtra),
+      });
+    }
+  }, [printSettingsData]);
 
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updatePrintOrderStatus(id, status),
@@ -107,6 +112,9 @@ export default function AdminPrintOrdersPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-text-primary text-sm">#{order.id.slice(0, 8)}</p>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[order.status] ?? "bg-gray-100 text-gray-600"}`}>{order.status}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${order.paymentMethod === "COD" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                      {order.paymentMethod ?? "ONLINE"}
+                    </span>
                   </div>
                   <p className="mt-1 text-xs text-text-muted">{order.user?.name} · {order.user?.email}</p>
                   <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-text-muted">

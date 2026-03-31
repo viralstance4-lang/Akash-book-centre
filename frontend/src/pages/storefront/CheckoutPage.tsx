@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { getCart } from "../../api/cart.api";
 import { placeOrder, verifyPayment } from "../../api/orders.api";
 import { validateCoupon, type CouponValidation } from "../../api/coupons.api";
+import { getSettings } from "../../api/settings.api";
 import { useAuthStore } from "../../store/auth.store";
 import type { ShippingAddress } from "../../types";
 
@@ -32,6 +33,8 @@ export default function CheckoutPage() {
   const [codOrderId, setCodOrderId] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
+  const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
+  const spiralPrice = Number(settingsData?.data?.spiralBindingPrice ?? 30);
 
   const verifyPaymentMutation = useMutation({
     mutationFn: ({ razorpayOrderId, razorpayPaymentId, razorpaySignature }: any) =>
@@ -79,8 +82,12 @@ export default function CheckoutPage() {
   const cart = data?.data;
   const items = cart?.items ?? [];
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.book.price) * item.quantity, 0), [items]);
+  const bindingTotal = useMemo(
+    () => items.reduce((sum, item) => sum + (item.bindingType === "SPIRAL" ? spiralPrice : 0), 0),
+    [items, spiralPrice],
+  );
   const discount = appliedCoupon?.discount ?? 0;
-  const finalAmount = subtotal - discount;
+  const finalAmount = subtotal + bindingTotal - discount;
 
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -234,7 +241,14 @@ export default function CheckoutPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-text-primary">{item.book.title}</p>
                   <p className="text-xs text-text-muted">Qty: {item.quantity}</p>
-                  <p className="text-sm font-medium text-[#8f2d22]">{fmt(Number(item.book.price) * item.quantity)}</p>
+                  {item.bindingType !== "NONE" && (
+                    <p className={`text-[10px] font-medium ${item.bindingType === "SPIRAL" ? "text-amber-600" : "text-gray-500"}`}>
+                      {item.bindingType === "SPIRAL" ? `Spiral Binding +${fmt(spiralPrice)}` : "Staple Binding"}
+                    </p>
+                  )}
+                  <p className="text-sm font-medium text-[#8f2d22]">
+                    {fmt((Number(item.book.price) + (item.bindingType === "SPIRAL" ? spiralPrice : 0)) * item.quantity)}
+                  </p>
                 </div>
               </div>
             ))}
@@ -272,6 +286,11 @@ export default function CheckoutPage() {
           {/* Price Breakdown */}
           <div className="mt-4 space-y-2 border-t border-black/8 pt-4">
             <div className="flex justify-between text-sm text-text-muted"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+            {bindingTotal > 0 && (
+              <div className="flex justify-between text-sm text-amber-600">
+                <span>Binding Charges</span><span>+{fmt(bindingTotal)}</span>
+              </div>
+            )}
             {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Discount</span><span>-{fmt(discount)}</span></div>}
             <div className="flex justify-between text-sm text-text-muted"><span>Shipping</span><span className="text-emerald-600">Free</span></div>
             <div className="flex justify-between text-sm">

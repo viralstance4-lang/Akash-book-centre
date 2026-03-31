@@ -50,8 +50,7 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-2xl sm:rounded-3xl"
-      style={{ aspectRatio: "16/5" }}
+      className="relative w-full overflow-hidden rounded-2xl sm:rounded-3xl aspect-[4/3] sm:aspect-[16/7] lg:aspect-[16/5]"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

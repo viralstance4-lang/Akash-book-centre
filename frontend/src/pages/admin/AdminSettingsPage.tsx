@@ -13,6 +13,7 @@ export default function AdminSettingsPage() {
   const [logoWidth, setLogoWidth] = useState(120);
   const [logoHeight, setLogoHeight] = useState(40);
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [spiralBindingPrice, setSpiralBindingPrice] = useState(30);
   const [success, setSuccess] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
@@ -22,8 +23,9 @@ export default function AdminSettingsPage() {
     if (settings) {
       setStoreName(settings.storeName ?? "BucketList Books");
       setTagline(settings.tagline ?? "");
-      setLogoWidth((settings as any).logoWidth ?? 120);
-      setLogoHeight((settings as any).logoHeight ?? 40);
+      setLogoWidth(settings.logoWidth ?? 120);
+      setLogoHeight(settings.logoHeight ?? 40);
+      setSpiralBindingPrice(Number(settings.spiralBindingPrice ?? 30));
     }
   }, [settings]);
 
@@ -58,6 +60,7 @@ export default function AdminSettingsPage() {
     fd.append("tagline", tagline);
     fd.append("logoWidth", String(logoWidth));
     fd.append("logoHeight", String(logoHeight));
+    fd.append("spiralBindingPrice", String(spiralBindingPrice));
     if (removeLogo) fd.append("removeLogo", "true");
     if (logoFile) fd.append("logo", logoFile);
     updateMutation.mutate(fd);
@@ -143,6 +146,28 @@ export default function AdminSettingsPage() {
           <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Tagline</label>
           <input type="text" value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="Your curated independent bookstore"
             className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:border-black/25 focus:bg-white" />
+        </div>
+      </div>
+
+      {/* Binding Pricing */}
+      <div className="rounded-2xl border border-black/8 bg-white p-5 space-y-4">
+        <h3 className="font-serif text-lg text-text-primary">Binding Pricing</h3>
+        <div>
+          <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">
+            Spiral Binding Extra Charge (₹)
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={spiralBindingPrice}
+            onChange={(e) => setSpiralBindingPrice(Number(e.target.value))}
+            className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:border-black/25 focus:bg-white"
+          />
+          <p className="mt-1.5 text-xs text-text-muted">
+            Added to product price when customer selects Spiral Binding on a product page.
+            Currently: <strong>₹{spiralBindingPrice}</strong>
+          </p>
         </div>
       </div>
 

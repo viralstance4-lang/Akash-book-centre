@@ -77,6 +77,15 @@ export const deleteUser = async (id: string) => {
   return response.data;
 };
 
+export const updateUserRole = async (id: string, role: "USER" | "ADMIN") => {
+  const response = await api.patch<ApiSuccessResponse<AdminUserDetail>>(
+    `/admin/users/${id}/role`,
+    { role },
+  );
+
+  return response.data;
+};
+
 export const getGenres = async () => {
   const response = await api.get<ApiSuccessResponse<Genre[]>>("/genres");
 

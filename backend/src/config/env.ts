@@ -18,6 +18,7 @@ const schema = z.object({
   RAZORPAY_KEY_SECRET: z.string().min(1),
   GMAIL_USER: z.string().optional(),
   GMAIL_PASS: z.string().optional(),
+  ADMIN_EMAIL: z.string().optional(),
   CORS_ORIGIN: z.string().optional().default("http://localhost:5173"),
 });
 

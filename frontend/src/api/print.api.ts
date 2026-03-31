@@ -22,6 +22,12 @@ export type PrintOrder = {
   pageCount: number;
   totalPrice: number;
   status: string;
+  paymentMethod: "COD" | "ONLINE";
+  customerEmail?: string;
+  bindingExtra?: number;
+  colorPrice?: number;
+  bwPrice?: number;
+  sideExtra?: number;
   createdAt: string;
   user?: { name: string; email: string };
 };

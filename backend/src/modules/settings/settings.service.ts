@@ -4,7 +4,14 @@ import { uploadImage, deleteImage } from "../../lib/cloudinary";
 export const getSettings = async () => prisma.siteSettings.findFirst();
 
 export const updateLogoSettings = async (
-  data: { storeName?: string; tagline?: string; logoWidth?: string; logoHeight?: string; removeLogo?: string },
+  data: {
+    storeName?: string;
+    tagline?: string;
+    logoWidth?: string;
+    logoHeight?: string;
+    removeLogo?: string;
+    spiralBindingPrice?: string;
+  },
   file?: any
 ) => {
   const existing = await prisma.siteSettings.findFirst();
@@ -14,6 +21,8 @@ export const updateLogoSettings = async (
   if (data.tagline !== undefined) updateData.tagline = data.tagline;
   if (data.logoWidth) updateData.logoWidth = Number(data.logoWidth);
   if (data.logoHeight) updateData.logoHeight = Number(data.logoHeight);
+  if (data.spiralBindingPrice !== undefined)
+    updateData.spiralBindingPrice = Number(data.spiralBindingPrice);
 
   if (data.removeLogo === "true") {
     if (existing?.logoPublicId) await deleteImage(existing.logoPublicId).catch(() => {});
@@ -37,7 +46,8 @@ export const updateLogoSettings = async (
       tagline: data.tagline ?? "",
       logoWidth: Number(data.logoWidth ?? 120),
       logoHeight: Number(data.logoHeight ?? 40),
+      spiralBindingPrice: Number(data.spiralBindingPrice ?? 30),
       ...updateData,
-    }
+    },
   });
 };

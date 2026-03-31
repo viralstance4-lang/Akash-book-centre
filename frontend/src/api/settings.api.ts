@@ -7,6 +7,9 @@ export type SiteSettings = {
   tagline: string;
   logoUrl?: string;
   logoPublicId?: string;
+  logoWidth?: number;
+  logoHeight?: number;
+  spiralBindingPrice: number;
 };
 
 export const getSettings = async () => {

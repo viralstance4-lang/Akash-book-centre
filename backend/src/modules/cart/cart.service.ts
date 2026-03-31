@@ -80,6 +80,7 @@ export const addToCart = async (
   userId: string,
   bookId: string,
   quantity: number,
+  bindingType: string = "NONE",
 ) => {
   ensureValidQuantity(quantity);
 
@@ -112,9 +113,11 @@ export const addToCart = async (
       cartId: cart.id,
       bookId,
       quantity,
+      bindingType,
     },
     update: {
       quantity: nextQuantity,
+      bindingType,
     },
   });
 

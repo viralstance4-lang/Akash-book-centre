@@ -1,7 +1,7 @@
 import prisma from "../../lib/prisma";
 import { uploadImage } from "../../lib/cloudinary";
 import AppError from "../../lib/AppError";
-import { sendPrintOrderInvoice } from "../../lib/email";
+import { sendAdminPrintOrderNotification, sendPrintOrderInvoice } from "../../lib/email";
 
 export const getPrintSettings = async () => prisma.printSettings.findFirst();
 
@@ -35,19 +35,26 @@ export const createPrintOrder = async (userId: string, data: any, file: any) => 
     },
   });
 
-  // Send invoice email for COD orders
+  // Build shared email payload
+  const emailData = {
+    orderId: order.id,
+    colorType: data.colorType,
+    printSide: data.printSide,
+    orientation: data.orientation,
+    bindingType: data.bindingType,
+    pageCount: Number(data.pageCount),
+    total: Number(data.totalPrice),
+    paymentMethod: data.paymentMethod ?? "ONLINE",
+    customerEmail: data.customerEmail ?? undefined,
+  };
+
+  // Send customer invoice for COD orders (online payment confirmed separately)
   if (data.customerEmail && data.paymentMethod === "COD") {
-    sendPrintOrderInvoice(data.customerEmail, {
-      orderId: order.id,
-      colorType: data.colorType,
-      printSide: data.printSide,
-      orientation: data.orientation,
-      bindingType: data.bindingType,
-      pageCount: Number(data.pageCount),
-      total: Number(data.totalPrice),
-      paymentMethod: data.paymentMethod,
-    }).catch(() => {});
+    sendPrintOrderInvoice(data.customerEmail, emailData).catch(() => {});
   }
+
+  // Always notify admin
+  sendAdminPrintOrderNotification(emailData).catch(() => {});
 
   return order;
 };

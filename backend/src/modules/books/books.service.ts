@@ -49,7 +49,7 @@ export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
     if (minPrice !== undefined) (where.price as any).gte = minPrice;
     if (maxPrice !== undefined) (where.price as any).lte = maxPrice;
   }
-  const [books, total] = await prisma.$transaction([
+  const [books, total] = await Promise.all([
     prisma.book.findMany({ where, include: { genre: true }, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.book.count({ where }),
   ]);
@@ -113,7 +113,7 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
 
 export const deleteBook = async (id: string) => {
   const existingBook = await getBookOrThrow(id);
-  const [cartItemCount, orderItemCount] = await prisma.$transaction([
+  const [cartItemCount, orderItemCount] = await Promise.all([
     prisma.cartItem.count({ where: { bookId: id } }),
     prisma.orderItem.count({ where: { bookId: id } }),
   ]);
