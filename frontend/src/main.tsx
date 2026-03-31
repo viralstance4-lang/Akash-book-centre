@@ -15,4 +15,4 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
- 
+ console.log(`TypeScript version:`);
