@@ -28,7 +28,7 @@ export const createBanner = async (req: Request, res: Response, next: NextFuncti
 
 export const updateBanner = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params["id"]);
     const data = updateBannerSchema.parse(req.body);
     const banner = await bannersService.updateBanner(id, data);
     res.json({ success: true, message: "Banner updated", data: banner });
@@ -37,7 +37,7 @@ export const updateBanner = async (req: Request, res: Response, next: NextFuncti
 
 export const deleteBanner = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params["id"]);
     await bannersService.deleteBanner(id);
     res.json({ success: true, message: "Banner deleted", data: null });
   } catch (err) { next(err); }

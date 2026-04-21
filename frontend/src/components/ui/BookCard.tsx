@@ -57,10 +57,10 @@ export default function BookCard({
           </div>
         )}
 
-        {/* Genre badge */}
-        {book.genre && (
+        {/* Category badge */}
+        {book.category && (
           <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-text-muted backdrop-blur-sm">
-            {book.genre.name}
+            {book.category.name}
           </span>
         )}
 

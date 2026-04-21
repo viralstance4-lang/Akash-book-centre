@@ -11,6 +11,8 @@ const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
   SHIPPED: "bg-violet-100 text-violet-800",
   DELIVERED: "bg-emerald-100 text-emerald-800",
   CANCELLED: "bg-rose-100 text-rose-800",
+  RETURN_REQUESTED: "bg-orange-100 text-orange-800",
+  RETURNED: "bg-gray-100 text-gray-700",
 };
 
 const formatPrice = (value: number) =>

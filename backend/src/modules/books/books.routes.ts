@@ -18,7 +18,7 @@ booksRouter.get("/:id", getBook);
 const adminMw = [authMiddleware, requireAdmin] as const;
 
 // Main book CRUD
-booksRouter.post("/", ...adminMw, upload.single("coverImage"), validate(createBookSchema), createBook);
+booksRouter.post("/", ...adminMw, upload.array("images", 10), validate(createBookSchema), createBook);
 booksRouter.patch("/:id", ...adminMw, upload.single("coverImage"), validate(updateBookSchema), updateBook);
 booksRouter.patch("/:id/stock", ...adminMw, validate(updateStockSchema), updateBookStock);
 booksRouter.delete("/:id", ...adminMw, deleteBook);
@@ -29,7 +29,7 @@ booksRouter.delete("/:id/images/:imageId", ...adminMw, deleteBookImage);
 booksRouter.patch("/:id/images/reorder", ...adminMw, reorderBookImages);
 
 adminBooksRouter.use(...adminMw);
-adminBooksRouter.post("/", upload.single("coverImage"), validate(createBookSchema), createBook);
+adminBooksRouter.post("/", upload.array("images", 10), validate(createBookSchema), createBook);
 adminBooksRouter.put("/:id", upload.single("coverImage"), validate(updateBookSchema), updateBook);
 adminBooksRouter.patch("/:id", upload.single("coverImage"), validate(updateBookSchema), updateBook);
 adminBooksRouter.patch("/:id/stock", validate(updateStockSchema), updateBookStock);

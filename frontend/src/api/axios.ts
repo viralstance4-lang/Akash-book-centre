@@ -41,6 +41,10 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
 
+  // Disable caching for all requests
+  config.headers["Cache-Control"] = "no-cache";
+  config.headers["Pragma"] = "no-cache";
+
   return config;
 });
 
@@ -70,8 +74,10 @@ api.interceptors.response.use(
 
       return api(originalRequest);
     } catch (refreshError) {
+      // Clear auth state — React Router / ProtectedRoute will handle the redirect
+      // naturally via isAuthenticated becoming false. Do NOT use window.location.href
+      // here: calling it before React re-renders causes a blank screen flash.
       useAuthStore.getState().logout();
-      window.location.href = "/login";
       return Promise.reject(refreshError);
     }
   },

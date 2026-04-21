@@ -18,8 +18,15 @@ export const getSettings = async () => {
 };
 
 export const updateSettings = async (formData: FormData) => {
-  const response = await api.patch<ApiSuccessResponse<SiteSettings>>("/settings", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-  return response.data;
+  console.log("[DEBUG] updateSettings API call with FormData");
+  try {
+    const response = await api.patch<ApiSuccessResponse<SiteSettings>>("/settings", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    console.log("[DEBUG] updateSettings API response:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("[DEBUG] updateSettings API error:", error);
+    throw error;
+  }
 };

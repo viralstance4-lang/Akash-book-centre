@@ -4,6 +4,7 @@ import authMiddleware, { requireAdmin } from "../../middleware/auth.middleware";
 import validate from "../../middleware/validate";
 import {
   cancelOrder,
+  deleteAdminOrder,
   getAdminOrder,
   getAdminOrdersList,
   getOrder,
@@ -33,5 +34,6 @@ adminOrdersRouter.patch(
   validate(updateOrderStatusSchema),
   updateAdminOrderStatus,
 );
+adminOrdersRouter.delete("/:id", deleteAdminOrder);
 
 export default ordersRouter;

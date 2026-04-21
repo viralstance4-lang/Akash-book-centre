@@ -2,7 +2,6 @@ import api from "./axios";
 import type {
   AdminUserDetail,
   ApiSuccessResponse,
-  Genre,
   Order,
   OrderStatus,
   PaginatedOrders,
@@ -42,6 +41,11 @@ export const updateOrderStatus = async (id: string, status: OrderStatus) => {
     { status },
   );
 
+  return response.data;
+};
+
+export const deleteAdminOrder = async (id: string) => {
+  const response = await api.delete(`/admin/orders/${id}`);
   return response.data;
 };
 
@@ -86,22 +90,3 @@ export const updateUserRole = async (id: string, role: "USER" | "ADMIN") => {
   return response.data;
 };
 
-export const getGenres = async () => {
-  const response = await api.get<ApiSuccessResponse<Genre[]>>("/genres");
-
-  return response.data;
-};
-
-export const createGenre = async (name: string) => {
-  const response = await api.post<ApiSuccessResponse<Genre>>("/admin/genres", {
-    name,
-  });
-
-  return response.data;
-};
-
-export const deleteGenre = async (id: string) => {
-  const response = await api.delete(`/admin/genres/${id}`);
-
-  return response.data;
-};

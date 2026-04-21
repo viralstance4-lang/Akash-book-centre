@@ -1,13 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle, CreditCard, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, CheckCircle, CreditCard, Locate, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCart } from "../../api/cart.api";
 import { placeOrder, verifyPayment } from "../../api/orders.api";
 import { validateCoupon, type CouponValidation } from "../../api/coupons.api";
 import { getSettings } from "../../api/settings.api";
+import { getShippingSettings } from "../../api/shipping.api";
 import { useAuthStore } from "../../store/auth.store";
 import type { ShippingAddress } from "../../types";
+import {
+  SHOP,
+  getDeliveryFromPincode,
+  getDeliveryFromGeolocation,
+  type DeliveryResult,
+} from "../../utils/deliveryUtils";
 
 type ShippingField = keyof ShippingAddress;
 type CheckoutOrder = { id: string; razorpayOrderId?: string };
@@ -16,13 +23,20 @@ declare global { interface Window { Razorpay?: new (options: any) => { open: () 
 const fmt = (v: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
 const initialForm: ShippingAddress = { name: "", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" };
 
+const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID as string | undefined;
+const isRazorpayConfigured = Boolean(
+  razorpayKeyId &&
+  razorpayKeyId !== "your_razorpay_key_id" &&
+  razorpayKeyId.startsWith("rzp_"),
+);
+
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const [form, setForm] = useState<ShippingAddress>(initialForm);
   const [email, setEmail] = useState(user?.email ?? "");
-  const [paymentMethod, setPaymentMethod] = useState<"ONLINE" | "COD">("ONLINE");
+  const [paymentMethod, setPaymentMethod] = useState<"ONLINE" | "COD">(isRazorpayConfigured ? "ONLINE" : "COD");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState("");
   const [couponCode, setCouponCode] = useState("");
@@ -31,10 +45,49 @@ export default function CheckoutPage() {
   const [couponLoading, setCouponLoading] = useState(false);
   const [codSuccess, setCodSuccess] = useState(false);
   const [codOrderId, setCodOrderId] = useState("");
+  const [delivery, setDelivery] = useState<DeliveryResult | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError, setGeoError] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
   const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
+  const { data: shippingData } = useQuery({ queryKey: ["shipping-settings"], queryFn: getShippingSettings });
   const spiralPrice = Number(settingsData?.data?.spiralBindingPrice ?? 30);
+  const shippingSettings = shippingData;
+
+  const cart = data?.data;
+  const items = cart?.items ?? [];
+
+  const hasPrintItems = useMemo(() => items.some((item) => item.bindingType !== "NONE"), [items]);
+
+  // Auto-switch to ONLINE if print items exist and COD is selected
+  useEffect(() => {
+    if (hasPrintItems && paymentMethod === "COD") {
+      setPaymentMethod(isRazorpayConfigured ? "ONLINE" : "COD");
+    }
+  }, [hasPrintItems, paymentMethod]);
+
+  // Auto-calculate delivery when pincode reaches 6 digits
+  useEffect(() => {
+    const pin = form.pincode.trim();
+    if (pin.length === 6 && /^\d{6}$/.test(pin)) {
+      setDelivery(getDeliveryFromPincode(pin));
+      setGeoError("");
+    }
+  }, [form.pincode]);
+
+  const handleUseMyLocation = async () => {
+    setGeoLoading(true);
+    setGeoError("");
+    try {
+      const result = await getDeliveryFromGeolocation();
+      setDelivery(result);
+    } catch {
+      setGeoError("Unable to access your location. Please enter your pincode.");
+    } finally {
+      setGeoLoading(false);
+    }
+  };
 
   const verifyPaymentMutation = useMutation({
     mutationFn: ({ razorpayOrderId, razorpayPaymentId, razorpaySignature }: any) =>
@@ -49,7 +102,13 @@ export default function CheckoutPage() {
 
   const placeOrderMutation = useMutation({
     mutationFn: ({ address, method, customerEmail }: { address: ShippingAddress; method: "ONLINE" | "COD"; customerEmail: string }) =>
-      placeOrder(address, method, customerEmail),
+      placeOrder(
+        address,
+        method,
+        customerEmail,
+        delivery?.type === "UNKNOWN" ? undefined : (delivery?.type ?? undefined),
+        delivery?.distanceKm ?? undefined,
+      ),
     onSuccess: async (response, variables) => {
       const order = response.data as CheckoutOrder;
       if (variables.method === "COD") {
@@ -59,13 +118,12 @@ export default function CheckoutPage() {
         setCodSuccess(true);
         return;
       }
-      const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
-      if (!window.Razorpay || !razorpayKeyId || !order.razorpayOrderId) {
+      if (!window.Razorpay || !isRazorpayConfigured || !order.razorpayOrderId) {
         setSubmitError("Payment gateway not configured. Please use Cash on Delivery.");
         return;
       }
       const rzp = new window.Razorpay({
-        key: razorpayKeyId, name: "BucketList Books", description: "Complete your order",
+        key: razorpayKeyId, name: "Akash Book Centre", description: "Complete your order",
         order_id: order.razorpayOrderId,
         handler: async (r: any) => await verifyPaymentMutation.mutateAsync({
           razorpayOrderId: r.razorpay_order_id, razorpayPaymentId: r.razorpay_payment_id, razorpaySignature: r.razorpay_signature,
@@ -79,15 +137,40 @@ export default function CheckoutPage() {
     onError: (error: any) => setSubmitError(error.response?.data?.message ?? "Couldn't place your order."),
   });
 
-  const cart = data?.data;
-  const items = cart?.items ?? [];
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.book.price) * item.quantity, 0), [items]);
   const bindingTotal = useMemo(
     () => items.reduce((sum, item) => sum + (item.bindingType === "SPIRAL" ? spiralPrice : 0), 0),
     [items, spiralPrice],
   );
+  const totalAmount = subtotal + bindingTotal;
   const discount = appliedCoupon?.discount ?? 0;
-  const finalAmount = subtotal + bindingTotal - discount;
+
+  // Calculate delivery charge
+  const deliveryCharge = useMemo(() => {
+    if (!delivery?.distanceKm || !shippingSettings) return 0;
+    const distance = delivery.distanceKm;
+    const freeRadius = shippingSettings.freeRadius;
+    if (distance <= freeRadius) return 0;
+    const extraDistance = distance - freeRadius;
+    let charge = Number(shippingSettings.baseCharge) + extraDistance * Number(shippingSettings.perKmCharge);
+    if (shippingSettings.maxCharge && charge > Number(shippingSettings.maxCharge)) {
+      charge = Number(shippingSettings.maxCharge);
+    }
+    return charge;
+  }, [delivery?.distanceKm, shippingSettings]);
+
+  // Calculate prepaid discount
+  const prepaidDiscount = useMemo(() => {
+    if (paymentMethod !== "ONLINE" || !shippingSettings) return 0;
+    const amount = totalAmount;
+    if (shippingSettings.prepaidDiscountType === "PERCENT") {
+      return amount * (Number(shippingSettings.prepaidDiscountValue) / 100);
+    } else {
+      return Number(shippingSettings.prepaidDiscountValue);
+    }
+  }, [paymentMethod, totalAmount, shippingSettings]);
+
+  const finalAmount = totalAmount + deliveryCharge - discount - prepaidDiscount;
 
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -131,7 +214,7 @@ export default function CheckoutPage() {
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-8 py-12 text-center max-w-md w-full">
           <CheckCircle size={52} className="mx-auto text-emerald-500" />
-          <h2 className="mt-5 font-serif text-2xl text-text-primary">Order Placed! 🎉</h2>
+          <h2 className="mt-5 font-serif text-2xl text-text-primary">Order Placed!</h2>
           <p className="mt-2 text-sm text-text-muted">Your COD order has been placed successfully.</p>
           {email && <p className="mt-1 text-xs text-text-muted">Invoice sent to: <strong>{email}</strong></p>}
           <button onClick={() => navigate(`/orders/${codOrderId}`)}
@@ -159,22 +242,52 @@ export default function CheckoutPage() {
         <ArrowLeft size={15} /> Back to cart
       </Link>
 
+      {/* Delivery Banner */}
+      <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+          <Truck size={17} className="text-emerald-600" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-emerald-800">{SHOP.name}</p>
+          <p className="text-xs text-emerald-600">Free delivery within {shippingSettings?.freeRadius ?? 5} km · Enter your pincode below to check</p>
+        </div>
+      </div>
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,0.9fr)]">
         <div className="space-y-4">
           {/* Payment Method */}
           <section className="rounded-2xl border border-black/8 bg-white p-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-text-muted">Payment Method</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button type="button" onClick={() => setPaymentMethod("ONLINE")}
-                className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${paymentMethod === "ONLINE" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
-                <CreditCard size={20} className={paymentMethod === "ONLINE" ? "text-[#1d1a17]" : "text-text-muted"} />
-                <div>
-                  <p className="text-sm font-semibold text-text-primary">Online Payment</p>
-                  <p className="text-xs text-text-muted">UPI, Card, NetBanking</p>
-                </div>
-              </button>
-              <button type="button" onClick={() => setPaymentMethod("COD")}
-                className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${paymentMethod === "COD" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
+
+            {hasPrintItems && (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+                COD is not available for orders with binding. Online payment required.
+              </div>
+            )}
+
+            <div className={`grid gap-3 ${isRazorpayConfigured ? "grid-cols-2" : "grid-cols-1"}`}>
+              {isRazorpayConfigured && (
+                <button type="button" onClick={() => setPaymentMethod("ONLINE")}
+                  className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${paymentMethod === "ONLINE" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
+                  <CreditCard size={20} className={paymentMethod === "ONLINE" ? "text-[#1d1a17]" : "text-text-muted"} />
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary">Online Payment</p>
+                    <p className="text-xs text-text-muted">UPI, Card, NetBanking</p>
+                    {prepaidDiscount > 0 && (
+                      <p className="text-xs text-emerald-600 font-medium">Save ₹{fmt(prepaidDiscount)}</p>
+                    )}
+                  </div>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => !hasPrintItems && setPaymentMethod("COD")}
+                disabled={hasPrintItems}
+                title={hasPrintItems ? "COD not available for print/binding orders" : undefined}
+                className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${
+                  paymentMethod === "COD" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"
+                } ${hasPrintItems ? "cursor-not-allowed opacity-40" : ""}`}
+              >
                 <Truck size={20} className={paymentMethod === "COD" ? "text-[#1d1a17]" : "text-text-muted"} />
                 <div>
                   <p className="text-sm font-semibold text-text-primary">Cash on Delivery</p>
@@ -182,6 +295,9 @@ export default function CheckoutPage() {
                 </div>
               </button>
             </div>
+            {!isRazorpayConfigured && !hasPrintItems && (
+              <p className="mt-2 text-xs text-text-muted">Online payment is currently unavailable. Cash on Delivery is available.</p>
+            )}
           </section>
 
           {/* Shipping Form */}
@@ -205,7 +321,7 @@ export default function CheckoutPage() {
               {([
                 ["name", "Full Name", false], ["phone", "Phone Number", false],
                 ["line1", "Address Line 1", true], ["line2", "Address Line 2 (optional)", true],
-                ["city", "City", false], ["state", "State", false], ["pincode", "Pincode", false],
+                ["city", "City", false], ["state", "State", false],
               ] as Array<[ShippingField, string, boolean]>).map(([field, label, full]) => (
                 <label key={field} className={`${full ? "sm:col-span-2" : ""} block`}>
                   <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">{label}</span>
@@ -214,6 +330,57 @@ export default function CheckoutPage() {
                   {fieldErrors[field] && <p className="mt-1 text-xs text-red-500">{fieldErrors[field]}</p>}
                 </label>
               ))}
+
+              {/* Pincode + geolocation */}
+              <div className="sm:col-span-2 block">
+                <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Pincode</span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={form.pincode}
+                    onChange={(e) => handleChange("pincode", e.target.value)}
+                    maxLength={6}
+                    placeholder="6-digit pincode"
+                    className={`h-11 flex-1 rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.pincode ? "border-red-300" : "border-black/10 focus:border-black/20"}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocation}
+                    disabled={geoLoading}
+                    title="Use my current location"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-[#f8f4ee] text-text-muted transition-all hover:border-black/20 hover:text-text-primary disabled:opacity-50"
+                  >
+                    <Locate size={16} className={geoLoading ? "animate-spin" : ""} />
+                  </button>
+                </div>
+                {fieldErrors.pincode && <p className="mt-1 text-xs text-red-500">{fieldErrors.pincode}</p>}
+                {geoError && <p className="mt-1 text-xs text-amber-600">{geoError}</p>}
+
+                {/* Delivery status card */}
+                {delivery && (
+                  <div className={`mt-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
+                    delivery.type === "FREE"
+                      ? "border-emerald-200 bg-emerald-50"
+                      : delivery.type === "PAID"
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-black/10 bg-[#f8f4ee]"
+                  }`}>
+                    <Truck size={15} className={
+                      delivery.type === "FREE" ? "text-emerald-600 shrink-0" :
+                      delivery.type === "PAID" ? "text-amber-600 shrink-0" :
+                      "text-text-muted shrink-0"
+                    } />
+                    <div>
+                      <p className={`text-xs font-semibold ${
+                        delivery.type === "FREE" ? "text-emerald-700" :
+                        delivery.type === "PAID" ? "text-amber-700" :
+                        "text-text-muted"
+                      }`}>{delivery.label}</p>
+                      <p className="text-[11px] text-text-muted">{delivery.sublabel}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {submitError && <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{submitError}</div>}
 
@@ -291,8 +458,13 @@ export default function CheckoutPage() {
                 <span>Binding Charges</span><span>+{fmt(bindingTotal)}</span>
               </div>
             )}
-            {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Discount</span><span>-{fmt(discount)}</span></div>}
-            <div className="flex justify-between text-sm text-text-muted"><span>Shipping</span><span className="text-emerald-600">Free</span></div>
+            {deliveryCharge > 0 && (
+              <div className="flex justify-between text-sm text-amber-600">
+                <span>Delivery Charges</span><span>+{fmt(deliveryCharge)}</span>
+              </div>
+            )}
+            {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Coupon Discount</span><span>-{fmt(discount)}</span></div>}
+            {prepaidDiscount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Prepaid Discount</span><span>-{fmt(prepaidDiscount)}</span></div>}
             <div className="flex justify-between text-sm">
               <span className="text-text-muted">Payment</span>
               <span className={`font-medium ${paymentMethod === "COD" ? "text-amber-600" : "text-blue-600"}`}>

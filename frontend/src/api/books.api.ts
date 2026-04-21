@@ -1,14 +1,11 @@
 import api from "./axios";
-import type {
-  ApiSuccessResponse,
-  Book,
-  Genre,
-  PaginatedBooks,
-} from "../types";
+import type { ApiSuccessResponse, Book, PaginatedBooks } from "../types";
 
 type GetBooksParams = {
   q?: string;
-  genre?: string;
+  category?: string;
+  categoryId?: string;
+  subcategory?: string;
   author?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -22,12 +19,6 @@ export const getBooks = async (params?: GetBooksParams) => {
   const response = await api.get<ApiSuccessResponse<PaginatedBooks>>("/books", {
     params,
   });
-
-  return response.data;
-};
-
-export const getGenres = async () => {
-  const response = await api.get<ApiSuccessResponse<Genre[]>>("/genres");
 
   return response.data;
 };

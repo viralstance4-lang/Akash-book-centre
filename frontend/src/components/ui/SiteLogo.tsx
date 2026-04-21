@@ -27,7 +27,7 @@ export default function SiteLogo({ size = "md", className = "", onClick }: Props
       ) : (
         <>
           <BookOpen size={iconSize} className="text-accent" />
-          <span>{settings?.storeName ?? "BucketList"} <span className="text-accent">Books</span></span>
+          <span>{settings?.storeName ?? "Akash"} <span className="text-accent">Book Centre</span></span>
         </>
       )}
     </Link>

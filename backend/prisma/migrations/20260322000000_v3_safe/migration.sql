@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS "BookImage" (
   CONSTRAINT "BookImage_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX IF NOT EXISTS "BookImage_bookId_idx" ON "BookImage"("bookId");
-ALTER TABLE "BookImage" ADD CONSTRAINT IF NOT EXISTS "BookImage_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "Book"("id") ON DELETE CASCADE;
+ALTER TABLE "BookImage" ADD CONSTRAINT "BookImage_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "Book"("id") ON DELETE CASCADE;
 
 -- Create Review table
 CREATE TABLE IF NOT EXISTS "Review" (
@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS "Review" (
 );
 CREATE INDEX IF NOT EXISTS "Review_bookId_idx" ON "Review"("bookId");
 CREATE INDEX IF NOT EXISTS "Review_userId_idx" ON "Review"("userId");
-ALTER TABLE "Review" ADD CONSTRAINT IF NOT EXISTS "Review_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "Book"("id") ON DELETE CASCADE;
-ALTER TABLE "Review" ADD CONSTRAINT IF NOT EXISTS "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE;
+ALTER TABLE "Review" ADD CONSTRAINT "Review_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "Book"("id") ON DELETE CASCADE;
+ALTER TABLE "Review" ADD CONSTRAINT "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE;
 
 -- Create Page table
 CREATE TABLE IF NOT EXISTS "Page" (

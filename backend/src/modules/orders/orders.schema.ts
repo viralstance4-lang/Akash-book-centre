@@ -13,6 +13,8 @@ export const placeOrderSchema = z.object({
   paymentMethod: z.enum(["ONLINE", "COD"]).optional().default("ONLINE"),
   customerEmail: z.string().email().optional(),
   couponCode: z.string().optional(),
+  deliveryType: z.enum(["FREE", "PAID"]).optional(),
+  deliveryDistance: z.number().nonnegative().optional(),
 });
 
 export const updateOrderStatusSchema = z.object({

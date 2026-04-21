@@ -140,16 +140,10 @@ export const deleteUser = async (id: string, requestingAdminId: string) => {
     );
   }
 
-  await prisma.$transaction([
-    prisma.refreshToken.deleteMany({
-      where: {
-        userId: id,
-      },
-    }),
-    prisma.user.delete({
-      where: {
-        id,
-      },
-    }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.refreshToken.deleteMany({ where: { userId: id } });
+    await tx.otpCode.deleteMany({ where: { userId: id } });
+    await tx.printOrder.deleteMany({ where: { userId: id } });
+    await tx.user.delete({ where: { id } });
+  });
 };

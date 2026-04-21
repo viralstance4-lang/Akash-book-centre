@@ -139,7 +139,7 @@ export default function AdminUsersPage() {
         </div>
       </section>
 
-      <aside className="h-fit rounded-[1.75rem] border border-black/8 bg-[#fbf8f2] p-6">
+      <aside className="h-fit rounded-[1.75rem] border border-black/8 bg-[#fbf8f2] p-6 xl:sticky xl:top-0 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
         {selectedUser ? (
           <>
             <p className="text-[0.68rem] uppercase tracking-[0.22em] text-text-muted">

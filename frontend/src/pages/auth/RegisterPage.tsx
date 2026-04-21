@@ -2,24 +2,23 @@ import { useState } from "react";
 import SiteLogo from "../../components/ui/SiteLogo";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
 import { register } from "../../api/auth.api";
 import authBackground from "../../assets/bg-loginpage.jpg";
-import { useAuthStore } from "../../store/auth.store";
 
 export default function RegisterPage() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name,     setName]     = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
-  const setAuth = useAuthStore((state) => state.setAuth);
 
   const mutation = useMutation({
     mutationFn: () => register(name, email, password),
     onSuccess: (data) => {
-      setAuth(data.data.user, data.data.accessToken);
-      navigate("/");
+      // Backend always returns needsVerification: true — redirect to verify page
+      navigate(`/verify-email?email=${encodeURIComponent(data.data.email)}`);
     },
     onError: (error: any) => {
       setErrorMsg(
@@ -32,12 +31,10 @@ export default function RegisterPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
-
     if (!name || !email || !password) {
       setErrorMsg("Please enter your name, email, and password.");
       return;
     }
-
     mutation.mutate();
   };
 
@@ -67,10 +64,7 @@ export default function RegisterPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label
-                    htmlFor="name"
-                    className="mb-2 block text-xs uppercase tracking-widest text-text-muted"
-                  >
+                  <label htmlFor="name" className="mb-2 block text-xs uppercase tracking-widest text-text-muted">
                     Full name
                   </label>
                   <input
@@ -86,10 +80,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-2 block text-xs uppercase tracking-widest text-text-muted"
-                  >
+                  <label htmlFor="email" className="mb-2 block text-xs uppercase tracking-widest text-text-muted">
                     Email
                   </label>
                   <input
@@ -105,10 +96,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="password"
-                    className="mb-2 block text-xs uppercase tracking-widest text-text-muted"
-                  >
+                  <label htmlFor="password" className="mb-2 block text-xs uppercase tracking-widest text-text-muted">
                     Password
                   </label>
                   <input
@@ -117,7 +105,7 @@ export default function RegisterPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Create a password"
+                    placeholder="At least 8 characters"
                     className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3.5 text-text-primary outline-none transition-all duration-200 placeholder:text-text-muted/70 focus:-translate-y-0.5 focus:border-black/25 focus:shadow-[0_12px_30px_rgba(70,52,36,0.08)]"
                     disabled={mutation.isPending}
                   />
@@ -127,9 +115,12 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={mutation.isPending}
-                className="inline-flex w-full items-center justify-center rounded-full bg-text-primary px-5 py-3.5 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-black hover:shadow-lg disabled:translate-y-0 disabled:opacity-70 disabled:shadow-none"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-3.5 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-black hover:shadow-lg disabled:translate-y-0 disabled:opacity-70 disabled:shadow-none"
               >
-                {mutation.isPending ? "Creating account..." : "Create account"}
+                {mutation.isPending
+                  ? <><Loader2 size={15} className="animate-spin" />Creating account…</>
+                  : "Create account"
+                }
               </button>
 
               <p className="text-sm text-text-muted">

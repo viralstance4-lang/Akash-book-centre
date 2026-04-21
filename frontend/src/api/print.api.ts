@@ -3,33 +3,54 @@ import type { ApiSuccessResponse } from "../types";
 
 export type PrintSettings = {
   id: string;
+  singleSideBasePrice: number;
+  singleSideBulkPrice: number;
+  doubleSidePrice: number;
+  bulkThreshold: number;
+  colorSurcharge: number;
+  spiralExtra: number;
+  staplerExtra: number;
+  maxPdfsPerOrder: number;
+  // legacy
   colorPrice: number;
   bwPrice: number;
   singleSideExtra: number;
   bothSideDiscount: number;
-  spiralExtra: number;
-  staplerExtra: number;
+};
+
+/** One uploaded PDF within a print order */
+export type PrintFile = {
+  id: string;
+  fileUrl: string;
+  originalName: string;
+  fileSize: string;
+  pageCount: number;
+  /** Copies requested specifically for this file */
+  copies: number;
+  order: number;
 };
 
 export type PrintOrder = {
   id: string;
   userId: string;
-  fileUrl: string;
+  fileUrl: string;       // legacy first-file URL
   colorType: string;
   printSide: string;
   orientation: string;
   bindingType: string;
-  pageCount: number;
+  pageCount: number;     // total raw pages across all files
+  copies: number;        // sum of all per-file copies
   totalPrice: number;
+  estimatedMinutes: number;
   status: string;
   paymentMethod: "COD" | "ONLINE";
   customerEmail?: string;
-  bindingExtra?: number;
-  colorPrice?: number;
-  bwPrice?: number;
-  sideExtra?: number;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
   createdAt: string;
-  user?: { name: string; email: string };
+  user?: { name: string; email: string; phone?: string | null };
+  files?: PrintFile[];
 };
 
 export const getPrintSettings = async () => {
@@ -61,5 +82,10 @@ export const updatePrintSettings = async (data: Partial<PrintSettings>) => {
 
 export const updatePrintOrderStatus = async (id: string, status: string) => {
   const response = await api.patch<ApiSuccessResponse<PrintOrder>>(`/admin/print/${id}/status`, { status });
+  return response.data;
+};
+
+export const deletePrintOrder = async (id: string) => {
+  const response = await api.delete<ApiSuccessResponse<null>>(`/admin/print/${id}`);
   return response.data;
 };

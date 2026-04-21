@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LogOut, Menu, MessageSquare, Receipt, Settings, Star, Tag, Users, X } from "lucide-react";
+import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Users, X } from "lucide-react";
 import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logout as logoutApi } from "../../api/auth.api";
@@ -10,13 +10,15 @@ const navItems = [
   { label: "Books", path: "/admin/books", icon: BookOpen, title: "Books", exact: false },
   { label: "Orders", path: "/admin/orders", icon: Receipt, title: "Orders", exact: false },
   { label: "Users", path: "/admin/users", icon: Users, title: "Users", exact: false },
-  { label: "Genres", path: "/admin/genres", icon: Layers3, title: "Genres", exact: false },
+  { label: "Categories", path: "/admin/categories", icon: Layers3, title: "Categories", exact: false },
   { label: "Banners", path: "/admin/banners", icon: Image, title: "Banners", exact: false },
   { label: "Coupons", path: "/admin/coupons", icon: Tag, title: "Coupons", exact: false },
   { label: "Reviews", path: "/admin/reviews", icon: Star, title: "Reviews", exact: false },
   { label: "Featured", path: "/admin/featured", icon: MessageSquare, title: "Featured Section", exact: false },
   { label: "Pages", path: "/admin/pages", icon: FileText, title: "Pages", exact: false },
   { label: "Print Orders", path: "/admin/print-orders", icon: FileText, title: "Print Orders", exact: false },
+  { label: "Returns", path: "/admin/returns", icon: RotateCcw, title: "Returns", exact: false },
+  { label: "Homepage Builder", path: "/admin/homepage-builder", icon: PanelTop, title: "Homepage Builder", exact: false },
   { label: "Settings", path: "/admin/settings", icon: Settings, title: "Settings", exact: false },
 ] as const;
 
@@ -88,7 +90,7 @@ export default function AdminLayout() {
               className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white text-text-muted hover:text-text-primary lg:hidden"><Menu size={15} /></button>
             <h1 className="font-serif text-2xl tracking-tight text-text-primary">{currentNavItem.title}</h1>
           </header>
-          <main className="min-h-0 flex-1 overflow-hidden p-4 sm:p-6 lg:p-8"><Outlet /></main>
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8"><Outlet /></main>
         </div>
       </div>
     </div>

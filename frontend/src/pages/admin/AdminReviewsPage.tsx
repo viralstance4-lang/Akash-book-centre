@@ -23,7 +23,7 @@ export default function AdminReviewsPage() {
   if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 animate-pulse rounded-2xl bg-white" />)}</div>;
 
   return (
-    <div className="h-full overflow-y-auto space-y-6 pr-1">
+    <div className="space-y-6">
       <div>
         <p className="text-[0.72rem] uppercase tracking-[0.28em] text-text-muted">Manage</p>
         <h2 className="font-serif text-2xl text-text-primary">Reviews</h2>

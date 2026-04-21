@@ -44,7 +44,9 @@ export const getBook: RequestHandler<{ id: string }> = async (req, res, next) =>
 
 export const createBook: RequestHandler = async (req, res, next) => {
   try {
-    const book = await createBookService(req.body, req.file);
+    const files = req.files as Express.Multer.File[] | undefined;
+    const coverIndex = Number(req.body.coverIndex ?? 0);
+    const book = await createBookService(req.body, files, coverIndex);
 
     res.status(201).json({
       success: true,

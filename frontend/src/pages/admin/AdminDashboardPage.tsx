@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Image, Layers3, Receipt, Tag, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getBooks } from "../../api/books.api";
-import { getAdminOrders, getGenres, getUsers } from "../../api/admin.api";
+import { getAdminOrders, getUsers } from "../../api/admin.api";
+import { getCategories } from "../../api/categories.api";
+
 
 const statusStyles: Record<string, string> = {
   PENDING: "bg-amber-50 text-amber-700",
@@ -24,7 +26,7 @@ export default function AdminDashboardPage() {
   const { data: booksData } = useQuery({ queryKey: ["admin-dashboard", "books"], queryFn: () => getBooks({ limit: 200 }) });
   const { data: ordersData } = useQuery({ queryKey: ["admin-dashboard", "orders"], queryFn: () => getAdminOrders(1, 5) });
   const { data: usersData } = useQuery({ queryKey: ["admin-dashboard", "users"], queryFn: () => getUsers(1, 1) });
-  const { data: genresData } = useQuery({ queryKey: ["admin-dashboard", "genres"], queryFn: getGenres });
+  const { data: categoriesData } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
 
   const allBooks = booksData?.data?.books ?? [];
   const lowStockBooks = allBooks.filter((b) => b.stock <= LOW_STOCK_THRESHOLD && b.stock > 0);
@@ -34,13 +36,13 @@ export default function AdminDashboardPage() {
     { label: "Books", value: booksData?.data?.total ?? 0, icon: BookOpen, href: "/admin/books", color: "bg-blue-50 text-blue-600" },
     { label: "Orders", value: ordersData?.data?.total ?? 0, icon: Receipt, href: "/admin/orders", color: "bg-amber-50 text-amber-600" },
     { label: "Users", value: usersData?.data?.total ?? 0, icon: Users, href: "/admin/users", color: "bg-emerald-50 text-emerald-600" },
-    { label: "Genres", value: genresData?.data?.length ?? 0, icon: Layers3, href: "/admin/genres", color: "bg-violet-50 text-violet-600" },
+    { label: "Categories", value: categoriesData?.data?.length ?? 0, icon: Layers3, href: "/admin/categories", color: "bg-violet-50 text-violet-600" },
   ];
 
   const recentOrders = ordersData?.data?.orders ?? [];
 
   return (
-    <div className="h-full overflow-y-auto space-y-5 pr-1">
+    <div className="space-y-5">
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((item) => {
@@ -126,7 +128,7 @@ export default function AdminDashboardPage() {
               { label: "Manage Banners", href: "/admin/banners", icon: Image },
               { label: "Manage Coupons", href: "/admin/coupons", icon: Tag },
               { label: "View All Orders", href: "/admin/orders", icon: Receipt },
-              { label: "Manage Genres", href: "/admin/genres", icon: Layers3 },
+              { label: "Manage Categories", href: "/admin/categories", icon: Layers3 },
               { label: "Manage Users", href: "/admin/users", icon: Users },
             ].map(({ label, href, icon: Icon }) => (
               <Link key={href} to={href}

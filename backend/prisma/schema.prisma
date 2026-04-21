@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -33,12 +32,21 @@ enum PaymentMethod {
   COD
 }
 
+enum ReturnStatus {
+  VERIFYING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String   @db.VarChar(100)
   email        String   @unique
+  phone        String?  @unique @db.VarChar(20)
   passwordHash String
   role         Role     @default(USER)
+  isVerified   Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   refreshTokens RefreshToken[]
@@ -46,50 +54,65 @@ model User {
   orders        Order[]
   printOrders   PrintOrder[]
   reviews       Review[]
+  otpCodes      OtpCode[]
+  returns       Return[]
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  tokenHash String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  tokenHash        String
+  expiresAt        DateTime
+  /// Absolute hard limit: no refresh accepted after this time (10-hour session cap)
+  sessionExpiresAt DateTime
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
 }
 
-model Genre {
+/// OTP codes for email/phone-based passwordless login
+model OtpCode {
   id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
-  slug      String   @unique
+  userId    String   @db.Uuid
+  code      String   @db.VarChar(6)
+  target    String   /// email or phone used for delivery
+  type      String   @default("LOGIN") /// LOGIN | VERIFY
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  used      Boolean  @default(false)
   createdAt DateTime @default(now())
-  books     Book[]
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([target])
 }
 
 model Book {
-  id             String                  @id @default(uuid()) @db.Uuid
-  title          String                  @db.VarChar(255)
-  author         String                  @db.VarChar(255)
-  isbn           String                  @unique
-  description    String?
-  price          Decimal                 @db.Decimal(10, 2)
-  comparePrice   Decimal?                @db.Decimal(10, 2)
-  coverImageUrl  String
-  coverPublicId  String
-  images         BookImage[]
-  genreId        String                  @db.Uuid
-  stock          Int                     @default(0)
-  language       String                  @default("English")
-  publication    String?
-  searchVector   Unsupported("tsvector")?
-  isFeatured     Boolean                 @default(false)
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  genre          Genre                   @relation(fields: [genreId], references: [id])
-  cartItems      CartItem[]
-  orderItems     OrderItem[]
-  reviews        Review[]
-  @@index([genreId])
+  id            String                   @id @default(uuid()) @db.Uuid
+  title         String                   @db.VarChar(255)
+  author        String                   @db.VarChar(255)
+  isbn          String                   @unique
+  description   String?
+  price         Decimal                  @db.Decimal(10, 2)
+  comparePrice  Decimal?                 @db.Decimal(10, 2)
+  coverImageUrl String
+  coverPublicId String
+  images        BookImage[]
+  categoryId    String?                  @db.Uuid
+  subcategoryId String?                  @db.Uuid
+  stock         Int                      @default(0)
+  language      String                   @default("English")
+  publication   String?
+  searchVector  Unsupported("tsvector")?
+  isFeatured    Boolean                  @default(false)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  category      Category?                @relation(fields: [categoryId],    references: [id], onDelete: SetNull)
+  subcategory   Subcategory?             @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  reviews       Review[]
+  @@index([categoryId])
+  @@index([subcategoryId])
 }
 
 model BookImage {
@@ -144,16 +167,21 @@ model Order {
   userId          String        @db.Uuid
   status          OrderStatus   @default(PENDING)
   totalAmount     Decimal       @db.Decimal(10, 2)
+  deliveryCharge  Decimal       @default(0) @db.Decimal(10, 2)
   discountAmount  Decimal?      @db.Decimal(10, 2)
+  finalAmount     Decimal?      @db.Decimal(10, 2)
   couponCode      String?
   shippingAddress Json
-  paymentMethod   PaymentMethod @default(ONLINE)
-  customerEmail   String?
-  createdAt       DateTime      @default(now())
+  paymentMethod    PaymentMethod @default(ONLINE)
+  customerEmail    String?
+  deliveryType     String?       @default("PAID")
+  deliveryDistance Decimal?      @db.Decimal(5, 2)
+  createdAt        DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   user            User          @relation(fields: [userId], references: [id])
   items           OrderItem[]
   payment         Payment?
+  returns        Return[]
   @@index([userId])
 }
 
@@ -182,6 +210,22 @@ model Payment {
   method            PaymentMethod @default(ONLINE)
   createdAt         DateTime      @default(now())
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Return {
+  id        String       @id @default(uuid()) @db.Uuid
+  orderId   String       @db.Uuid
+  userId    String       @db.Uuid
+  email     String
+  reason    String?
+  status    ReturnStatus @default(VERIFYING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([orderId])
+  @@index([userId])
+  @@index([email])
 }
 
 model Banner {
@@ -221,29 +265,75 @@ model CouponUse {
 }
 
 model PrintSettings {
-  id               String  @id @default(uuid()) @db.Uuid
-  colorPrice       Decimal @db.Decimal(10, 2)
-  bwPrice          Decimal @db.Decimal(10, 2)
-  singleSideExtra  Decimal @default(0) @db.Decimal(10, 2)
-  bothSideDiscount Decimal @default(0) @db.Decimal(10, 2)
-  spiralExtra      Decimal @default(0) @db.Decimal(10, 2)
-  staplerExtra     Decimal @default(0) @db.Decimal(10, 2)
+  id   String @id @default(uuid()) @db.Uuid
+
+  /// Per-page price for single-side printing when page count <= bulkThreshold
+  singleSideBasePrice     Decimal @default(1.00) @db.Decimal(10, 2)
+  /// Per-page price for single-side printing when page count > bulkThreshold
+  singleSideBulkPrice     Decimal @default(0.50) @db.Decimal(10, 2)
+  /// Per-page price for double-side printing (flat regardless of count)
+  doubleSidePrice         Decimal @default(1.00) @db.Decimal(10, 2)
+  /// Page count threshold above which bulk pricing kicks in
+  bulkThreshold           Int     @default(20)
+
+  /// Additional per-page charge for color printing
+  colorSurcharge          Decimal @default(3.00) @db.Decimal(10, 2)
+
+  /// Fixed charges for binding options
+  spiralExtra             Decimal @default(30) @db.Decimal(10, 2)
+  staplerExtra            Decimal @default(10) @db.Decimal(10, 2)
+
+  /// Maximum number of PDF files allowed per order (admin-configurable)
+  maxPdfsPerOrder         Int     @default(20)
+
+  // Legacy fields kept for backward compat (unused in new pricing)
+  colorPrice              Decimal @default(5.00) @db.Decimal(10, 2)
+  bwPrice                 Decimal @default(1.00) @db.Decimal(10, 2)
+  singleSideExtra         Decimal @default(0) @db.Decimal(10, 2)
+  bothSideDiscount        Decimal @default(0) @db.Decimal(10, 2)
+}
+
+/// Individual PDF file within a print order
+model PrintFile {
+  id           String     @id @default(uuid()) @db.Uuid
+  printOrderId String     @db.Uuid
+  fileUrl      String
+  filePublicId String
+  originalName String     @db.VarChar(255)
+  fileSize     String     @default("") @db.VarChar(100)
+  pageCount    Int        @default(0)
+  /// Copies requested for this specific file (independent of other files)
+  copies       Int        @default(1)
+  order        Int        @default(0)
+  createdAt    DateTime   @default(now())
+  printOrder   PrintOrder @relation(fields: [printOrderId], references: [id], onDelete: Cascade)
+  @@index([printOrderId])
 }
 
 model PrintOrder {
   id            String        @id @default(uuid()) @db.Uuid
   userId        String        @db.Uuid
-  fileUrl       String
-  filePublicId  String
+  /// Legacy single-file URL (kept for backward compat)
+  fileUrl       String        @default("")
+  filePublicId  String        @default("")
   colorType     String
   printSide     String
   orientation   String
   bindingType   String
+  /// Total pages across all uploaded files × copies
   pageCount     Int
+  /// Number of copies/sets requested
+  copies        Int           @default(1)
   totalPrice    Decimal       @db.Decimal(10, 2)
+  /// Estimated print time in minutes
+  estimatedMinutes Int        @default(0)
   status        String        @default("PENDING")
+  /// Print orders MUST be prepaid — no COD
   paymentMethod PaymentMethod @default(ONLINE)
-  customerEmail String?
+  customerEmail   String?
+  customerName    String?
+  customerPhone   String?     @db.VarChar(20)
+  customerAddress String?
   colorPrice    Decimal?      @db.Decimal(10, 2)
   bwPrice       Decimal?      @db.Decimal(10, 2)
   bindingExtra  Decimal?      @db.Decimal(10, 2)
@@ -251,31 +341,34 @@ model PrintOrder {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   user          User          @relation(fields: [userId], references: [id])
+  files         PrintFile[]
   @@index([userId])
 }
 
 model SiteSettings {
   id                 String   @id @default(uuid()) @db.Uuid
-  storeName          String   @default("BucketList Books")
+  storeName          String   @default("Akash Book Centre")
   tagline            String   @default("")
   logoUrl            String?
   logoPublicId       String?
   logoWidth          Int      @default(120)
   logoHeight         Int      @default(40)
   spiralBindingPrice Decimal  @default(30) @db.Decimal(10, 2)
+  /// Max PDF files a user can upload per print order (mirrors PrintSettings for convenience)
+  maxPdfUploads      Int      @default(20)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
 
 model Page {
-  id        String   @id @default(uuid()) @db.Uuid
-  title     String
-  slug      String   @unique
-  content   String
-  isActive  Boolean  @default(true)
-  showInFooter Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid()) @db.Uuid
+  title        String
+  slug         String   @unique
+  content      String
+  isActive     Boolean  @default(true)
+  showInFooter Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model FeaturedSection {
@@ -283,4 +376,54 @@ model FeaturedSection {
   bookId String @db.Uuid
   order  Int    @default(0)
   @@index([bookId])
+}
+
+/// Product category with optional cover image
+model Category {
+  id            String        @id @default(uuid()) @db.Uuid
+  name          String        @unique
+  slug          String        @unique
+  imageUrl      String?
+  imagePublicId String?
+  isActive      Boolean       @default(true)
+  order         Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  subcategories Subcategory[]
+  books         Book[]
+}
+
+/// Sub-category belonging to a Category
+model Subcategory {
+  id         String   @id @default(uuid()) @db.Uuid
+  categoryId String   @db.Uuid
+  name       String
+  slug       String   @unique
+  isActive   Boolean  @default(true)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  books      Book[]
+  @@unique([categoryId, name])
+  @@index([categoryId])
+}
+
+/// Stores the dynamic homepage section layout & per-section config
+model HomepageConfig {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// JSON array of HomepageSection objects (type, enabled, order, config)
+  sections  Json
+  updatedAt DateTime @updatedAt
+}
+
+model ShippingSettings {
+  id                   String        @id @default(uuid()) @db.Uuid
+  freeRadius           Float         @default(5.0)
+  baseCharge           Decimal       @default(50) @db.Decimal(10, 2)
+  perKmCharge          Decimal       @default(10) @db.Decimal(10, 2)
+  maxCharge            Decimal?      @db.Decimal(10, 2)
+  prepaidDiscountType  String        @default("PERCENT")
+  prepaidDiscountValue Decimal       @default(5) @db.Decimal(10, 2)
+  updatedAt            DateTime      @updatedAt
 }

@@ -3,6 +3,7 @@ import razorpay from "../../config/razorpay";
 import AppError from "../../lib/AppError";
 import prisma from "../../lib/prisma";
 import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
+import { ShippingService } from "../shipping/shipping.service";
 
 type ShippingAddress = { name: string; phone: string; line1: string; line2?: string; city: string; state: string; pincode: string };
 
@@ -15,12 +16,28 @@ const getOrderWithDetails = async (orderId: string) =>
     include: { items: { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true, stock: true } } } }, payment: true },
   });
 
-export const placeOrder = async (userId: string, shippingAddress: ShippingAddress, paymentMethod: "ONLINE" | "COD" = "ONLINE", customerEmail?: string) => {
+export const placeOrder = async (
+  userId: string,
+  shippingAddress: ShippingAddress,
+  paymentMethod: "ONLINE" | "COD" = "ONLINE",
+  customerEmail?: string,
+  deliveryType?: "FREE" | "PAID",
+  deliveryDistance?: number,
+) => {
   const cart = await getCartWithItems(userId);
   if (!cart || cart.items.length === 0) throw new AppError("Cart is empty", 400, "CART_EMPTY");
 
   for (const item of cart.items) {
     if (item.book.stock < item.quantity) throw new AppError("Insufficient stock", 400, "INSUFFICIENT_STOCK");
+  }
+
+  const hasPrintItems = cart.items.some((item) => item.bindingType !== "NONE");
+  if (hasPrintItems && paymentMethod === "COD") {
+    throw new AppError(
+      "Cash on Delivery is not available for orders with binding. Please use online payment.",
+      400,
+      "COD_NOT_ALLOWED_FOR_PRINT",
+    );
   }
 
   const siteSettings = await prisma.siteSettings.findFirst();
@@ -36,18 +53,54 @@ export const placeOrder = async (userId: string, shippingAddress: ShippingAddres
     new Prisma.Decimal(0),
   );
 
+  // Calculate delivery charge
+  let deliveryCharge = new Prisma.Decimal(0);
+  let calculatedDeliveryType: "FREE" | "PAID" = "FREE";
+  if (deliveryDistance) {
+    const deliveryResult = await ShippingService.calculateDeliveryCharge(deliveryDistance);
+    deliveryCharge = new Prisma.Decimal(deliveryResult.deliveryCharge);
+    calculatedDeliveryType = deliveryResult.deliveryType === "FREE" ? "FREE" : "PAID";
+  }
+
+  // Calculate prepaid discount
+  let discountAmount = new Prisma.Decimal(0);
+  if (paymentMethod === "ONLINE") {
+    discountAmount = new Prisma.Decimal(await ShippingService.calculatePrepaidDiscount(totalAmount.toNumber()));
+  }
+
+  const finalAmount = totalAmount.plus(deliveryCharge).minus(discountAmount);
+
   let razorpayOrder: any = null;
   if (paymentMethod === "ONLINE") {
-    razorpayOrder = await razorpay.orders.create({
-      amount: totalAmount.mul(100).toNumber(),
-      currency: "INR",
-      receipt: `receipt_${Date.now()}`,
-    });
+    try {
+      razorpayOrder = await razorpay.orders.create({
+        amount: finalAmount.mul(100).toNumber(),
+        currency: "INR",
+        receipt: `receipt_${Date.now()}`,
+      });
+    } catch (err: any) {
+      throw new AppError(
+        "Online payment is not available right now. Please use Cash on Delivery.",
+        400,
+        "PAYMENT_GATEWAY_ERROR",
+      );
+    }
   }
 
   const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
-      data: { userId, totalAmount, shippingAddress, paymentMethod, customerEmail },
+      data: { 
+        userId, 
+        totalAmount, 
+        deliveryCharge, 
+        discountAmount, 
+        finalAmount, 
+        shippingAddress, 
+        paymentMethod, 
+        customerEmail, 
+        deliveryType: calculatedDeliveryType, 
+        deliveryDistance 
+      },
     });
 
     await tx.orderItem.createMany({
@@ -66,7 +119,7 @@ export const placeOrder = async (userId: string, shippingAddress: ShippingAddres
         orderId: order.id,
         razorpayOrderId: razorpayOrder?.id ?? null,
         status: "PENDING",
-        amount: totalAmount,
+        amount: finalAmount,
         method: paymentMethod,
       },
     });
@@ -179,4 +232,10 @@ export const updateOrderStatus = async (orderId: string, status: string) => {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
   return prisma.order.update({ where: { id: orderId }, data: { status: status as any }, include: { user: { select: { id: true, name: true, email: true, role: true } }, items: { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true, stock: true } } } }, payment: true } });
+};
+
+export const deleteOrder = async (orderId: string) => {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
+  return prisma.order.delete({ where: { id: orderId } });
 };

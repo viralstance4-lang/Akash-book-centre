@@ -3,6 +3,7 @@ import type { AxiosError } from "axios";
 import { useState } from "react";
 
 import {
+  deleteAdminOrder,
   getAdminOrder,
   getAdminOrders,
   updateOrderStatus,
@@ -62,6 +63,19 @@ export default function AdminOrdersPage() {
       setError(
         apiError.response?.data?.message ?? "Unable to update order status.",
       );
+    },
+  });
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: (id: string) => deleteAdminOrder(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+      setSelectedOrderId(null);
+      setError("");
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setError(apiError.response?.data?.message ?? "Unable to delete order.");
     },
   });
 
@@ -137,7 +151,7 @@ export default function AdminOrdersPage() {
                   </div>
                   <div className="md:text-right">
                     <p className="font-serif text-2xl text-[#8f2d22]">
-                      {formatPrice(Number(order.totalAmount))}
+                      {formatPrice(Number(order.finalAmount ?? order.totalAmount))}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 md:justify-end">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${order.paymentMethod === "COD" || order.payment?.method === "COD" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
@@ -179,7 +193,7 @@ export default function AdminOrdersPage() {
         </div>
       </section>
 
-      <aside className="h-fit rounded-[1.75rem] border border-black/8 bg-[#fbf8f2] p-6">
+      <aside className="h-fit rounded-[1.75rem] border border-black/8 bg-[#fbf8f2] p-6 xl:sticky xl:top-0 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
         {selectedOrder ? (
           <>
             <p className="text-[0.68rem] uppercase tracking-[0.22em] text-text-muted">
@@ -263,9 +277,49 @@ export default function AdminOrdersPage() {
               })}
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-[1.1rem] bg-white px-4 py-3 text-sm">
-              <span className="text-text-muted">Order Total</span>
-              <span className="font-bold text-[#1d1a17]">{formatPrice(Number(selectedOrder.totalAmount))}</span>
+            {/* Delivery info */}
+            {(selectedOrder as any).deliveryType && (
+              <div className="mt-4 flex items-center justify-between rounded-[1.1rem] bg-white px-4 py-3 text-sm">
+                <span className="text-text-muted">Delivery</span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                    (selectedOrder as any).deliveryType === "FREE"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}>
+                    {(selectedOrder as any).deliveryType === "FREE" ? "Free" : "Paid"}
+                  </span>
+                  {(selectedOrder as any).deliveryDistance != null && (
+                    <span className="text-text-muted">{Number((selectedOrder as any).deliveryDistance).toFixed(1)} km</span>
+                  )}
+                </span>
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2 rounded-[1.1rem] bg-white p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.2em] text-text-muted mb-3">
+                Order Breakdown
+              </p>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-muted">Subtotal</span>
+                <span>{formatPrice(Number(selectedOrder.totalAmount))}</span>
+              </div>
+              {(selectedOrder as any).deliveryCharge > 0 && (
+                <div className="flex justify-between text-sm text-amber-600">
+                  <span>Delivery Charge</span>
+                  <span>+{formatPrice(Number((selectedOrder as any).deliveryCharge))}</span>
+                </div>
+              )}
+              {(selectedOrder as any).discountAmount > 0 && (
+                <div className="flex justify-between text-sm text-emerald-600">
+                  <span>Discount</span>
+                  <span>-{formatPrice(Number((selectedOrder as any).discountAmount))}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t border-black/8 pt-2 font-bold text-[#1d1a17]">
+                <span>Final Total</span>
+                <span>{formatPrice(Number((selectedOrder as any).finalAmount ?? selectedOrder.totalAmount))}</span>
+              </div>
             </div>
 
             <div className="mt-5 rounded-[1.1rem] bg-white p-4">
@@ -277,7 +331,7 @@ export default function AdminOrdersPage() {
                   {error}
                 </div>
               ) : null}
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
                 {(["CONFIRMED", "SHIPPED", "DELIVERED"] as OrderStatus[]).map(
                   (nextStatus) => {
                     const isCurrent = selectedOrder.status === nextStatus;
@@ -315,6 +369,21 @@ export default function AdminOrdersPage() {
                   },
                 )}
               </div>
+            </div>
+
+            <div className="mt-5 border-t border-black/8 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Delete this order permanently?")) {
+                    deleteOrderMutation.mutate(selectedOrder.id);
+                  }
+                }}
+                disabled={deleteOrderMutation.isPending}
+                className="inline-flex w-full items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700 transition-all hover:bg-rose-100 disabled:opacity-50"
+              >
+                {deleteOrderMutation.isPending ? "Deleting..." : "Delete Order"}
+              </button>
             </div>
           </>
         ) : (

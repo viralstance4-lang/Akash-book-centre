@@ -54,3 +54,91 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid white;
 }
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: #e8e2d7;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.65) 50%, rgba(255,255,255,0) 100%);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+/* ── Quill rich text editor — bookstore admin styles ─────────────────────── */
+.quill-wrapper .ql-toolbar {
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: #f8f4ee;
+  border-radius: 0;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+}
+.quill-wrapper .ql-container {
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+.quill-wrapper .ql-editor {
+  min-height: 120px;
+  max-height: 260px;
+  padding: 12px 16px;
+  line-height: 1.75;
+}
+.quill-wrapper .ql-editor.ql-blank::before {
+  color: var(--color-text-muted);
+  font-style: normal;
+  left: 16px;
+}
+.quill-wrapper .ql-toolbar .ql-stroke {
+  stroke: #5a5a5a;
+}
+.quill-wrapper .ql-toolbar .ql-fill {
+  fill: #5a5a5a;
+}
+.quill-wrapper .ql-toolbar button:hover .ql-stroke,
+.quill-wrapper .ql-toolbar button.ql-active .ql-stroke {
+  stroke: #1d1a17;
+}
+.quill-wrapper .ql-toolbar button:hover .ql-fill,
+.quill-wrapper .ql-toolbar button.ql-active .ql-fill {
+  fill: #1d1a17;
+}
+.quill-wrapper .ql-toolbar .ql-picker-label {
+  color: #5a5a5a;
+}
+.quill-wrapper .ql-toolbar .ql-picker-label:hover,
+.quill-wrapper .ql-toolbar .ql-picker-label.ql-active {
+  color: #1d1a17;
+}
+.quill-wrapper .ql-toolbar .ql-picker-options {
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+/* ── Prose styles for rich text display on storefront ─────────────────────── */
+.prose h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.25rem; }
+.prose h2 { font-size: 1.1rem;  font-weight: 700; margin: 0.75rem 0 0.25rem; }
+.prose h3 { font-size: 1rem;    font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.prose p  { margin: 0.25rem 0; }
+.prose ul { list-style: disc;    padding-left: 1.25rem; margin: 0.25rem 0; }
+.prose ol { list-style: decimal; padding-left: 1.25rem; margin: 0.25rem 0; }
+.prose li { margin: 0.15rem 0; }
+.prose strong { font-weight: 600; color: var(--color-text-primary); }
+.prose a { color: #cc3333; text-decoration: underline; }

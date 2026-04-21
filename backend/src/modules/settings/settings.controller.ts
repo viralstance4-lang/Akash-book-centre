@@ -10,8 +10,13 @@ export const getSettings = async (req: Request, res: Response, next: NextFunctio
 
 export const updateSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    console.log("[DEBUG] updateSettings controller called with body:", req.body);
     const file = req.file as any;
     const settings = await settingsService.updateLogoSettings(req.body, file);
+    console.log("[DEBUG] Controller returning settings:", settings);
     res.json({ success: true, message: "Settings updated", data: settings });
-  } catch (err) { next(err); }
+  } catch (err) { 
+    console.error("[DEBUG] updateSettings error:", err);
+    next(err); 
+  }
 };

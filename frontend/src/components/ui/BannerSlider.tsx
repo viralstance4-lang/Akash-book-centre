@@ -24,7 +24,9 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
 
   useEffect(() => {
     if (activeBanners.length > 1 && !isHovered) startTimer();
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [activeBanners.length, isHovered]);
 
   if (activeBanners.length === 0) return null;
@@ -50,25 +52,49 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-2xl sm:rounded-3xl aspect-[4/3] sm:aspect-[16/7] lg:aspect-[16/5]"
+      className="relative w-full rounded-2xl sm:rounded-3xl bg-[#f4efe7]"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Slides */}
+      {/*
+       * Ghost image — invisible, w-full h-auto.
+       * Its natural dimensions drive the container height so no aspect-ratio
+       * hack is needed. Slides sit absolutely on top of it.
+       * Switches to the current banner so the container always matches the
+       * displayed image's intrinsic ratio (important when banners differ).
+       */}
+      <img
+        src={activeBanners[current].imageUrl}
+        alt=""
+        aria-hidden="true"
+        className="block w-full h-auto opacity-0 pointer-events-none select-none rounded-2xl sm:rounded-3xl"
+      />
+
+      {/* Slides — absolutely fill the ghost-sized container */}
       {activeBanners.map((banner, index) => (
         <div
           key={banner.id}
-          className={`absolute inset-0 transition-opacity duration-700 ${index === current ? "opacity-100 z-10" : "opacity-0 z-0"}`}
+          className={`absolute inset-0 transition-opacity duration-700 rounded-2xl sm:rounded-3xl overflow-hidden ${
+            index === current ? "opacity-100 z-10" : "opacity-0 z-0"
+          }`}
         >
+          {/*
+           * object-contain → full image always visible, no crop, no zoom.
+           * object-center  → centred horizontally and vertically.
+           * bg-[#f4efe7]   → warm theme fill for any letterbox space.
+           */}
           <img
             src={banner.imageUrl}
             alt={banner.title ?? `Banner ${index + 1}`}
-            className={`h-full w-full object-cover ${banner.redirectUrl ? "cursor-pointer" : ""}`}
+            className={`h-full w-full object-contain object-center bg-[#f4efe7] ${
+              banner.redirectUrl ? "cursor-pointer" : ""
+            }`}
             onClick={() => handleClick(banner)}
           />
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
-          {/* Title overlay */}
+
+          {/* Subtle bottom gradient so title text stays readable */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent pointer-events-none" />
+
           {banner.title && (
             <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 z-20">
               <p className="font-serif text-lg text-white drop-shadow-lg sm:text-2xl lg:text-3xl">
@@ -79,7 +105,7 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
         </div>
       ))}
 
-      {/* Arrows - only show if more than 1 banner */}
+      {/* Prev / Next arrows — only when multiple banners */}
       {activeBanners.length > 1 && (
         <>
           <button
@@ -97,14 +123,21 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
             <ChevronRight size={18} />
           </button>
 
-          {/* Dots */}
+          {/* Dot indicators */}
           <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1.5 sm:bottom-4">
             {activeBanners.map((_, i) => (
               <button
                 key={i}
                 type="button"
-                onClick={() => { setCurrent(i); startTimer(); }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${i === current ? "w-6 bg-white" : "w-1.5 bg-white/50 hover:bg-white/80"}`}
+                onClick={() => {
+                  setCurrent(i);
+                  startTimer();
+                }}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  i === current
+                    ? "w-6 bg-white"
+                    : "w-1.5 bg-white/50 hover:bg-white/80"
+                }`}
               />
             ))}
           </div>

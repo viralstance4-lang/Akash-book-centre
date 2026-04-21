@@ -98,7 +98,7 @@ export default function AdminBannersPage() {
   );
 
   return (
-    <div className="h-full overflow-y-auto space-y-5 pr-1">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[0.72rem] uppercase tracking-[0.28em] text-text-muted">Manage</p>
@@ -137,7 +137,7 @@ export default function AdminBannersPage() {
                   <div className="flex flex-col items-center gap-2 text-text-muted">
                     <ImagePlus size={28} />
                     <span className="text-sm">Click to upload image</span>
-                    <span className="text-xs">Recommended: 1200×400px or wider</span>
+                    <span className="text-xs">Recommended: 1920×600px · keep content centred</span>
                   </div>
                 )}
               </div>

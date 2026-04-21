@@ -93,7 +93,7 @@ export default function AdminPagesPage() {
   if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 animate-pulse rounded-2xl bg-white" />)}</div>;
 
   return (
-    <div className="h-full overflow-y-auto space-y-5 pr-1">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[0.72rem] uppercase tracking-[0.28em] text-text-muted">Manage</p>

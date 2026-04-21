@@ -10,7 +10,6 @@ export type OrderStatus =
   | "RETURNED";
 
 export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
-
 export type PaymentMethod = "ONLINE" | "COD";
 
 export type User = {
@@ -18,14 +17,22 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  isVerified: boolean;
   createdAt: string;
 };
 
-export type Genre = {
+export type CategoryRef = {
   id: string;
   name: string;
   slug: string;
-  createdAt: string;
+  imageUrl?: string | null;
+};
+
+export type SubcategoryRef = {
+  id: string;
+  categoryId: string;
+  name: string;
+  slug: string;
 };
 
 export type Book = {
@@ -38,14 +45,17 @@ export type Book = {
   comparePrice?: number | null;
   coverImageUrl: string;
   coverPublicId: string;
-  genreId: string;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
   stock: number;
   language?: string;
   publication?: string | null;
   isFeatured?: boolean;
   createdAt: string;
   updatedAt: string;
-  genre?: Genre;
+  category?: CategoryRef | null;
+  subcategory?: SubcategoryRef | null;
+  images?: Array<{ id: string; imageUrl: string; publicId: string; order: number }>;
 };
 
 export type CartItem = {
@@ -54,10 +64,7 @@ export type CartItem = {
   bookId: string;
   quantity: number;
   bindingType: "NONE" | "SPIRAL" | "STAPLE";
-  book: Pick<
-    Book,
-    "id" | "title" | "author" | "price" | "coverImageUrl" | "stock"
-  >;
+  book: Pick<Book, "id" | "title" | "author" | "price" | "coverImageUrl" | "stock">;
 };
 
 export type Cart = {
@@ -105,11 +112,15 @@ export type Order = {
   userId: string;
   status: OrderStatus;
   totalAmount: number;
-  discountAmount?: number | null;
+  deliveryCharge: number;
+  discountAmount: number;
+  finalAmount: number;
   couponCode?: string | null;
   shippingAddress: ShippingAddress;
   paymentMethod: PaymentMethod;
   customerEmail?: string | null;
+  deliveryType?: "FREE" | "PAID" | null;
+  deliveryDistance?: number | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -128,17 +139,9 @@ export type PaginatedResponse<T> = {
   data?: T;
 };
 
-export type PaginatedBooks = PaginatedResponse<never> & {
-  books: Book[];
-};
-
-export type PaginatedOrders = PaginatedResponse<never> & {
-  orders: Order[];
-};
-
-export type PaginatedUsers = PaginatedResponse<never> & {
-  users: User[];
-};
+export type PaginatedBooks = PaginatedResponse<never> & { books: Book[] };
+export type PaginatedOrders = PaginatedResponse<never> & { orders: Order[] };
+export type PaginatedUsers  = PaginatedResponse<never> & { users: User[] };
 
 export type ApiSuccessResponse<T> = {
   success: true;
@@ -150,10 +153,7 @@ export type ApiErrorResponse = {
   success: false;
   message: string;
   code: string;
-  errors?: Array<{
-    field: string;
-    message: string;
-  }>;
+  errors?: Array<{ field: string; message: string }>;
 };
 
 export type AdminUserDetail = User & {

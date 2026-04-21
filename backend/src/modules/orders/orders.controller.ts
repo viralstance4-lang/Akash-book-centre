@@ -4,6 +4,7 @@ import {
   getAdminOrderById,
   getAdminOrders,
   cancelOrder as cancelOrderService,
+  deleteOrder as deleteOrderService,
   getOrderById,
   getUserOrders,
   placeOrder as placeOrderService,
@@ -18,12 +19,14 @@ const getUserIdOrThrow = (userId?: string) => {
 
 export const placeOrder: RequestHandler = async (req, res, next) => {
   try {
-    const { shippingAddress, paymentMethod, customerEmail } = req.body;
+    const { shippingAddress, paymentMethod, customerEmail, deliveryType, deliveryDistance } = req.body;
     const order = await placeOrderService(
       getUserIdOrThrow(req.user?.id),
       shippingAddress,
       paymentMethod ?? "ONLINE",
       customerEmail,
+      deliveryType,
+      typeof deliveryDistance === "number" ? deliveryDistance : undefined,
     );
     res.status(201).json({ success: true, message: "Order placed successfully", data: order });
   } catch (error) { next(error); }
@@ -86,5 +89,12 @@ export const updateAdminOrderStatus: RequestHandler<{ id: string }> = async (req
   try {
     const order = await updateOrderStatusService(req.params.id, req.body.status);
     res.status(200).json({ success: true, message: "Order status updated successfully", data: order });
+  } catch (error) { next(error); }
+};
+
+export const deleteAdminOrder: RequestHandler<{ id: string }> = async (req, res, next) => {
+  try {
+    await deleteOrderService(req.params.id);
+    res.status(200).json({ success: true, message: "Order deleted successfully", data: null });
   } catch (error) { next(error); }
 };

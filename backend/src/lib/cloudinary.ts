@@ -22,7 +22,9 @@ export const uploadImage = async (file: MulterFileLike, folder = "books") => {
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: `bookstore/${folder}`,
-        resource_type: isPrintFolder ? "auto" : "image",
+        // PDFs must be stored as "raw" — "image" type causes Cloudinary to redirect
+        // to a CDN node (requires Document Transformation add-on to serve inline)
+        resource_type: isPrintFolder ? "raw" : "image",
       },
       (error: any, uploadResult: any) => {
         if (error) {

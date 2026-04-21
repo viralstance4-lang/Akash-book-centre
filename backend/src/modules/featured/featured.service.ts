@@ -4,7 +4,7 @@ export const getFeaturedBooks = async () => {
   const featured = await prisma.featuredSection.findMany({ orderBy: { order: "asc" } });
   if (!featured.length) return [];
   const bookIds = featured.map((f) => f.bookId);
-  const books = await prisma.book.findMany({ where: { id: { in: bookIds } }, include: { genre: true } });
+  const books = await prisma.book.findMany({ where: { id: { in: bookIds } }, include: { category: true, subcategory: true } });
   return featured.map((f) => books.find((b) => b.id === f.bookId)).filter(Boolean);
 };
 

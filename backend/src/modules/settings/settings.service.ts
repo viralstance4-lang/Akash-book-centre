@@ -14,6 +14,7 @@ export const updateLogoSettings = async (
   },
   file?: any
 ) => {
+  console.log("[DEBUG] updateLogoSettings called with data:", data);
   const existing = await prisma.siteSettings.findFirst();
   const updateData: any = {};
 
@@ -37,17 +38,23 @@ export const updateLogoSettings = async (
     updateData.logoPublicId = uploaded.publicId;
   }
 
+  let result;
   if (existing) {
-    return prisma.siteSettings.update({ where: { id: existing.id }, data: updateData });
+    console.log("[DEBUG] Updating existing settings with:", updateData);
+    result = await prisma.siteSettings.update({ where: { id: existing.id }, data: updateData });
+  } else {
+    console.log("[DEBUG] Creating new settings with:", { storeName: data.storeName, tagline: data.tagline, ...updateData });
+    result = await prisma.siteSettings.create({
+      data: {
+        storeName: data.storeName ?? "Akash Book Centre",
+        tagline: data.tagline ?? "",
+        logoWidth: Number(data.logoWidth ?? 120),
+        logoHeight: Number(data.logoHeight ?? 40),
+        spiralBindingPrice: Number(data.spiralBindingPrice ?? 30),
+        ...updateData,
+      },
+    });
   }
-  return prisma.siteSettings.create({
-    data: {
-      storeName: data.storeName ?? "BucketList Books",
-      tagline: data.tagline ?? "",
-      logoWidth: Number(data.logoWidth ?? 120),
-      logoHeight: Number(data.logoHeight ?? 40),
-      spiralBindingPrice: Number(data.spiralBindingPrice ?? 30),
-      ...updateData,
-    },
-  });
+  console.log("[DEBUG] Settings saved to DB:", result);
+  return result;
 };

@@ -5,11 +5,15 @@ export const placeOrder = async (
   shippingAddress: ShippingAddress,
   paymentMethod: "ONLINE" | "COD" = "ONLINE",
   customerEmail?: string,
+  deliveryType?: "FREE" | "PAID",
+  deliveryDistance?: number | null,
 ) => {
   const response = await api.post<ApiSuccessResponse<Order>>("/orders", {
     shippingAddress,
     paymentMethod,
     customerEmail,
+    deliveryType,
+    deliveryDistance: deliveryDistance ?? undefined,
   });
   return response.data;
 };

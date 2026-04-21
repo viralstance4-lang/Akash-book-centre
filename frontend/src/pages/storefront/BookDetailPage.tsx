@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
@@ -34,10 +34,11 @@ export default function BookDetailPage() {
   const [pincodeMsg, setPincodeMsg] = useState("");
   const [activeTab, setActiveTab] = useState<"details" | "reviews">("details");
   const [qty, setQty] = useState(1);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [bindingType, setBindingType] = useState<"NONE" | "SPIRAL" | "STAPLE">("NONE");
   const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [cartError, setCartError] = useState("");
 
   const { data: cartData } = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isAuthenticated });
   const { data, error, isLoading, isError } = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id!), enabled: Boolean(id) });
@@ -52,7 +53,8 @@ export default function BookDetailPage() {
 
   const addToCartMutation = useMutation({
     mutationFn: (bookId: string) => addToCart(bookId, qty, bindingType),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["cart"] }); setCartError(""); },
+    onError: (error: any) => setCartError(error?.response?.data?.message ?? "Failed to add to cart. Please try again."),
   });
 
   const submitReviewMutation = useMutation({
@@ -65,9 +67,9 @@ export default function BookDetailPage() {
   });
 
   const { data: relatedBooksData } = useQuery({
-    queryKey: ["related-books", data?.data?.genre?.slug, id],
-    queryFn: () => getBooks({ genre: data?.data?.genre?.slug, limit: 6 }),
-    enabled: Boolean(data?.data?.genre?.slug),
+    queryKey: ["related-books", data?.data?.category?.slug, id],
+    queryFn: () => getBooks({ category: data?.data?.category?.slug, limit: 6 }),
+    enabled: Boolean(data?.data?.category?.slug),
   });
 
   const book = data?.data;
@@ -92,11 +94,13 @@ export default function BookDetailPage() {
     addToCartMutation.mutate(book.id);
   };
 
-  const handleBuyNow = () => {
+  const handleBuyNow = async () => {
     if (!book) return;
     if (!isAuthenticated) { navigate("/login"); return; }
-    addToCartMutation.mutate(book.id);
-    navigate("/checkout");
+    try {
+      await addToCartMutation.mutateAsync(book.id);
+      navigate("/checkout");
+    } catch { /* error shown via addToCartMutation.error */ }
   };
 
   const checkPincode = () => {
@@ -138,9 +142,9 @@ export default function BookDetailPage() {
       <nav className="flex items-center gap-1.5 text-xs text-text-muted">
         <Link to="/" className="hover:text-text-primary transition-colors">Home</Link>
         <ChevronRight size={12} />
-        {book.genre?.name && (
+        {book.category?.name && (
           <>
-            <Link to={`/?genre=${book.genre.slug}`} className="hover:text-text-primary transition-colors">{book.genre.name}</Link>
+            <Link to={`/category/${book.category.slug}`} className="hover:text-text-primary transition-colors">{book.category.name}</Link>
             <ChevronRight size={12} />
           </>
         )}
@@ -151,43 +155,88 @@ export default function BookDetailPage() {
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left — Image Gallery */}
         <div className="flex flex-col gap-3">
-          <div className="group relative overflow-hidden rounded-2xl border border-black/8 bg-[#f8f4ee]">
-            <img
-              src={selectedImage ?? book.coverImageUrl}
-              alt={book.title}
-              className="mx-auto block aspect-[3/4] w-full max-w-[280px] object-cover transition-all duration-300 lg:max-w-full"
-            />
-            {discount > 0 && (
-              <div className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
-                {discount}% OFF
-              </div>
-            )}
-            {isOutOfStock && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl">
-                <span className="rounded-full bg-white px-4 py-2 text-sm font-medium">Out of Stock</span>
-              </div>
-            )}
-          </div>
-
-          {/* Thumbnail Strip */}
           {(() => {
-            const extraImages = (book as any).images ?? [];
-            const allImages = extraImages.length > 0
-              ? extraImages.sort((a: any, b: any) => a.order - b.order)
-              : [{ id: "cover", imageUrl: book.coverImageUrl, order: 0 }];
-            if (allImages.length <= 1) return null;
+            // Build full image list: cover first (if not already in BookImage records), then rest sorted by order
+            const bookImages: { id: string; imageUrl: string; order: number }[] = (book as any).images ?? [];
+            const sorted = [...bookImages].sort((a, b) => a.order - b.order);
+            const coverAlreadyIncluded = sorted.some((img) => img.imageUrl === book.coverImageUrl);
+            const allImages = coverAlreadyIncluded
+              ? sorted
+              : [{ id: "cover", imageUrl: book.coverImageUrl, order: -1 }, ...sorted];
+
+            const safeIndex = Math.min(currentIndex, allImages.length - 1);
+            const activeUrl = allImages[safeIndex]?.imageUrl ?? book.coverImageUrl;
+
+            const prev = () => setCurrentIndex((i) => (i === 0 ? allImages.length - 1 : i - 1));
+            const next = () => setCurrentIndex((i) => (i === allImages.length - 1 ? 0 : i + 1));
+
             return (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {allImages.map((img: any, idx: number) => {
-                  const isActive = (selectedImage ?? book.coverImageUrl) === img.imageUrl;
-                  return (
-                    <button key={img.id} type="button" onClick={() => setSelectedImage(img.imageUrl)}
-                      className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all ${isActive ? "border-[#1d1a17] opacity-100" : "border-transparent opacity-60 hover:opacity-100"}`}>
-                      <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                {/* Main image */}
+                <div className="group relative overflow-hidden rounded-2xl border border-black/8 bg-[#f8f4ee]">
+                  <img
+                    key={activeUrl}
+                    src={activeUrl}
+                    alt={book.title}
+                    className="mx-auto block aspect-[3/4] w-full max-w-[280px] object-cover transition-all duration-300 lg:max-w-full"
+                  />
+                  {discount > 0 && (
+                    <div className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
+                      {discount}% OFF
+                    </div>
+                  )}
+                  {isOutOfStock && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl">
+                      <span className="rounded-full bg-white px-4 py-2 text-sm font-medium">Out of Stock</span>
+                    </div>
+                  )}
+                  {/* Prev / Next arrows — only when multiple images */}
+                  {allImages.length > 1 && (
+                    <>
+                      <button
+                        type="button" onClick={prev}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur-sm transition hover:bg-white hover:scale-110"
+                        aria-label="Previous image"
+                      >
+                        <ChevronLeft size={16} className="text-[#1d1a17]" />
+                      </button>
+                      <button
+                        type="button" onClick={next}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur-sm transition hover:bg-white hover:scale-110"
+                        aria-label="Next image"
+                      >
+                        <ChevronRight size={16} className="text-[#1d1a17]" />
+                      </button>
+                      {/* Dot indicators */}
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                        {allImages.map((_, i) => (
+                          <button
+                            key={i} type="button"
+                            onClick={() => setCurrentIndex(i)}
+                            className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "w-4 bg-[#1d1a17]" : "w-1.5 bg-[#1d1a17]/30 hover:bg-[#1d1a17]/60"}`}
+                            aria-label={`Go to image ${i + 1}`}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Thumbnail Strip — all images, no limit */}
+                {allImages.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {allImages.map((img, idx) => (
+                      <button
+                        key={img.id} type="button"
+                        onClick={() => setCurrentIndex(idx)}
+                        className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all duration-200 ${idx === safeIndex ? "border-[#1d1a17] opacity-100 scale-105" : "border-transparent opacity-55 hover:opacity-90 hover:scale-105"}`}
+                      >
+                        <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             );
           })()}
 
@@ -209,10 +258,10 @@ export default function BookDetailPage() {
 
         {/* Right — Info */}
         <div className="space-y-4">
-          {/* Genre tag */}
-          {book.genre?.name && (
+          {/* Category tag */}
+          {book.category?.name && (
             <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              {book.genre.name}
+              {book.category.name}
             </span>
           )}
 
@@ -301,6 +350,10 @@ export default function BookDetailPage() {
             </button>
           </div>
 
+          {cartError && (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{cartError}</p>
+          )}
+
           {isInCart && (
             <Link to="/cart" className="inline-flex items-center gap-1.5 text-sm text-accent font-medium hover:underline transition-colors">
               View Cart <ChevronRight size={14} />
@@ -357,12 +410,12 @@ export default function BookDetailPage() {
             </div>
             <div className="divide-y divide-black/5">
               {[
-                { label: "Publication", value: (book as any).publication ?? "BucketList Books" },
+                { label: "Publication", value: (book as any).publication ?? "Akash Book Centre" },
                 { label: "Publication Year", value: new Date(book.createdAt).getFullYear() },
                 { label: "Author", value: book.author },
                 { label: "Language", value: (book as any).language ?? "English" },
                 { label: "ISBN", value: book.isbn },
-                { label: "Genre", value: book.genre?.name ?? "General" },
+                { label: "Category", value: book.category?.name ?? "General" },
                 { label: "Availability", value: isOutOfStock ? "Out of Stock" : `${book.stock} in Stock` },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start gap-4 px-5 py-3">
@@ -376,9 +429,16 @@ export default function BookDetailPage() {
           {/* Description */}
           <div className="rounded-2xl border border-black/8 bg-white p-5">
             <h3 className="font-serif text-lg text-text-primary mb-4">About this Book</h3>
-            <p className="text-sm leading-7 text-text-muted">
-              {book.description || "A thoughtfully curated title from our collection. This book offers valuable insights and engaging content for readers of all levels."}
-            </p>
+            {book.description && book.description.trim().startsWith("<") ? (
+              <div
+                className="prose prose-sm max-w-none text-text-muted leading-7"
+                dangerouslySetInnerHTML={{ __html: book.description }}
+              />
+            ) : (
+              <p className="text-sm leading-7 text-text-muted">
+                {book.description || "A thoughtfully curated title from our collection. This book offers valuable insights and engaging content for readers of all levels."}
+              </p>
+            )}
           </div>
         </div>
       ) : (
@@ -478,9 +538,9 @@ export default function BookDetailPage() {
         <section className="space-y-5 border-t border-black/8 pt-8">
           <div className="flex items-center justify-between">
             <h2 className="font-serif text-xl text-text-primary sm:text-2xl">
-              More in {book.genre?.name ?? "this genre"}
+              More in {book.category?.name ?? "this category"}
             </h2>
-            <Link to={`/?genre=${book.genre?.slug}`} className="text-sm text-accent hover:underline transition-colors">
+            <Link to={book.category ? `/category/${book.category.slug}` : "/"} className="text-sm text-accent hover:underline transition-colors">
               View all
             </Link>
           </div>
