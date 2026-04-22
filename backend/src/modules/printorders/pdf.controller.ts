@@ -60,8 +60,8 @@ const serveFile = async (
 
 /** GET /api/v1/pdf/view/:fileId — opens PDF inline in browser */
 export const viewFile: RequestHandler = (req, res, next) =>
-  void serveFile(req.params.fileId, "inline", req as any, res, next);
+  void serveFile(req.params.fileId as string, "inline", req as any, res, next);
 
 /** GET /api/v1/pdf/download/:fileId — forces browser save-as dialog */
 export const downloadFile: RequestHandler = (req, res, next) =>
-  void serveFile(req.params.fileId, "attachment", req as any, res, next);
+  void serveFile(req.params.fileId as string, "attachment", req as any, res, next);

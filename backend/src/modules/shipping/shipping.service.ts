@@ -1,5 +1,5 @@
 import prisma from "../../lib/prisma";
-import { AppError } from "../../lib/AppError";
+import AppError from "../../lib/AppError";
 
 export interface ShippingSettingsData {
   freeRadius: number;
