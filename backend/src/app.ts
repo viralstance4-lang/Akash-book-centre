@@ -43,8 +43,8 @@ app.use(helmet());
 app.use(globalRateLimiter);
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || origin === env.CORS_ORIGIN) return callback(null, true);
-    callback(new Error("Not allowed by CORS"));
+    if (!origin || env.CORS_ORIGIN.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
   },
   credentials: true,
 }));

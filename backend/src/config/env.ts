@@ -19,7 +19,11 @@ const schema = z.object({
   GMAIL_USER:             z.string().optional(),
   GMAIL_PASS:             z.string().optional(),
   ADMIN_EMAIL:            z.string().optional(),
-  CORS_ORIGIN:            z.string().optional().default("http://localhost:5173"),
+  CORS_ORIGIN:            z
+    .string()
+    .optional()
+    .default("http://localhost:5173")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
 
   // ── Twilio (optional – for SMS/WhatsApp invoice notifications) ──────────────
   TWILIO_ACCOUNT_SID: z.string().optional(),
