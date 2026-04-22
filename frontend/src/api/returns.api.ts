@@ -14,9 +14,7 @@ export interface ReturnRequest {
   user?: any;
 }
 
-export interface PaginatedReturns extends PaginatedResponse {
-  returns: ReturnRequest[];
-}
+export type PaginatedReturns = PaginatedResponse<never> & { returns: ReturnRequest[] };
 
 export const createReturn = async (orderId: string, email: string, reason?: string) => {
   const response = await api.post<ApiSuccessResponse<ReturnRequest>>("/returns", {
