@@ -52,6 +52,7 @@ app.use(cookieParser);
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 
+app.get("/", (_req, res) => { res.status(200).json({ status: "ok", message: "Akash Book Centre API is running" }); });
 app.get("/health", (_req, res) => { res.status(200).json({ status: "ok" }); });
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
