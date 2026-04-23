@@ -26,6 +26,7 @@ export default function StorefrontLayout() {
   const [topSearch, setTopSearch] = useState("");
   const [isScrolled, setIsScrolled] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: cartData } = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isAuthenticated });
   const { data: footerPagesData } = useQuery({ queryKey: ["footer-pages"], queryFn: getFooterPages, staleTime: 1000 * 60 * 5 });
@@ -50,6 +51,17 @@ export default function StorefrontLayout() {
   }, []);
 
   useEffect(() => { setIsMobileMenuOpen(false); }, [location.pathname]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -94,11 +106,23 @@ export default function StorefrontLayout() {
           </nav>
 
           {/* Search */}
-          <div className="hidden flex-1 max-w-md mx-auto sm:block">
-            <label className="relative block w-full">
-              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4"><Search className="h-4 w-4 text-text-muted" /></span>
-              <input id="storefront-search" type="text" value={topSearch} onChange={(e) => handleSearch(e.target.value)} placeholder="Search books, authors..."
-                className="h-10 w-full rounded-full border border-black/10 bg-[#f8f5f0] pl-10 pr-4 text-sm outline-none transition-colors placeholder:text-text-muted/70 focus:border-black/20 focus:bg-white" />
+          <div className="hidden flex-1 max-w-lg mx-auto sm:block">
+            <label className="relative block w-full group">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                <Search className="h-4 w-4 text-amber-500 transition-colors group-focus-within:text-amber-600" />
+              </span>
+              <input
+                id="storefront-search"
+                ref={searchInputRef}
+                type="text"
+                value={topSearch}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search books, authors..."
+                className="h-11 w-full rounded-full border-2 border-amber-200 bg-amber-50/60 pl-10 pr-20 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:border-amber-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(251,191,36,0.18)]"
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4">
+                <kbd className="rounded-md border border-black/10 bg-white px-1.5 py-0.5 text-[10px] font-medium text-text-muted shadow-sm">Ctrl K</kbd>
+              </span>
             </label>
           </div>
 
@@ -166,10 +190,12 @@ export default function StorefrontLayout() {
 
         {/* Mobile Search */}
         <div className="border-t border-border px-4 py-2.5 sm:hidden">
-          <label className="relative block w-full">
-            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4"><Search className="h-4 w-4 text-text-muted" /></span>
+          <label className="relative block w-full group">
+            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+              <Search className="h-4 w-4 text-amber-500 transition-colors group-focus-within:text-amber-600" />
+            </span>
             <input type="text" value={topSearch} onChange={(e) => handleSearch(e.target.value)} placeholder="Search books..."
-              className="h-10 w-full rounded-full border border-black/10 bg-[#f8f5f0] pl-10 pr-4 text-sm outline-none focus:border-black/20 focus:bg-white" />
+              className="h-10 w-full rounded-full border-2 border-amber-200 bg-amber-50/60 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:border-amber-400 focus:bg-white focus:shadow-[0_0_0_3px_rgba(251,191,36,0.18)]" />
           </label>
         </div>
       </header>
