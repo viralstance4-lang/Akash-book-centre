@@ -1,19 +1,19 @@
--- AlterTable: add Shiprocket tracking fields to Order
-ALTER TABLE "Order" ADD COLUMN "shiprocketOrderId"    TEXT;
-ALTER TABLE "Order" ADD COLUMN "shiprocketShipmentId" TEXT;
-ALTER TABLE "Order" ADD COLUMN "awbCode"              TEXT;
-ALTER TABLE "Order" ADD COLUMN "courierName"          TEXT;
-ALTER TABLE "Order" ADD COLUMN "trackingUrl"          TEXT;
-ALTER TABLE "Order" ADD COLUMN "labelUrl"             TEXT;
-ALTER TABLE "Order" ADD COLUMN "invoiceUrl"           TEXT;
-ALTER TABLE "Order" ADD COLUMN "manifestUrl"          TEXT;
-ALTER TABLE "Order" ADD COLUMN "shiprocketStatus"     TEXT DEFAULT 'NOT_CREATED';
+-- AlterTable: add Shiprocket tracking fields to Order (idempotent)
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "shiprocketOrderId"    TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "shiprocketShipmentId" TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "awbCode"              TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "courierName"          TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "trackingUrl"          TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "labelUrl"             TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "invoiceUrl"           TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "manifestUrl"          TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "shiprocketStatus"     TEXT DEFAULT 'NOT_CREATED';
 
--- CreateIndex on awbCode for fast webhook lookups
-CREATE INDEX "Order_awbCode_idx" ON "Order"("awbCode");
+-- CreateIndex on awbCode for fast webhook lookups (idempotent)
+CREATE INDEX IF NOT EXISTS "Order_awbCode_idx" ON "Order"("awbCode");
 
--- CreateTable: ShiprocketToken (cached JWT, auto-refreshed)
-CREATE TABLE "ShiprocketToken" (
+-- CreateTable: ShiprocketToken (idempotent)
+CREATE TABLE IF NOT EXISTS "ShiprocketToken" (
     "id"        UUID         NOT NULL DEFAULT gen_random_uuid(),
     "token"     TEXT         NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
