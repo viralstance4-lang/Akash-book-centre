@@ -12,6 +12,7 @@ const cartInclude = {
           price: true,
           coverImageUrl: true,
           stock: true,
+          isPrintBook: true,
         },
       },
     },
@@ -87,6 +88,16 @@ export const addToCart = async (
   const cart = await getOrCreateCart(userId);
   const book = await getBookOrThrow(bookId);
 
+  const normalizedBindingType = String(bindingType ?? "NONE").toUpperCase();
+  if (normalizedBindingType !== "NONE") {
+    const isAllowed =
+      (normalizedBindingType === "STAPLE" && (book as any).allowStapleBinding) ||
+      (normalizedBindingType === "SPIRAL" && (book as any).allowSpiralBinding);
+    if (!isAllowed) {
+      throw new AppError("Selected binding is not available for this book", 400, "BINDING_NOT_ALLOWED");
+    }
+  }
+
   const existingItem = await prisma.cartItem.findUnique({
     where: {
       cartId_bookId: {
@@ -113,11 +124,11 @@ export const addToCart = async (
       cartId: cart.id,
       bookId,
       quantity,
-      bindingType,
+      bindingType: normalizedBindingType,
     },
     update: {
       quantity: nextQuantity,
-      bindingType,
+      bindingType: normalizedBindingType,
     },
   });
 

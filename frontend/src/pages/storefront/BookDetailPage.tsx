@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 import { ArrowLeft, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
@@ -81,6 +81,27 @@ export default function BookDetailPage() {
   const relatedBooks = relatedBooksData?.data?.books?.filter((b) => b.id !== book?.id) ?? [];
   const bookReviews = reviewsData?.data?.reviews ?? [];
   const bookRating = reviewsData?.data?.rating ?? { average: 0, count: 0 };
+
+  const allowStapleBinding = Boolean((book as any)?.allowStapleBinding);
+  const allowSpiralBinding = Boolean((book as any)?.allowSpiralBinding);
+  const showBindingSection = allowStapleBinding || allowSpiralBinding;
+
+  const bindingOptions = useMemo(() => {
+    const opts: Array<{ value: "STAPLE" | "SPIRAL"; label: string; sub: string }> = [];
+    if (allowStapleBinding) opts.push({ value: "STAPLE", label: "Staple Binding", sub: "Standard · No extra charge" });
+    if (allowSpiralBinding) opts.push({ value: "SPIRAL", label: "Spiral Binding", sub: `Premium · +${formatPrice(spiralBindingPrice)}` });
+    return opts;
+  }, [allowStapleBinding, allowSpiralBinding, spiralBindingPrice]);
+
+  useEffect(() => {
+    if (!book) return;
+    if (!showBindingSection) {
+      setBindingType("NONE");
+      return;
+    }
+    if (bindingType === "STAPLE" && !allowStapleBinding) setBindingType("NONE");
+    if (bindingType === "SPIRAL" && !allowSpiralBinding) setBindingType("NONE");
+  }, [book?.id, showBindingSection, allowStapleBinding, allowSpiralBinding, bindingType]);
 
   const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
   const originalPrice = comparePrice;
@@ -295,36 +316,36 @@ export default function BookDetailPage() {
           <p className="text-xs text-emerald-600 font-medium">✓ Inclusive of all taxes</p>
 
           {/* Binding Type Selector */}
-          <div className="rounded-2xl border border-black/8 bg-[#f8f4ee] p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted">Binding Type</p>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                { value: "STAPLE" as const, label: "Staple Binding", sub: "Standard · No extra charge" },
-                { value: "SPIRAL" as const, label: "Spiral Binding", sub: `Premium · +${formatPrice(spiralBindingPrice)}` },
-              ]).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setBindingType(opt.value)}
-                  className={`flex flex-col gap-0.5 rounded-xl border-2 px-4 py-3 text-left transition-all ${
-                    bindingType === opt.value
-                      ? "border-[#1d1a17] bg-white shadow-sm"
-                      : "border-black/10 hover:border-black/25"
-                  }`}
-                >
-                  <span className="text-sm font-semibold text-text-primary">{opt.label}</span>
-                  <span className={`text-xs ${opt.value === "SPIRAL" ? "text-amber-600 font-medium" : "text-text-muted"}`}>
-                    {opt.sub}
-                  </span>
-                </button>
-              ))}
+          {showBindingSection && (
+            <div className="rounded-2xl border border-black/8 bg-[#f8f4ee] p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted">Binding Type</p>
+              <div className={`grid gap-3 ${bindingOptions.length >= 2 ? "grid-cols-2" : "grid-cols-1"}`}>
+                {bindingOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setBindingType(opt.value)}
+                    className={`flex flex-col gap-0.5 rounded-xl border-2 px-4 py-3 text-left transition-all ${
+                      bindingType === opt.value
+                        ? "border-[#1d1a17] bg-white shadow-sm"
+                        : "border-black/10 hover:border-black/25"
+                    }`}
+                    aria-pressed={bindingType === opt.value}
+                  >
+                    <span className="text-sm font-semibold text-text-primary">{opt.label}</span>
+                    <span className={`text-xs ${opt.value === "SPIRAL" ? "text-amber-600 font-medium" : "text-text-muted"}`}>
+                      {opt.sub}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {bindingType === "SPIRAL" && (
+                <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  ₹{spiralBindingPrice} spiral binding charge will be added to your order.
+                </p>
+              )}
             </div>
-            {bindingType === "SPIRAL" && (
-              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                ₹{spiralBindingPrice} spiral binding charge will be added to your order.
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Quantity + Add to Cart */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -417,6 +438,10 @@ export default function BookDetailPage() {
                 { label: "ISBN", value: book.isbn },
                 { label: "Category", value: book.category?.name ?? "General" },
                 { label: "Availability", value: isOutOfStock ? "Out of Stock" : `${book.stock} in Stock` },
+                ...(Number((book as any).height) > 0 ? [{ label: "Height", value: `${Number((book as any).height)} cm` }] : []),
+                ...(Number((book as any).length) > 0 ? [{ label: "Length", value: `${Number((book as any).length)} cm` }] : []),
+                ...(Number((book as any).breadth) > 0 ? [{ label: "Breadth", value: `${Number((book as any).breadth)} cm` }] : []),
+                ...(Number((book as any).weight) > 0 ? [{ label: "Weight", value: `${Number((book as any).weight)} kg` }] : []),
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start gap-4 px-5 py-3">
                   <span className="w-36 shrink-0 text-sm text-text-muted">{label}</span>
@@ -544,7 +569,7 @@ export default function BookDetailPage() {
               View all
             </Link>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {relatedBooks.slice(0, 6).map((relatedBook) => (
               <BookCard key={relatedBook.id} book={relatedBook}
                 onAddToCart={() => { if (!isAuthenticated) { navigate("/login"); return; } addToCartMutation.mutate(relatedBook.id); }}

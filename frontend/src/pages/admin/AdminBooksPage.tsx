@@ -32,6 +32,12 @@ type BookFormState = {
   price: string; comparePrice: string;
   categoryId: string; subcategoryId: string;
   stock: string; language: string; publication: string;
+  allowStapleBinding: boolean;
+  allowSpiralBinding: boolean;
+  height: string;
+  length: string;
+  breadth: string;
+  weight: string;
   // create mode: multiple images + which one is the cover
   images: File[];
   coverIndex: number;
@@ -44,6 +50,12 @@ const initialForm: BookFormState = {
   price: "", comparePrice: "",
   categoryId: "", subcategoryId: "",
   stock: "", language: "English", publication: "",
+  allowStapleBinding: false,
+  allowSpiralBinding: false,
+  height: "",
+  length: "",
+  breadth: "",
+  weight: "",
   images: [], coverIndex: 0,
   coverImage: null,
 };
@@ -77,6 +89,12 @@ const buildBookFormData = (form: BookFormState, isNew: boolean) => {
   fd.append("stock",    form.stock);
   fd.append("language", form.language);
   if (form.publication) fd.append("publication", form.publication);
+  fd.append("allowStapleBinding", form.allowStapleBinding ? "true" : "false");
+  fd.append("allowSpiralBinding", form.allowSpiralBinding ? "true" : "false");
+  if (form.height !== "") fd.append("height", form.height);
+  if (form.length !== "") fd.append("length", form.length);
+  if (form.breadth !== "") fd.append("breadth", form.breadth);
+  if (form.weight !== "") fd.append("weight", form.weight);
   if (isNew) {
     // Create: send all images + cover index
     form.images.forEach((f) => fd.append("images", f));
@@ -378,6 +396,12 @@ export default function AdminBooksPage() {
       stock:        String(book.stock),
       language:     (book as any).language    ?? "English",
       publication:  (book as any).publication ?? "",
+      allowStapleBinding: Boolean((book as any).allowStapleBinding),
+      allowSpiralBinding: Boolean((book as any).allowSpiralBinding),
+      height: (book as any).height !== null && (book as any).height !== undefined ? String((book as any).height) : "",
+      length: (book as any).length !== null && (book as any).length !== undefined ? String((book as any).length) : "",
+      breadth: (book as any).breadth !== null && (book as any).breadth !== undefined ? String((book as any).breadth) : "",
+      weight: (book as any).weight !== null && (book as any).weight !== undefined ? String((book as any).weight) : "",
       images: [], coverIndex: 0,
       coverImage:   null,
     });
@@ -569,6 +593,95 @@ export default function AdminBooksPage() {
                 <label className="mb-1 block text-xs text-text-muted">Publication</label>
                 <input value={form.publication} onChange={(e) => setForm((c) => ({ ...c, publication: e.target.value }))} placeholder="Publisher" className={inp} />
               </div>
+            </div>
+
+            {/* ── Dimensions & Weight (optional) ─────────────────────────── */}
+            <div className="rounded-xl border border-black/10 bg-white p-3 space-y-2">
+              <p className="text-xs font-medium text-text-muted">Dimensions & Weight</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-text-muted">Height (cm)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={form.height}
+                    onChange={(e) => setForm((c) => ({ ...c, height: e.target.value }))}
+                    placeholder="e.g. 20"
+                    className={inp}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-text-muted">Length (cm)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={form.length}
+                    onChange={(e) => setForm((c) => ({ ...c, length: e.target.value }))}
+                    placeholder="e.g. 15"
+                    className={inp}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-text-muted">Breadth (cm)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={form.breadth}
+                    onChange={(e) => setForm((c) => ({ ...c, breadth: e.target.value }))}
+                    placeholder="e.g. 3"
+                    className={inp}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-text-muted">Weight (kg)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.001"
+                    value={form.weight}
+                    onChange={(e) => setForm((c) => ({ ...c, weight: e.target.value }))}
+                    placeholder="e.g. 0.5"
+                    className={inp}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-text-muted">Optional — leave empty to hide on product page.</p>
+            </div>
+
+            {/* ── Binding options (per book) ─────────────────────────────── */}
+            <div className="rounded-xl border border-black/10 bg-white p-3 space-y-2">
+              <p className="text-xs font-medium text-text-muted">Binding Options</p>
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-black/8 bg-[#fbf8f2] px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Enable Staple Binding</p>
+                  <p className="text-[11px] text-text-muted">Show “Staple Binding” option on product page</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.allowStapleBinding}
+                  onChange={(e) => setForm((c) => ({ ...c, allowStapleBinding: e.target.checked }))}
+                  className="h-4 w-4 accent-[#1d1a17]"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-black/8 bg-[#fbf8f2] px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Enable Spiral Binding</p>
+                  <p className="text-[11px] text-text-muted">Show “Spiral Binding” option on product page</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.allowSpiralBinding}
+                  onChange={(e) => setForm((c) => ({ ...c, allowSpiralBinding: e.target.checked }))}
+                  className="h-4 w-4 accent-[#1d1a17]"
+                />
+              </label>
             </div>
 
             {/* ── CREATE mode: multi-image uploader ────────────────────── */}

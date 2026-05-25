@@ -19,11 +19,26 @@ const schema = z.object({
   GMAIL_USER:             z.string().optional(),
   GMAIL_PASS:             z.string().optional(),
   ADMIN_EMAIL:            z.string().optional(),
+  SUPPORT_EMAIL:          z.string().optional(),
+  ADMIN_OTP_EMAIL:        z.string().optional(),
+  OTP_EXPIRY_MINUTES:     z.string().optional().default("5").transform((v) => parseInt(v, 10)),
   CORS_ORIGIN:            z
     .string()
     .optional()
     .default("http://localhost:5173")
     .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+
+  // ── Shiprocket (optional – for shipment creation and tracking) ──────────────
+  /** Email used to login to Shiprocket dashboard */
+  SHIPROCKET_EMAIL:           z.string().optional(),
+  /** Password for Shiprocket account */
+  SHIPROCKET_PASSWORD:        z.string().optional(),
+  /** Name of the pickup location as configured in Shiprocket dashboard (default: Primary) */
+  SHIPROCKET_PICKUP_LOCATION: z.string().optional().default("Primary"),
+  /** Pincode of your pickup/warehouse address (used for courier serviceability check) */
+  SHIPROCKET_PICKUP_PINCODE:  z.string().optional().default("110001"),
+  /** Optional secret token appended to webhook URL for basic security */
+  SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
 
   // ── Twilio (optional – for SMS/WhatsApp invoice notifications) ──────────────
   TWILIO_ACCOUNT_SID: z.string().optional(),

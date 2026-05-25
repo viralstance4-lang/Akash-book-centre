@@ -15,9 +15,9 @@ export default function CategoriesPage() {
     return (
       <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="h-8 w-48 animate-pulse rounded-xl bg-black/8 mb-8" />
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-40 animate-pulse rounded-2xl bg-black/8" />
+        <div className="grid grid-cols-4 gap-2 lg:grid-cols-6">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="aspect-square animate-pulse rounded-xl bg-black/8" />
           ))}
         </div>
       </div>
@@ -53,12 +53,12 @@ export default function CategoriesPage() {
           </Link>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-4 gap-2 md:grid-cols-4 lg:grid-cols-6">
           {activeCategories.map((category) => (
             <Link
               key={category.id}
               to={`/category/${category.slug}`}
-              className="group relative overflow-hidden rounded-2xl border border-black/8 transition-all hover:-translate-y-1 hover:border-black/15 hover:shadow-md"
+              className="group relative overflow-hidden rounded-xl border border-black/8 transition-all hover:-translate-y-0.5 hover:border-black/15 hover:shadow-md"
             >
               <div className="aspect-square w-full overflow-hidden bg-[#f4efe7]">
                 {category.imageUrl ? (
@@ -69,22 +69,19 @@ export default function CategoriesPage() {
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
-                    <Layers3 size={32} className="text-text-muted/60" strokeWidth={1.4} />
+                    <Layers3 size={20} className="text-text-muted/60" strokeWidth={1.4} />
                   </div>
                 )}
               </div>
               {category.imageUrl && (
                 <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent pointer-events-none" />
               )}
-              <div className={`${category.imageUrl ? "absolute bottom-0 left-0 right-0 px-4 pb-4" : "relative px-4 py-4"}`}>
-                <p className={`font-serif text-lg leading-tight ${
+              <div className={`${category.imageUrl ? "absolute bottom-0 left-0 right-0 px-1.5 pb-1.5" : "relative px-1.5 py-1.5"}`}>
+                <p className={`font-serif text-[0.65rem] leading-tight text-center ${
                   category.imageUrl ? "text-white drop-shadow-sm" : "text-text-primary"
                 }`}>
                   {category.name}
                 </p>
-                {!category.imageUrl && (
-                  <p className="mt-1 text-xs text-text-muted">Browse subcategories →</p>
-                )}
               </div>
             </Link>
           ))}

@@ -58,14 +58,16 @@ export default function CheckoutPage() {
   const cart = data?.data;
   const items = cart?.items ?? [];
 
-  const hasPrintItems = useMemo(() => items.some((item) => item.bindingType !== "NONE"), [items]);
+  const hasPrintBook     = useMemo(() => items.some((item) => item.book.isPrintBook === true), [items]);
+  const hasSpiralBinding = useMemo(() => items.some((item) => item.bindingType === "SPIRAL"), [items]);
+  const codBlocked       = hasPrintBook || hasSpiralBinding;
 
-  // Auto-switch to ONLINE if print items exist and COD is selected
+  // Auto-switch to ONLINE when COD is blocked
   useEffect(() => {
-    if (hasPrintItems && paymentMethod === "COD") {
+    if (codBlocked && paymentMethod === "COD") {
       setPaymentMethod(isRazorpayConfigured ? "ONLINE" : "COD");
     }
-  }, [hasPrintItems, paymentMethod]);
+  }, [codBlocked, paymentMethod]);
 
   // Auto-calculate delivery when pincode reaches 6 digits
   useEffect(() => {
@@ -145,19 +147,21 @@ export default function CheckoutPage() {
   const totalAmount = subtotal + bindingTotal;
   const discount = appliedCoupon?.discount ?? 0;
 
-  // Calculate delivery charge
+  // Calculate delivery charge using new business logic
   const deliveryCharge = useMemo(() => {
     if (!delivery?.distanceKm || !shippingSettings) return 0;
-    const distance = delivery.distanceKm;
-    const freeRadius = shippingSettings.freeRadius;
-    if (distance <= freeRadius) return 0;
-    const extraDistance = distance - freeRadius;
-    let charge = Number(shippingSettings.baseCharge) + extraDistance * Number(shippingSettings.perKmCharge);
-    if (shippingSettings.maxCharge && charge > Number(shippingSettings.maxCharge)) {
-      charge = Number(shippingSettings.maxCharge);
+    if (!shippingSettings.isShippingEnabled) return 0;
+    const distance   = delivery.distanceKm;
+    const threshold  = shippingSettings.freeRadius; // mapped from distanceThreshold
+    if (distance <= threshold) {
+      // Local delivery: free if order meets minimum, else per-km rate
+      if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
+      return Math.round(distance * Number(shippingSettings.perKmCharge));
     }
-    return charge;
-  }, [delivery?.distanceKm, shippingSettings]);
+    // Beyond threshold: weight-based on server; show distance estimate for display only
+    const extraDistance = distance - threshold;
+    return Math.round(extraDistance * Number(shippingSettings.perKmCharge));
+  }, [delivery?.distanceKm, shippingSettings, totalAmount]);
 
   // Calculate prepaid discount
   const prepaidDiscount = useMemo(() => {
@@ -249,7 +253,7 @@ export default function CheckoutPage() {
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-emerald-800">{SHOP.name}</p>
-          <p className="text-xs text-emerald-600">Free delivery within {shippingSettings?.freeRadius ?? 5} km · Enter your pincode below to check</p>
+          <p className="text-xs text-emerald-600">Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+ · Enter your pincode below to check</p>
         </div>
       </div>
 
@@ -259,9 +263,20 @@ export default function CheckoutPage() {
           <section className="rounded-2xl border border-black/8 bg-white p-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-text-muted">Payment Method</p>
 
-            {hasPrintItems && (
-              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
-                COD is not available for orders with binding. Online payment required.
+            {hasPrintBook && (
+              <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <span className="mt-0.5 shrink-0 text-amber-500">⚠</span>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  This order contains <strong>Print Books</strong> — Cash on Delivery is unavailable. Only online payment is accepted.
+                </p>
+              </div>
+            )}
+            {!hasPrintBook && hasSpiralBinding && (
+              <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <span className="mt-0.5 shrink-0 text-amber-500">⚠</span>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Cash on Delivery is unavailable for <strong>Spiral Binding</strong> orders. Online payment required.
+                </p>
               </div>
             )}
 
@@ -281,21 +296,33 @@ export default function CheckoutPage() {
               )}
               <button
                 type="button"
-                onClick={() => !hasPrintItems && setPaymentMethod("COD")}
-                disabled={hasPrintItems}
-                title={hasPrintItems ? "COD not available for print/binding orders" : undefined}
+                onClick={() => !codBlocked && setPaymentMethod("COD")}
+                disabled={codBlocked}
+                title={
+                  hasPrintBook
+                    ? "Cash on Delivery is unavailable for Print Books"
+                    : hasSpiralBinding
+                    ? "COD not available for Spiral Binding orders"
+                    : undefined
+                }
                 className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${
                   paymentMethod === "COD" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"
-                } ${hasPrintItems ? "cursor-not-allowed opacity-40" : ""}`}
+                } ${codBlocked ? "cursor-not-allowed opacity-40" : ""}`}
               >
                 <Truck size={20} className={paymentMethod === "COD" ? "text-[#1d1a17]" : "text-text-muted"} />
                 <div>
                   <p className="text-sm font-semibold text-text-primary">Cash on Delivery</p>
-                  <p className="text-xs text-emerald-600 font-medium">FREE · No extra charge</p>
+                  {codBlocked ? (
+                    <p className="text-xs text-red-500 font-medium">
+                      {hasPrintBook ? "Unavailable for Print Books" : "Unavailable for Spiral Binding"}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-emerald-600 font-medium">FREE · No extra charge</p>
+                  )}
                 </div>
               </button>
             </div>
-            {!isRazorpayConfigured && !hasPrintItems && (
+            {!isRazorpayConfigured && !codBlocked && (
               <p className="mt-2 text-xs text-text-muted">Online payment is currently unavailable. Cash on Delivery is available.</p>
             )}
           </section>

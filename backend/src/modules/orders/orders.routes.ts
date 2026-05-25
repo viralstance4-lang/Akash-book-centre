@@ -11,6 +11,7 @@ import {
   getOrders,
   placeOrder,
   requestReturn,
+  resendInvoice,
   updateAdminOrderStatus,
 } from "./orders.controller";
 import { placeOrderSchema, updateOrderStatusSchema } from "./orders.schema";
@@ -34,6 +35,7 @@ adminOrdersRouter.patch(
   validate(updateOrderStatusSchema),
   updateAdminOrderStatus,
 );
+adminOrdersRouter.post("/:id/resend-invoice", resendInvoice);
 adminOrdersRouter.delete("/:id", deleteAdminOrder);
 
 export default ordersRouter;

@@ -5,7 +5,7 @@ import jwt, { type Secret, type SignOptions } from "jsonwebtoken";
 import env from "../config/env";
 import AppError from "../lib/AppError";
 import prisma from "../lib/prisma";
-import { sendVerificationEmail } from "../lib/email";
+import { sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
 import { verifyOtp } from "./otp/otp.service";
 
 type RegisterUserInput = { name: string; email: string; password: string };
@@ -20,6 +20,12 @@ const JWT_ACCESS_SECRET: Secret = env.JWT_ACCESS_SECRET;
 const OTP_EXPIRY_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_ATTEMPTS = 5;
+
+// ── Admin 2FA constants ────────────────────────────────────────────────────────
+const ADMIN_OTP_EXPIRY_MINUTES      = 5;
+const ADMIN_OTP_SESSION_MINUTES     = 10;
+const ADMIN_OTP_MAX_ATTEMPTS        = 5;
+const ADMIN_OTP_RESEND_COOLDOWN_SEC = 60;
 
 // ─── Token Helpers ────────────────────────────────────────────────────────────
 
@@ -204,6 +210,14 @@ export const loginUser = async (data: LoginUserInput) => {
     );
   }
 
+  // ── Admin 2FA: send OTP, return session token (no JWT issued yet) ──────────
+  if (user.role === "ADMIN") {
+    const otpSessionToken = await initiateAdminOtp(user.id);
+    const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL ?? "");
+    return { requiresAdminOtp: true as const, otpSessionToken, maskedEmail };
+  }
+
+  // ── Regular user: issue tokens immediately ─────────────────────────────────
   const accessToken  = generateAccessToken(user);
   const refreshToken = generateRefreshToken();
   await storeRefreshToken(user.id, refreshToken);
@@ -273,4 +287,151 @@ export const getMe = async (userId: string) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new AppError("User not found", 404, "USER_NOT_FOUND");
   return getSafeUser(user);
+};
+
+// ─── Admin 2FA ────────────────────────────────────────────────────────────────
+
+const maskEmail = (email: string): string => {
+  const [local, domain] = email.split("@");
+  if (!domain || !local) return "***@***.***";
+  return `${local.slice(0, 2)}***@${domain}`;
+};
+
+const generateAdminOtpSessionToken = (userId: string): string =>
+  jwt.sign({ sub: userId, type: "ADMIN_OTP_SESSION" }, JWT_ACCESS_SECRET, {
+    expiresIn: `${ADMIN_OTP_SESSION_MINUTES}m`,
+  });
+
+const validateAdminOtpSession = (token: string): string => {
+  let payload: { sub?: string; type?: string };
+  try {
+    payload = jwt.verify(token, JWT_ACCESS_SECRET) as { sub?: string; type?: string };
+  } catch {
+    throw new AppError("OTP session expired. Please log in again.", 401, "INVALID_OTP_SESSION");
+  }
+  if (payload.type !== "ADMIN_OTP_SESSION" || !payload.sub) {
+    throw new AppError("Invalid OTP session token.", 401, "INVALID_OTP_SESSION");
+  }
+  return payload.sub;
+};
+
+export const initiateAdminOtp = async (userId: string): Promise<string> => {
+  const otpEmail = env.ADMIN_OTP_EMAIL;
+  if (!otpEmail) {
+    throw new AppError(
+      "Admin OTP email not configured. Add ADMIN_OTP_EMAIL to .env.",
+      500,
+      "OTP_NOT_CONFIGURED",
+    );
+  }
+
+  // Enforce 60-second resend cooldown
+  const recentOtp = await prisma.otpCode.findFirst({
+    where: {
+      userId,
+      type:  "ADMIN_2FA",
+      used:  false,
+      createdAt: { gt: new Date(Date.now() - ADMIN_OTP_RESEND_COOLDOWN_SEC * 1000) },
+    },
+  });
+  if (recentOtp) {
+    const wait = ADMIN_OTP_RESEND_COOLDOWN_SEC -
+      Math.floor((Date.now() - recentOtp.createdAt.getTime()) / 1000);
+    throw new AppError(
+      `Please wait ${wait}s before requesting another OTP.`,
+      429,
+      "OTP_TOO_SOON",
+    );
+  }
+
+  // Invalidate all old ADMIN_2FA OTPs for this user
+  await prisma.otpCode.updateMany({
+    where: { userId, type: "ADMIN_2FA", used: false },
+    data:  { used: true },
+  });
+
+  const code      = generateOtp();
+  const expiresAt = new Date(Date.now() + ADMIN_OTP_EXPIRY_MINUTES * 60 * 1000);
+
+  await prisma.otpCode.create({
+    data: { userId, code, target: otpEmail, type: "ADMIN_2FA", expiresAt },
+  });
+
+  await sendAdminLoginOtp(otpEmail, code, ADMIN_OTP_EXPIRY_MINUTES);
+
+  return generateAdminOtpSessionToken(userId);
+};
+
+export const verifyAdminOtpAndLogin = async (otpSessionToken: string, code: string) => {
+  const userId = validateAdminOtpSession(otpSessionToken);
+
+  const otpRecord = await prisma.otpCode.findFirst({
+    where:   { userId, type: "ADMIN_2FA", used: false },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!otpRecord) {
+    throw new AppError("No active OTP found. Please log in again.", 400, "OTP_NOT_FOUND");
+  }
+
+  // Increment attempts before checking to prevent race-condition reuse
+  await prisma.otpCode.update({
+    where: { id: otpRecord.id },
+    data:  { attempts: { increment: 1 } },
+  });
+
+  const totalAttempts = otpRecord.attempts + 1;
+
+  if (totalAttempts > ADMIN_OTP_MAX_ATTEMPTS) {
+    await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+    throw new AppError(
+      "Too many incorrect attempts. Please log in again.",
+      429,
+      "OTP_MAX_ATTEMPTS",
+    );
+  }
+
+  if (otpRecord.expiresAt < new Date()) {
+    await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+    throw new AppError("OTP has expired. Please log in again.", 400, "OTP_EXPIRED");
+  }
+
+  if (otpRecord.code !== code.trim()) {
+    const remaining = ADMIN_OTP_MAX_ATTEMPTS - totalAttempts;
+    throw new AppError(
+      remaining > 0
+        ? `Incorrect OTP. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+        : "Incorrect OTP. No attempts remaining. Please log in again.",
+      400,
+      "OTP_INVALID",
+    );
+  }
+
+  // Mark OTP as used immediately — single-use enforcement
+  await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.role !== "ADMIN") {
+    throw new AppError("Access denied.", 403, "FORBIDDEN");
+  }
+
+  const accessToken  = generateAccessToken(user);
+  const refreshToken = generateRefreshToken();
+  await storeRefreshToken(user.id, refreshToken);
+
+  return { user: getSafeUser(user), accessToken, refreshToken };
+};
+
+export const resendAdminOtpCode = async (otpSessionToken: string) => {
+  const userId = validateAdminOtpSession(otpSessionToken);
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.role !== "ADMIN") {
+    throw new AppError("Access denied.", 403, "FORBIDDEN");
+  }
+
+  const newSessionToken = await initiateAdminOtp(userId);
+  const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL ?? "");
+
+  return { otpSessionToken: newSessionToken, maskedEmail };
 };

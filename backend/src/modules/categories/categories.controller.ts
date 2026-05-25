@@ -120,7 +120,19 @@ export const createSubcategory: RequestHandler = async (req, res, next) => {
     const { name, isActive, order } = req.body as {
       name: string; isActive?: string | boolean; order?: string | number;
     };
+    const file = req.file as Express.Multer.File | undefined;
+
+    let imageUrl: string | undefined;
+    let imagePublicId: string | undefined;
+    if (file) {
+      const uploaded = await uploadImage(file, "categories");
+      imageUrl      = uploaded.url;
+      imagePublicId = uploaded.publicId;
+    }
+
     const data = await createSubcategoryService(categoryId, name, {
+      imageUrl,
+      imagePublicId,
       isActive: isActive === undefined ? true : String(isActive) !== "false",
       order:    order    === undefined ? 0    : Number(order),
     });
@@ -136,10 +148,21 @@ export const updateSubcategory: RequestHandler = async (req, res, next) => {
     const { name, isActive, order } = req.body as {
       name?: string; isActive?: string | boolean; order?: string | number;
     };
+    const file = req.file as Express.Multer.File | undefined;
+
+    let imageUrl: string | undefined;
+    let imagePublicId: string | undefined;
+    if (file) {
+      const uploaded = await uploadImage(file, "categories");
+      imageUrl      = uploaded.url;
+      imagePublicId = uploaded.publicId;
+    }
+
     const data = await updateSubcategoryService(id, {
-      ...(name     !== undefined && { name }),
-      ...(isActive !== undefined && { isActive: String(isActive) !== "false" }),
-      ...(order    !== undefined && { order: Number(order) }),
+      ...(name      !== undefined && { name }),
+      ...(imageUrl  !== undefined && { imageUrl, imagePublicId }),
+      ...(isActive  !== undefined && { isActive: String(isActive) !== "false" }),
+      ...(order     !== undefined && { order: Number(order) }),
     });
     res.status(200).json({ success: true, message: "Subcategory updated", data });
   } catch (err) {

@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Users, X } from "lucide-react";
+import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Truck, Users, X } from "lucide-react";
 import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logout as logoutApi } from "../../api/auth.api";
@@ -19,6 +19,7 @@ const navItems = [
   { label: "Print Orders", path: "/admin/print-orders", icon: FileText, title: "Print Orders", exact: false },
   { label: "Returns", path: "/admin/returns", icon: RotateCcw, title: "Returns", exact: false },
   { label: "Homepage Builder", path: "/admin/homepage-builder", icon: PanelTop, title: "Homepage Builder", exact: false },
+  { label: "Shipping", path: "/admin/shipping", icon: Truck, title: "Shipping Settings", exact: false },
   { label: "Settings", path: "/admin/settings", icon: Settings, title: "Settings", exact: false },
 ] as const;
 

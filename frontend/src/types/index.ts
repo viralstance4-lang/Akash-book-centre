@@ -50,6 +50,13 @@ export type Book = {
   stock: number;
   language?: string;
   publication?: string | null;
+  isPrintBook?: boolean;
+  allowStapleBinding?: boolean;
+  allowSpiralBinding?: boolean;
+  height?: number | null;
+  length?: number | null;
+  breadth?: number | null;
+  weight?: number | null;
   isFeatured?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -64,7 +71,7 @@ export type CartItem = {
   bookId: string;
   quantity: number;
   bindingType: "NONE" | "SPIRAL" | "STAPLE";
-  book: Pick<Book, "id" | "title" | "author" | "price" | "coverImageUrl" | "stock">;
+  book: Pick<Book, "id" | "title" | "author" | "price" | "coverImageUrl" | "stock" | "isPrintBook">;
 };
 
 export type Cart = {
@@ -121,6 +128,16 @@ export type Order = {
   customerEmail?: string | null;
   deliveryType?: "FREE" | "PAID" | null;
   deliveryDistance?: number | null;
+  // ── Shiprocket fields ──────────────────────────────────────────────────────
+  shiprocketOrderId?:    string | null;
+  shiprocketShipmentId?: string | null;
+  awbCode?:              string | null;
+  courierName?:          string | null;
+  trackingUrl?:          string | null;
+  labelUrl?:             string | null;
+  invoiceUrl?:           string | null;
+  manifestUrl?:          string | null;
+  shiprocketStatus?:     string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

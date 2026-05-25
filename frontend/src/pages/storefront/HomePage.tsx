@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Layers3, SlidersHorizontal, X } from "lucide-react";
+import { ArrowRight, BookOpen, SlidersHorizontal, X } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -10,12 +10,12 @@ import { getBanners } from "../../api/banners.api";
 import { getFeaturedBooks } from "../../api/featured.api";
 import { getHomepageConfig } from "../../api/homepage.api";
 import type { HomepageSection } from "../../api/homepage.api";
-import BookCard from "../../components/ui/BookCard";
+import BookSlider from "../../components/ui/BookSlider";
 import BannerSlider from "../../components/ui/BannerSlider";
+import CategorySlider from "../../components/ui/CategorySlider";
 import { SkeletonCategory, SkeletonGrid } from "../../components/ui/SkeletonLoader";
 import { useAuthStore } from "../../store/auth.store";
 
-const DEFAULT_LIMIT = 20;
 const MAX_PRICE     = 5000;
 const formatPrice   = (v: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
@@ -26,7 +26,6 @@ export default function HomePage() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [page, setPage]         = useState(1);
   const deferredSearch          = useDeferredValue(search);
   const booksSectionRef         = useRef<HTMLElement | null>(null);
   const queryClient             = useQueryClient();
@@ -38,8 +37,6 @@ export default function HomePage() {
     const q = searchParams.get("q") ?? "";
     setSearch((c) => (c.trim() === q.trim() && c.length > q.length) ? c : q);
   }, [searchParams]);
-
-  useEffect(() => { setPage(1); }, [deferredSearch]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
   const { data: configData   } = useQuery({ queryKey: ["homepage-config"], queryFn: getHomepageConfig });
@@ -127,26 +124,17 @@ export default function HomePage() {
     });
   }, [books, deferredSearch, maxPrice, minPrice]);
 
-  const totalPages   = Math.max(1, Math.ceil(filteredBooks.length / DEFAULT_LIMIT));
-  const currentPage  = Math.min(page, totalPages);
-  const visibleBooks = useMemo(
-    () => filteredBooks.slice((currentPage - 1) * DEFAULT_LIMIT, currentPage * DEFAULT_LIMIT),
-    [currentPage, filteredBooks],
-  );
-
   const handleMinPriceChange = (v: string) => {
     const n = Number(v);
     setMinPrice(String(n));
     if (maxPrice !== "" && n > Number(maxPrice)) setMaxPrice(String(n));
-    setPage(1);
   };
   const handleMaxPriceChange = (v: string) => {
     const n = Number(v);
     setMaxPrice(String(n));
     if (minPrice !== "" && n < Number(minPrice)) setMinPrice(String(n));
-    setPage(1);
   };
-  const clearFilters      = () => { setMinPrice(""); setMaxPrice(""); setPage(1); };
+  const clearFilters      = () => { setMinPrice(""); setMaxPrice(""); };
   const activeFilterCount = [minPrice !== "", maxPrice !== ""].filter(Boolean).length;
   const handleAddToCart   = (bookId: string) => {
     if (!isAuthenticated) { navigate("/login"); return; }
@@ -176,45 +164,8 @@ export default function HomePage() {
         if (!visibleCats.length || deferredSearch) return null;
         return (
           <section key={id} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Browse by Category</h2>
-              <Link to="/categories" className="hidden items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors sm:flex">
-                View all <ArrowRight size={14} />
-              </Link>
-            </div>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-              {visibleCats.map((cat) => (
-                <Link
-                  key={cat.id}
-                  to={`/category/${cat.slug}`}
-                  className="group relative overflow-hidden rounded-2xl border border-black/8 transition-all hover:-translate-y-0.5 hover:border-black/20 hover:shadow-sm"
-                >
-                  <div className="aspect-square w-full overflow-hidden">
-                    {cat.imageUrl ? (
-                      <img
-                        src={cat.imageUrl}
-                        alt={cat.name}
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.06]"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-[#f4efe7]">
-                        <Layers3 size={22} className="text-text-muted/60" strokeWidth={1.4} />
-                      </div>
-                    )}
-                  </div>
-                  {cat.imageUrl && (
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent pointer-events-none" />
-                  )}
-                  <div className={`${cat.imageUrl ? "absolute bottom-0 left-0 right-0 px-1.5 pb-2" : "relative px-1.5 pb-2 pt-1.5"}`}>
-                    <p className={`truncate text-[10px] font-semibold leading-tight text-center sm:text-[11px] ${
-                      cat.imageUrl ? "text-white drop-shadow-sm" : "text-text-primary"
-                    }`}>
-                      {cat.name}
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Browse by Category</h2>
+            <CategorySlider categories={visibleCats} />
           </section>
         );
       }
@@ -225,7 +176,9 @@ export default function HomePage() {
         if (!arrivals.length || deferredSearch) return null;
         const naTitle      = section.config?.title?.trim() || section.title?.trim() || "New Arrivals";
         const naCategoryId = section.categoryId ?? section.config?.categoryId;
-        const naCatName    = naCategoryId ? categories.find((c) => c.id === naCategoryId)?.name : null;
+        const naCat        = naCategoryId ? categories.find((c) => c.id === naCategoryId) : null;
+        const naCatName    = naCat?.name ?? null;
+        const viewAllHref  = naCat ? `/category/${naCat.slug}` : null;
         return (
           <section key={id} className="space-y-4">
             <div className="flex items-center justify-between">
@@ -235,20 +188,25 @@ export default function HomePage() {
                   {naCatName ? `From ${naCatName}` : "Recently added to our collection"}
                 </p>
               </div>
-              <button type="button"
-                onClick={() => booksSectionRef.current?.scrollIntoView({ behavior: "smooth" })}
-                className="hidden items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors sm:flex">
-                View all <ArrowRight size={14} />
-              </button>
+              {viewAllHref ? (
+                <Link to={viewAllHref}
+                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                  View all <ArrowRight size={13} />
+                </Link>
+              ) : (
+                <button type="button"
+                  onClick={() => booksSectionRef.current?.scrollIntoView({ behavior: "smooth" })}
+                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                  View all <ArrowRight size={13} />
+                </button>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {arrivals.map((book) => (
-                <BookCard key={book.id} book={book}
-                  onAddToCart={() => handleAddToCart(book.id)}
-                  isInCart={cartBookIds.has(book.id)}
-                  isAddingToCart={addToCartMutation.isPending && addToCartMutation.variables?.bookId === book.id} />
-              ))}
-            </div>
+            <BookSlider
+              books={arrivals}
+              onAddToCart={(book) => handleAddToCart(book.id)}
+              cartBookIds={cartBookIds}
+              addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
+            />
           </section>
         );
       }
@@ -259,34 +217,22 @@ export default function HomePage() {
         if (!featured.length || deferredSearch) return null;
         return (
           <section key={id} className="space-y-4">
-            <div>
-              <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Featured Books</h2>
-              <p className="mt-0.5 text-sm text-text-muted">Our top picks for you</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Featured Books</h2>
+                <p className="mt-0.5 text-sm text-text-muted">Our top picks for you</p>
+              </div>
+              <Link to="/featured"
+                className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                View all <ArrowRight size={13} />
+              </Link>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {featured.map((book: any) => (
-                <div key={book.id}
-                  className="group relative overflow-hidden rounded-2xl bg-white shadow-sm border border-black/5 transition-all hover:-translate-y-1 hover:shadow-md cursor-pointer"
-                  onClick={() => navigate(`/books/${book.id}`)}>
-                  <img src={book.coverImageUrl} alt={book.title} className="aspect-[3/4] w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <p className="font-serif text-sm text-white leading-tight line-clamp-2">{book.title}</p>
-                    <p className="mt-1 text-xs text-white/70">{book.author}</p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="font-serif text-sm text-white">{formatPrice(book.price)}</span>
-                      <button type="button"
-                        onClick={(e) => { e.stopPropagation(); handleAddToCart(book.id); }}
-                        disabled={cartBookIds.has(book.id) || book.stock < 1}
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all
-                          ${cartBookIds.has(book.id) ? "bg-emerald-500 text-white" : "bg-white text-[#1d1a17] hover:bg-[#f4efe7]"}`}>
-                        {cartBookIds.has(book.id) ? "✓ Added" : "Add"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <BookSlider
+              books={featured}
+              onAddToCart={(book) => handleAddToCart(book.id)}
+              cartBookIds={cartBookIds}
+              addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
+            />
           </section>
         );
       }
@@ -314,18 +260,22 @@ export default function HomePage() {
       case "allBooks":
         return (
           <section key={id} id="books-grid" ref={booksSectionRef} className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="font-serif text-xl text-text-primary sm:text-2xl">
                   {deferredSearch ? `Results for "${deferredSearch}"` : "All Books"}
                 </h2>
                 <p className="mt-0.5 text-sm text-text-muted">{filteredBooks.length} titles</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 shrink-0">
+                <Link to="/all-books"
+                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors">
+                  View all <ArrowRight size={13} />
+                </Link>
                 <div className="relative">
                   <button type="button" onClick={() => setIsFiltersOpen((c) => !c)}
-                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-white px-4 text-sm text-text-primary hover:-translate-y-0.5 hover:border-black/20 transition-all">
-                    <SlidersHorizontal size={14} /> Filters
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-black/10 bg-white px-3 text-sm text-text-primary hover:-translate-y-0.5 hover:border-black/20 transition-all">
+                    <SlidersHorizontal size={13} /> Filters
                     {activeFilterCount > 0 && (
                       <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1d1a17] px-1.5 text-[11px] text-white">
                         {activeFilterCount}
@@ -367,28 +317,13 @@ export default function HomePage() {
 
             {booksLoading ? (
               <SkeletonGrid count={12} />
-            ) : visibleBooks.length > 0 ? (
-              <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                  {visibleBooks.map((book) => (
-                    <BookCard key={book.id} book={book}
-                      onAddToCart={() => handleAddToCart(book.id)}
-                      isInCart={cartBookIds.has(book.id)}
-                      isAddingToCart={addToCartMutation.isPending && addToCartMutation.variables?.bookId === book.id} />
-                  ))}
-                </div>
-                {totalPages > 1 && (
-                  <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-text-muted">Page {currentPage} of {totalPages}</p>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => setPage((c) => Math.max(1, c - 1))} disabled={currentPage <= 1}
-                        className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm transition-all hover:-translate-y-0.5 disabled:opacity-40">Previous</button>
-                      <button type="button" onClick={() => setPage((c) => Math.min(totalPages, c + 1))} disabled={currentPage >= totalPages}
-                        className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm transition-all hover:-translate-y-0.5 disabled:opacity-40">Next</button>
-                    </div>
-                  </div>
-                )}
-              </>
+            ) : filteredBooks.length > 0 ? (
+              <BookSlider
+                books={filteredBooks}
+                onAddToCart={(book) => handleAddToCart(book.id)}
+                cartBookIds={cartBookIds}
+                addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
+              />
             ) : (
               <div className="rounded-2xl border border-dashed border-black/10 bg-white px-6 py-12 text-center">
                 <BookOpen size={32} className="mx-auto text-text-muted" />

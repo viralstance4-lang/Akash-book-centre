@@ -1,4 +1,5 @@
 import { ErrorRequestHandler } from "express";
+import multer from "multer";
 import { ZodError } from "zod";
 
 import env from "../config/env";
@@ -23,6 +24,17 @@ const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
         field: issue.path.join("."),
         message: issue.message,
       })),
+    });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    res.status(400).json({
+      success: false,
+      message: err.code === "LIMIT_UNEXPECTED_FILE"
+        ? `Unexpected file field: "${err.field}". Allowed fields: desktopImage, mobileImage.`
+        : err.message,
+      code: err.code,
     });
     return;
   }

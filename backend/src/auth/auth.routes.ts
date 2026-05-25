@@ -9,11 +9,15 @@ import {
   me,
   refresh,
   register,
+  resendAdminOtp,
   resendVerification,
   sendOtp,
+  verifyAdminOtp,
   verifyEmail,
 } from "./auth.controller";
 import {
+  adminResendOtpSchema,
+  adminVerifyOtpSchema,
   loginSchema,
   registerSchema,
   requestOtpSchema,
@@ -37,5 +41,9 @@ authRouter.get("/me",                   authMiddleware,  me);
 // OTP-based auth (rate-limited, max 10 requests per 15 min)
 authRouter.post("/otp/request",  authRateLimiter, validate(requestOtpSchema), sendOtp);
 authRouter.post("/otp/verify",   authRateLimiter, validate(verifyOtpSchema),  loginWithOtp);
+
+// Admin 2FA — called after password login succeeds for ADMIN role
+authRouter.post("/admin/verify-otp", authRateLimiter, validate(adminVerifyOtpSchema), verifyAdminOtp);
+authRouter.post("/admin/resend-otp", authRateLimiter, validate(adminResendOtpSchema), resendAdminOtp);
 
 export default authRouter;

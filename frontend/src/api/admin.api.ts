@@ -49,6 +49,28 @@ export const deleteAdminOrder = async (id: string) => {
   return response.data;
 };
 
+export const resendOrderInvoice = async (id: string) => {
+  const response = await api.post(`/admin/orders/${id}/resend-invoice`);
+  return response.data;
+};
+
+export const resendPrintInvoice = async (id: string) => {
+  const response = await api.post(`/admin/print/${id}/resend-invoice`);
+  return response.data;
+};
+
+export const testShiprocketAuth = async (): Promise<{ success: boolean; message: string }> => {
+  const response = await api.post<{ success: boolean; message: string }>("/admin/shiprocket/test-auth");
+  return response.data;
+};
+
+export type PickupLocation = { id: number; name: string; city: string; state: string; pincode: string };
+
+export const getShiprocketPickupLocations = async (): Promise<{ success: boolean; data: PickupLocation[] }> => {
+  const response = await api.get<{ success: boolean; data: PickupLocation[] }>("/admin/shiprocket/pickup-locations");
+  return response.data;
+};
+
 export const getUsers = async (
   page?: number,
   limit?: number,

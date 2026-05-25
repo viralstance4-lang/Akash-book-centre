@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+const stringToBoolean = (fieldName: string) =>
+  z
+    .union([z.boolean(), z.string(), z.number()])
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined) return undefined;
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value === 1;
+      const v = value.trim().toLowerCase();
+      if (["true", "1", "yes", "on"].includes(v)) return true;
+      if (["false", "0", "no", "off", ""].includes(v)) return false;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${fieldName} must be a boolean` });
+      return z.NEVER;
+    });
+
 const stringToNumber = (fieldName: string) =>
   z.string().min(1, `${fieldName} is required`).transform((value, ctx) => {
     const parsed = Number(value);
@@ -33,6 +48,13 @@ export const createBookSchema = z.object({
   stock:        stringToNumber("Stock"),
   language:     z.string().optional().default("English"),
   publication:  z.string().optional(),
+  isPrintBook:        stringToBoolean("isPrintBook").default(false),
+  allowStapleBinding: stringToBoolean("Allow staple binding").default(false),
+  allowSpiralBinding: stringToBoolean("Allow spiral binding").default(false),
+  height:       optionalStringToNumber("Height"),
+  length:       optionalStringToNumber("Length"),
+  breadth:      optionalStringToNumber("Breadth"),
+  weight:       optionalStringToNumber("Weight"),
 });
 
 export const updateBookSchema = z.object({
@@ -47,6 +69,13 @@ export const updateBookSchema = z.object({
   stock:        stringToNumber("Stock").optional(),
   language:     z.string().optional(),
   publication:  z.string().optional(),
+  isPrintBook:        stringToBoolean("isPrintBook"),
+  allowStapleBinding: stringToBoolean("Allow staple binding"),
+  allowSpiralBinding: stringToBoolean("Allow spiral binding"),
+  height:       optionalStringToNumber("Height"),
+  length:       optionalStringToNumber("Length"),
+  breadth:      optionalStringToNumber("Breadth"),
+  weight:       optionalStringToNumber("Weight"),
 });
 
 export const updateStockSchema = z.object({

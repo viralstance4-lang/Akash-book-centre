@@ -6,6 +6,8 @@ export type Subcategory = {
   categoryId: string;
   name: string;
   slug: string;
+  imageUrl?: string | null;
+  imagePublicId?: string | null;
   isActive: boolean;
   order: number;
   createdAt: string;
@@ -44,7 +46,7 @@ export const getSubcategories = async (categoryId: string) => {
 export const createCategory = async (data: { name: string; imageFile?: File; isActive?: boolean; order?: number }) => {
   const form = new FormData();
   form.append("name", data.name);
-  if (data.imageFile)              form.append("image",    data.imageFile);
+  if (data.imageFile)               form.append("image",    data.imageFile);
   if (data.isActive  !== undefined) form.append("isActive", String(data.isActive));
   if (data.order     !== undefined) form.append("order",    String(data.order));
   const r = await api.post<ApiSuccessResponse<Category>>("/admin/categories", form);
@@ -66,18 +68,35 @@ export const deleteCategory = async (id: string) => {
   return r.data;
 };
 
-export const createSubcategory = async (categoryId: string, data: { name: string; order?: number }) => {
+/** Sends as multipart/form-data to support optional image upload. */
+export const createSubcategory = async (
+  categoryId: string,
+  data: { name: string; imageFile?: File; order?: number },
+) => {
+  const form = new FormData();
+  form.append("name", data.name);
+  if (data.imageFile)           form.append("image", data.imageFile);
+  if (data.order !== undefined) form.append("order", String(data.order));
   const r = await api.post<ApiSuccessResponse<Subcategory>>(
     `/admin/categories/${categoryId}/subcategories`,
-    data,
+    form,
   );
   return r.data;
 };
 
-export const updateSubcategory = async (id: string, data: { name?: string; isActive?: boolean; order?: number }) => {
+/** Sends as multipart/form-data to support optional image re-upload. */
+export const updateSubcategory = async (
+  id: string,
+  data: { name?: string; imageFile?: File; isActive?: boolean; order?: number },
+) => {
+  const form = new FormData();
+  if (data.name      !== undefined) form.append("name",     data.name);
+  if (data.imageFile)               form.append("image",    data.imageFile);
+  if (data.isActive  !== undefined) form.append("isActive", String(data.isActive));
+  if (data.order     !== undefined) form.append("order",    String(data.order));
   const r = await api.patch<ApiSuccessResponse<Subcategory>>(
     `/admin/categories/subcategories/${id}`,
-    data,
+    form,
   );
   return r.data;
 };

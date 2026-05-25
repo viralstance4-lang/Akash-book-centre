@@ -3,6 +3,7 @@ import razorpay from "../../config/razorpay";
 import AppError from "../../lib/AppError";
 import prisma from "../../lib/prisma";
 import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
+import { generateInvoiceNumber, generateInvoicePdf } from "../../lib/invoice";
 import { ShippingService } from "../shipping/shipping.service";
 
 type ShippingAddress = { name: string; phone: string; line1: string; line2?: string; city: string; state: string; pincode: string };
@@ -21,7 +22,6 @@ export const placeOrder = async (
   shippingAddress: ShippingAddress,
   paymentMethod: "ONLINE" | "COD" = "ONLINE",
   customerEmail?: string,
-  deliveryType?: "FREE" | "PAID",
   deliveryDistance?: number,
 ) => {
   const cart = await getCartWithItems(userId);
@@ -31,13 +31,14 @@ export const placeOrder = async (
     if (item.book.stock < item.quantity) throw new AppError("Insufficient stock", 400, "INSUFFICIENT_STOCK");
   }
 
-  const hasPrintItems = cart.items.some((item) => item.bindingType !== "NONE");
-  if (hasPrintItems && paymentMethod === "COD") {
-    throw new AppError(
-      "Cash on Delivery is not available for orders with binding. Please use online payment.",
-      400,
-      "COD_NOT_ALLOWED_FOR_PRINT",
-    );
+  const hasPrintBook    = cart.items.some((item) => (item.book as any).isPrintBook === true);
+  const hasSpiralBinding = cart.items.some((item) => item.bindingType === "SPIRAL");
+
+  if ((hasPrintBook || hasSpiralBinding) && paymentMethod === "COD") {
+    const reason = hasPrintBook
+      ? "Cash on Delivery is not available for Print Books. Please use online payment."
+      : "Cash on Delivery is not available for Spiral Binding orders. Please use online payment.";
+    throw new AppError(reason, 400, "COD_NOT_ALLOWED");
   }
 
   const siteSettings = await prisma.siteSettings.findFirst();
@@ -57,9 +58,13 @@ export const placeOrder = async (
   let deliveryCharge = new Prisma.Decimal(0);
   let calculatedDeliveryType: "FREE" | "PAID" = "FREE";
   if (deliveryDistance) {
-    const deliveryResult = await ShippingService.calculateDeliveryCharge(deliveryDistance);
-    deliveryCharge = new Prisma.Decimal(deliveryResult.deliveryCharge);
-    calculatedDeliveryType = deliveryResult.deliveryType === "FREE" ? "FREE" : "PAID";
+    const deliveryResult = await ShippingService.calculateDeliveryCharge({
+      distanceInKm: deliveryDistance,
+      orderValue: totalAmount.toNumber(),
+      weightInKg: 1,
+    });
+    deliveryCharge = new Prisma.Decimal(deliveryResult.charge);
+    calculatedDeliveryType = deliveryResult.type === "FREE" ? "FREE" : "PAID";
   }
 
   // Calculate prepaid discount
@@ -87,19 +92,22 @@ export const placeOrder = async (
     }
   }
 
+  const invNum = generateInvoiceNumber();
+
   const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
-      data: { 
-        userId, 
-        totalAmount, 
-        deliveryCharge, 
-        discountAmount, 
-        finalAmount, 
-        shippingAddress, 
-        paymentMethod, 
-        customerEmail, 
-        deliveryType: calculatedDeliveryType, 
-        deliveryDistance 
+      data: {
+        userId,
+        totalAmount,
+        deliveryCharge,
+        discountAmount,
+        finalAmount,
+        shippingAddress,
+        paymentMethod,
+        customerEmail,
+        deliveryType: calculatedDeliveryType,
+        deliveryDistance,
+        invoiceNumber: invNum,
       },
     });
 
@@ -148,14 +156,50 @@ export const placeOrder = async (
         bindingType: (i as any).bindingType ?? "NONE",
         bindingExtra: Number((i as any).bindingExtra ?? 0),
       })),
-      total: Number(totalAmount),
+      total: Number(finalAmount),
+      deliveryCharge: Number(deliveryCharge),
+      discount: Number(discountAmount),
       paymentMethod: "COD",
       shippingAddress,
       createdAt: result.createdAt.toISOString(),
       customerEmail,
+      invoiceNumber: invNum,
     };
-    if (customerEmail) sendOrderInvoice(customerEmail, orderData).catch(() => {});
     sendAdminOrderNotification(orderData).catch(() => {});
+    if (customerEmail) {
+      const sendWithPdf = async () => {
+        try {
+          const pdfBuffer = await generateInvoicePdf({
+            invoiceNumber: invNum,
+            orderId:       result.id,
+            createdAt:     result.createdAt,
+            customerName:  shippingAddress.name,
+            customerEmail,
+            shippingAddress,
+            items: result.items.map((i) => ({
+              name:        i.book.title,
+              quantity:    i.quantity,
+              unitPrice:   Number(i.priceAtPurchase),
+              bindingType: (i as any).bindingType ?? "NONE",
+              bindingExtra: Number((i as any).bindingExtra ?? 0),
+            })),
+            subtotal:      Number(totalAmount),
+            deliveryCharge: Number(deliveryCharge),
+            discount:      Number(discountAmount),
+            total:         Number(finalAmount),
+            paymentMethod: "COD",
+          });
+          await sendOrderInvoice(customerEmail, orderData, pdfBuffer);
+          await prisma.order.update({
+            where: { id: result.id },
+            data:  { invoiceSent: true, invoiceSentAt: new Date() },
+          });
+        } catch (err) {
+          console.error("[INVOICE] COD invoice failed:", (err as Error).message);
+        }
+      };
+      sendWithPdf().catch(() => {});
+    }
   }
 
   return result;
@@ -238,4 +282,74 @@ export const deleteOrder = async (orderId: string) => {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
   return prisma.order.delete({ where: { id: orderId } });
+};
+
+export const resendOrderInvoice = async (orderId: string) => {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      user:    { select: { name: true, email: true } },
+      items:   { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true } } } },
+      payment: true,
+    },
+  });
+  if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
+
+  const recipient = (order as any).customerEmail ?? order.user?.email;
+  if (!recipient) throw new AppError("No customer email on this order", 400, "NO_EMAIL");
+
+  const invNum = (order as any).invoiceNumber ?? generateInvoiceNumber();
+  const shippingAddress: any = order.shippingAddress ?? {};
+
+  const finalAmount    = Number((order as any).finalAmount ?? order.totalAmount);
+  const deliveryCharge = Number((order as any).deliveryCharge ?? 0);
+  const discount       = Number((order as any).discountAmount ?? 0);
+  const subtotal       = Number(order.totalAmount);
+
+  const pdfBuffer = await generateInvoicePdf({
+    invoiceNumber:  invNum,
+    orderId:        order.id,
+    createdAt:      order.createdAt,
+    customerName:   shippingAddress.name ?? order.user?.name ?? "Customer",
+    customerEmail:  recipient,
+    shippingAddress,
+    items: (order.items as any[]).map((i) => ({
+      name:         i.book.title,
+      quantity:     i.quantity,
+      unitPrice:    Number(i.priceAtPurchase),
+      bindingType:  i.bindingType ?? "NONE",
+      bindingExtra: Number(i.bindingExtra ?? 0),
+    })),
+    subtotal,
+    deliveryCharge,
+    discount,
+    total:         finalAmount,
+    paymentMethod: (order as any).paymentMethod ?? "ONLINE",
+  });
+
+  const orderData = {
+    orderId:       order.id,
+    items: (order.items as any[]).map((i) => ({
+      title:        i.book.title,
+      quantity:     i.quantity,
+      price:        Number(i.priceAtPurchase),
+      bindingType:  i.bindingType ?? "NONE",
+      bindingExtra: Number(i.bindingExtra ?? 0),
+    })),
+    total:         finalAmount,
+    deliveryCharge,
+    discount,
+    paymentMethod: (order as any).paymentMethod ?? "ONLINE",
+    shippingAddress,
+    createdAt:     order.createdAt.toISOString(),
+    customerEmail: recipient,
+    invoiceNumber: invNum,
+  };
+
+  await sendOrderInvoice(recipient, orderData, pdfBuffer);
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data:  { invoiceNumber: invNum, invoiceSent: true, invoiceSentAt: new Date() },
+  });
 };

@@ -9,8 +9,10 @@ import {
   otpLoginUser,
   refreshAccessToken,
   registerUser,
-  verifyRegistrationEmail,
+  resendAdminOtpCode,
   resendVerificationOtp,
+  verifyAdminOtpAndLogin,
+  verifyRegistrationEmail,
 } from "./auth.service";
 import { requestOtp } from "./otp/otp.service";
 
@@ -65,13 +67,43 @@ export const resendVerification: RequestHandler = async (req, res, next) => {
 
 export const login: RequestHandler = async (req, res, next) => {
   try {
-    const { refreshToken, ...result } = await loginUser(req.body);
+    const result = await loginUser(req.body);
+
+    // Admin requires 2FA — return session token, do NOT issue JWT yet
+    if ("requiresAdminOtp" in result) {
+      res.status(200).json({
+        success: true,
+        message: "OTP sent to admin verification email.",
+        data: result,
+      });
+      return;
+    }
+
+    // Regular user — issue tokens
+    const { refreshToken, ...data } = result;
     setRefreshCookie(res, refreshToken);
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: result,
-    });
+    res.status(200).json({ success: true, message: "Login successful", data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyAdminOtp: RequestHandler = async (req, res, next) => {
+  try {
+    const { otpSessionToken, code } = req.body as { otpSessionToken: string; code: string };
+    const { refreshToken, ...data } = await verifyAdminOtpAndLogin(otpSessionToken, code);
+    setRefreshCookie(res, refreshToken);
+    res.status(200).json({ success: true, message: "Admin login successful.", data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resendAdminOtp: RequestHandler = async (req, res, next) => {
+  try {
+    const { otpSessionToken } = req.body as { otpSessionToken: string };
+    const result = await resendAdminOtpCode(otpSessionToken);
+    res.status(200).json({ success: true, message: "New OTP sent.", data: result });
   } catch (error) {
     next(error);
   }

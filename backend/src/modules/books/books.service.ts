@@ -10,6 +10,13 @@ type CreateBookInput = {
   price: number; comparePrice?: number;
   categoryId?: string; subcategoryId?: string;
   stock: number; language?: string; publication?: string;
+  isPrintBook?: boolean;
+  allowStapleBinding?: boolean;
+  allowSpiralBinding?: boolean;
+  height?: number;
+  length?: number;
+  breadth?: number;
+  weight?: number;
 };
 type UpdateBookInput = Partial<CreateBookInput> & {
   categoryId?: string | null;
@@ -99,6 +106,13 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
         subcategoryId: data.subcategoryId ?? null,
         stock: data.stock,
         language: data.language ?? "English", publication: data.publication ?? null,
+        isPrintBook:        data.isPrintBook        ?? false,
+        allowStapleBinding: data.allowStapleBinding ?? false,
+        allowSpiralBinding: data.allowSpiralBinding ?? false,
+        height: data.height ?? null,
+        length: data.length ?? null,
+        breadth: data.breadth ?? null,
+        weight: data.weight ?? null,
         coverImageUrl: reordered[0].url, coverPublicId: reordered[0].publicId,
         images: {
           create: reordered.map((img, i) => ({
@@ -146,6 +160,13 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
         ...(data.stock        !== undefined && { stock:        data.stock }),
         ...(data.language     !== undefined && { language:     data.language }),
         ...(data.publication  !== undefined && { publication:  data.publication }),
+        ...(data.isPrintBook        !== undefined && { isPrintBook:        data.isPrintBook }),
+        ...(data.allowStapleBinding !== undefined && { allowStapleBinding: data.allowStapleBinding }),
+        ...(data.allowSpiralBinding !== undefined && { allowSpiralBinding: data.allowSpiralBinding }),
+        ...(data.height       !== undefined && { height:       data.height }),
+        ...(data.length       !== undefined && { length:       data.length }),
+        ...(data.breadth      !== undefined && { breadth:      data.breadth }),
+        ...(data.weight       !== undefined && { weight:       data.weight }),
         ...(uploadedImage ? { coverImageUrl: uploadedImage.url, coverPublicId: uploadedImage.publicId } : {}),
       },
       include: bookInclude,

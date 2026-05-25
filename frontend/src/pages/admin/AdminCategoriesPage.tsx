@@ -52,9 +52,11 @@ function errMsg(e: unknown, fallback: string) {
 function ImageUploadField({
   existingUrl,
   onChange,
+  label = "Category Image",
 }: {
   existingUrl?: string | null;
   onChange: (file: File | undefined) => void;
+  label?: string;
 }) {
   const [preview, setPreview] = useState<string | null>(existingUrl ?? null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,7 +78,7 @@ function ImageUploadField({
   return (
     <div className="space-y-2">
       <label className="block text-xs font-semibold uppercase tracking-widest text-text-muted">
-        Category Image
+        {label}
       </label>
       {preview ? (
         <div className="relative inline-block">
@@ -199,15 +201,18 @@ function SubcategoryModal({ state, onClose }: { state: SubModalState; onClose: (
   const qc     = useQueryClient();
   const isEdit = state.mode === "edit";
 
-  const [name,  setName]  = useState(isEdit ? state.item.name : "");
-  const [error, setError] = useState("");
+  const [name,      setName]      = useState(isEdit ? state.item.name : "");
+  const [imageFile, setImageFile] = useState<File | undefined>();
+  const [error,     setError]     = useState("");
+
+  const existingImg = isEdit ? state.item.imageUrl : undefined;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["categories"] });
 
   const createMut = useMutation({
     mutationFn: () => createSubcategory(
       (state as { mode: "create"; categoryId: string }).categoryId,
-      { name: name.trim() },
+      { name: name.trim(), imageFile },
     ),
     onSuccess:  () => { invalidate(); onClose(); },
     onError:    (e) => setError(errMsg(e, "Failed to create subcategory.")),
@@ -216,7 +221,7 @@ function SubcategoryModal({ state, onClose }: { state: SubModalState; onClose: (
   const updateMut = useMutation({
     mutationFn: () => updateSubcategory(
       (state as { mode: "edit"; item: Subcategory }).item.id,
-      { name: name.trim() },
+      { name: name.trim(), imageFile },
     ),
     onSuccess:  () => { invalidate(); onClose(); },
     onError:    (e) => setError(errMsg(e, "Failed to update subcategory.")),
@@ -244,15 +249,23 @@ function SubcategoryModal({ state, onClose }: { state: SubModalState; onClose: (
           </button>
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-text-muted">
-            Subcategory Name *
-          </label>
-          <input type="text" value={name}
-            onChange={(e) => { setName(e.target.value); setError(""); }}
-            placeholder="e.g. Anthropology, PSIR, Sociology…"
-            className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm text-text-primary outline-none transition-all focus:border-black/25 focus:bg-white"
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-text-muted">
+              Subcategory Name *
+            </label>
+            <input type="text" value={name}
+              onChange={(e) => { setName(e.target.value); setError(""); }}
+              placeholder="e.g. Anthropology, PSIR, Sociology…"
+              className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm text-text-primary outline-none transition-all focus:border-black/25 focus:bg-white"
+              onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            />
+          </div>
+
+          <ImageUploadField
+            existingUrl={existingImg}
+            onChange={setImageFile}
+            label="Subcategory Image (optional)"
           />
         </div>
 
@@ -356,8 +369,12 @@ function CategoryRow({
             <div className="flex flex-wrap gap-1.5 py-1.5">
               {category.subcategories.map((sub) => (
                 <div key={sub.id}
-                  className={`group flex items-center gap-1 rounded-full border border-black/8 bg-white px-3 py-1 text-xs transition-all hover:border-black/15 hover:shadow-sm ${deletingSubId === sub.id ? "opacity-40" : ""}`}>
-                  <Tag size={10} className="text-text-muted shrink-0" />
+                  className={`group flex items-center gap-1.5 rounded-full border border-black/8 bg-white px-2.5 py-1 text-xs transition-all hover:border-black/15 hover:shadow-sm ${deletingSubId === sub.id ? "opacity-40" : ""}`}>
+                  {sub.imageUrl ? (
+                    <img src={sub.imageUrl} alt={sub.name} className="h-4 w-4 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <Tag size={10} className="text-text-muted shrink-0" />
+                  )}
                   <span className="text-text-primary font-medium">{sub.name}</span>
                   <span className="ml-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button type="button" onClick={() => onEditSub(sub)}

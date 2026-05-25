@@ -33,17 +33,20 @@ export type PrintFile = {
 export type PrintOrder = {
   id: string;
   userId: string;
-  fileUrl: string;       // legacy first-file URL
+  fileUrl: string;
   colorType: string;
   printSide: string;
   orientation: string;
   bindingType: string;
-  pageCount: number;     // total raw pages across all files
-  copies: number;        // sum of all per-file copies
+  pageCount: number;
+  copies: number;
   totalPrice: number;
   estimatedMinutes: number;
   status: string;
   paymentMethod: "COD" | "ONLINE";
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  razorpaySignature?: string | null;
   customerEmail?: string;
   customerName?: string;
   customerPhone?: string;
@@ -53,15 +56,39 @@ export type PrintOrder = {
   files?: PrintFile[];
 };
 
+/** Response from Phase 1 (create pending order) */
+export type PrintOrderInitiated = {
+  printOrderId:    string;
+  razorpayOrderId: string;
+  amount:          number;
+  customerName:    string;
+  customerEmail:   string;
+};
+
 export const getPrintSettings = async () => {
   const response = await api.get<ApiSuccessResponse<PrintSettings>>("/print/settings");
   return response.data;
 };
 
+/** Phase 1: upload PDFs, create pending order, get Razorpay order ID back */
 export const createPrintOrder = async (formData: FormData) => {
-  const response = await api.post<ApiSuccessResponse<PrintOrder>>("/print", formData, {
+  const response = await api.post<ApiSuccessResponse<PrintOrderInitiated>>("/print", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
+  return response.data;
+};
+
+/** Phase 2: verify Razorpay signature and confirm the print order */
+export const verifyPrintPayment = async (
+  printOrderId: string,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+) => {
+  const response = await api.post<ApiSuccessResponse<PrintOrder>>(
+    `/print/${printOrderId}/verify-payment`,
+    { razorpayOrderId, razorpayPaymentId, razorpaySignature },
+  );
   return response.data;
 };
 

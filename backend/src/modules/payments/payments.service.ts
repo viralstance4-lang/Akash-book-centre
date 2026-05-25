@@ -3,6 +3,7 @@ import crypto from "crypto";
 import env from "../../config/env";
 import AppError from "../../lib/AppError";
 import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
+import { generateInvoicePdf } from "../../lib/invoice";
 import prisma from "../../lib/prisma";
 
 export const verifyPayment = async (
@@ -133,25 +134,71 @@ export const verifyPayment = async (
   ]);
 
   // Send invoice emails after successful payment
-  const customerEmail = (updatedOrder as any).customerEmail ?? undefined;
+  const customerEmail   = (updatedOrder as any).customerEmail ?? undefined;
   const shippingAddress = (updatedOrder as any).shippingAddress ?? {};
+  const invNum          = (updatedOrder as any).invoiceNumber as string | undefined;
+  const finalAmt        = Number(updatedOrder.payment?.amount ?? 0);
+  const subtotal        = Number((updatedOrder as any).totalAmount ?? finalAmt);
+  const deliveryCharge  = Number((updatedOrder as any).deliveryCharge ?? 0);
+  const discount        = Number((updatedOrder as any).discountAmount ?? 0);
+
   const orderData = {
-    orderId: updatedOrder.id,
+    orderId:       updatedOrder.id,
     items: updatedOrder.items.map((i) => ({
-      title: i.book.title,
-      quantity: i.quantity,
-      price: Number(i.priceAtPurchase),
-      bindingType: (i as any).bindingType ?? "NONE",
+      title:        i.book.title,
+      quantity:     i.quantity,
+      price:        Number(i.priceAtPurchase),
+      bindingType:  (i as any).bindingType  ?? "NONE",
       bindingExtra: Number((i as any).bindingExtra ?? 0),
     })),
-    total: Number(updatedOrder.payment?.amount ?? 0),
+    total:         finalAmt,
+    deliveryCharge,
+    discount,
     paymentMethod: "ONLINE",
     shippingAddress,
-    createdAt: updatedOrder.createdAt.toISOString(),
+    createdAt:     updatedOrder.createdAt.toISOString(),
     customerEmail,
+    invoiceNumber: invNum,
   };
-  if (customerEmail) sendOrderInvoice(customerEmail, orderData).catch(() => {});
+
   sendAdminOrderNotification(orderData).catch(() => {});
+
+  if (customerEmail && invNum) {
+    const sendWithPdf = async () => {
+      try {
+        const pdfBuffer = await generateInvoicePdf({
+          invoiceNumber:  invNum,
+          orderId:        updatedOrder.id,
+          createdAt:      updatedOrder.createdAt,
+          customerName:   shippingAddress.name ?? "Customer",
+          customerEmail,
+          shippingAddress,
+          items: updatedOrder.items.map((i) => ({
+            name:         i.book.title,
+            quantity:     i.quantity,
+            unitPrice:    Number(i.priceAtPurchase),
+            bindingType:  (i as any).bindingType  ?? "NONE",
+            bindingExtra: Number((i as any).bindingExtra ?? 0),
+          })),
+          subtotal,
+          deliveryCharge,
+          discount,
+          total:         finalAmt,
+          paymentMethod: "ONLINE",
+        });
+        await sendOrderInvoice(customerEmail, orderData, pdfBuffer);
+        await prisma.order.update({
+          where: { id: updatedOrder.id },
+          data:  { invoiceSent: true, invoiceSentAt: new Date() },
+        });
+      } catch (err) {
+        console.error("[INVOICE] Online order invoice failed:", (err as Error).message);
+      }
+    };
+    sendWithPdf().catch(() => {});
+  } else if (customerEmail) {
+    sendOrderInvoice(customerEmail, orderData).catch(() => {});
+  }
 
   return updatedOrder;
 };

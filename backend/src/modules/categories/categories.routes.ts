@@ -13,8 +13,8 @@ import {
   updateSubcategory,
 } from "./categories.controller";
 
-const upload   = multer({ storage: multer.memoryStorage() });
-const adminMw  = [authMiddleware, requireAdmin] as const;
+const upload  = multer({ storage: multer.memoryStorage() });
+const adminMw = [authMiddleware, requireAdmin] as const;
 
 // ── Public router ─────────────────────────────────────────────────────────────
 export const categoriesRouter = Router();
@@ -31,7 +31,7 @@ adminCategoriesRouter.post   ("/",    ...adminMw, upload.single("image"), create
 adminCategoriesRouter.patch  ("/:id", ...adminMw, upload.single("image"), updateCategory);
 adminCategoriesRouter.delete ("/:id", ...adminMw, deleteCategory);
 
-// Subcategories (nested under category)
-adminCategoriesRouter.post   ("/:categoryId/subcategories",      ...adminMw, createSubcategory);
-adminCategoriesRouter.patch  ("/subcategories/:id",              ...adminMw, updateSubcategory);
-adminCategoriesRouter.delete ("/subcategories/:id",              ...adminMw, deleteSubcategory);
+// Subcategories — now accept an optional image file
+adminCategoriesRouter.post   ("/:categoryId/subcategories", ...adminMw, upload.single("image"), createSubcategory);
+adminCategoriesRouter.patch  ("/subcategories/:id",         ...adminMw, upload.single("image"), updateSubcategory);
+adminCategoriesRouter.delete ("/subcategories/:id",         ...adminMw, deleteSubcategory);

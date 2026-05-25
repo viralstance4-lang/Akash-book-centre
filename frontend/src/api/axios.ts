@@ -11,7 +11,7 @@ type RetryableRequestConfig = InternalAxiosRequestConfig & {
 };
 
 const api: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1",
+  baseURL: import.meta.env.VITE_API_URL ?? "https://akash-book-centre-3.onrender.com/api/v1",
   withCredentials: true,
 });
 

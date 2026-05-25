@@ -1,13 +1,24 @@
 import api from "./axios";
 import type { ApiSuccessResponse, User } from "../types";
 
-type AuthPayload    = { user: User; accessToken: string };
-type RefreshPayload = { accessToken: string };
-type OtpPayload     = { expiresInMinutes: number };
-type RegisterPayload = { needsVerification: true; email: string };
+type AuthPayload      = { user: User; accessToken: string };
+type RefreshPayload   = { accessToken: string };
+type OtpPayload       = { expiresInMinutes: number };
+type RegisterPayload  = { needsVerification: true; email: string };
+type AdminOtpPending  = { requiresAdminOtp: true; otpSessionToken: string; maskedEmail: string };
 
 export const login = async (email: string, password: string) => {
-  const r = await api.post<ApiSuccessResponse<AuthPayload>>("/auth/login", { email, password });
+  const r = await api.post<ApiSuccessResponse<AuthPayload | AdminOtpPending>>("/auth/login", { email, password });
+  return r.data;
+};
+
+export const verifyAdminOtp = async (otpSessionToken: string, code: string) => {
+  const r = await api.post<ApiSuccessResponse<AuthPayload>>("/auth/admin/verify-otp", { otpSessionToken, code });
+  return r.data;
+};
+
+export const resendAdminOtp = async (otpSessionToken: string) => {
+  const r = await api.post<ApiSuccessResponse<AdminOtpPending>>("/auth/admin/resend-otp", { otpSessionToken });
   return r.data;
 };
 

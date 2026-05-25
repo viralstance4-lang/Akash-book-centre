@@ -57,13 +57,6 @@ export default function BookCard({
           </div>
         )}
 
-        {/* Category badge */}
-        {book.category && (
-          <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-text-muted backdrop-blur-sm">
-            {book.category.name}
-          </span>
-        )}
-
         {/* Discount % badge */}
         {discountPct > 0 && (
           <span className="absolute right-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
@@ -73,28 +66,28 @@ export default function BookCard({
       </div>
 
       {/* Info */}
-      <div className="flex flex-1 flex-col p-3">
+      <div className="flex flex-1 flex-col p-2.5">
         <div className="flex-1">
           <Link
             to={`/books/${book.id}`}
-            className="inline-flex items-start gap-1.5 text-text-primary transition-colors hover:text-black"
+            className="inline-flex items-start gap-1 text-text-primary transition-colors hover:text-black"
           >
-            <h3 className="line-clamp-2 min-h-[2.5rem] font-serif text-[0.93rem] leading-snug">
+            <h3 className="line-clamp-2 min-h-[1.9rem] md:min-h-[2.2rem] font-serif text-[0.72rem] md:text-[0.82rem] leading-snug">
               {book.title}
             </h3>
-            <ArrowRight size={12} className="mt-1 shrink-0 opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:opacity-100" />
+            <ArrowRight size={11} className="mt-1 shrink-0 opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:opacity-100" />
           </Link>
-          <p className="mt-0.5 text-[0.7rem] text-text-muted line-clamp-1">{book.author}</p>
+          <p className="mt-0.5 text-[0.65rem] text-text-muted line-clamp-1">{book.author}</p>
         </div>
 
-        {/* Price row */}
-        <div className="mt-2.5 flex items-center justify-between gap-2">
-          <div className="flex items-baseline gap-1.5">
-            <p className="font-serif text-[0.9rem] font-medium text-text-primary">
+        {/* Price + Button */}
+        <div className="mt-2 flex items-end justify-between gap-1.5">
+          <div className="flex flex-col leading-tight">
+            <p className="font-serif text-[0.88rem] font-semibold text-text-primary">
               {formatPrice(salePrice)}
             </p>
             {comparePrice && comparePrice > salePrice && (
-              <p className="text-[0.7rem] text-text-muted line-through">
+              <p className="text-[0.62rem] text-text-muted line-through">
                 {formatPrice(comparePrice)}
               </p>
             )}
@@ -104,11 +97,11 @@ export default function BookCard({
             type="button"
             onClick={(e) => { e.stopPropagation(); onAddToCart?.(book); }}
             disabled={!onAddToCart || isAddingToCart || isOutOfStock}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[0.65rem] font-medium text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-55 ${
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[0.62rem] font-medium text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-55 ${
               isInCart ? "bg-emerald-700 hover:bg-emerald-800" : "bg-[#1d1a17] hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0"
             }`}
           >
-            <ShoppingBag size={12} />
+            <ShoppingBag size={11} />
             {isAddingToCart ? "Adding..." : isInCart ? "In cart" : "Add"}
           </button>
         </div>

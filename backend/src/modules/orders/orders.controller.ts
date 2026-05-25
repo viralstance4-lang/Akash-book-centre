@@ -9,6 +9,7 @@ import {
   getUserOrders,
   placeOrder as placeOrderService,
   requestReturn as requestReturnService,
+  resendOrderInvoice as resendOrderInvoiceService,
   updateOrderStatus as updateOrderStatusService,
 } from "./orders.service";
 
@@ -19,13 +20,12 @@ const getUserIdOrThrow = (userId?: string) => {
 
 export const placeOrder: RequestHandler = async (req, res, next) => {
   try {
-    const { shippingAddress, paymentMethod, customerEmail, deliveryType, deliveryDistance } = req.body;
+    const { shippingAddress, paymentMethod, customerEmail, deliveryDistance } = req.body;
     const order = await placeOrderService(
       getUserIdOrThrow(req.user?.id),
       shippingAddress,
       paymentMethod ?? "ONLINE",
       customerEmail,
-      deliveryType,
       typeof deliveryDistance === "number" ? deliveryDistance : undefined,
     );
     res.status(201).json({ success: true, message: "Order placed successfully", data: order });
@@ -96,5 +96,12 @@ export const deleteAdminOrder: RequestHandler<{ id: string }> = async (req, res,
   try {
     await deleteOrderService(req.params.id);
     res.status(200).json({ success: true, message: "Order deleted successfully", data: null });
+  } catch (error) { next(error); }
+};
+
+export const resendInvoice: RequestHandler<{ id: string }> = async (req, res, next) => {
+  try {
+    const order = await resendOrderInvoiceService(req.params.id);
+    res.status(200).json({ success: true, message: "Invoice sent successfully", data: order });
   } catch (error) { next(error); }
 };

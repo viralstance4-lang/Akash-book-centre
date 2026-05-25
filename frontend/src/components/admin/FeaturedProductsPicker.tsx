@@ -85,6 +85,13 @@ export default function FeaturedProductsPicker({
   const wrapperRef  = useRef<HTMLDivElement>(null);
   const inputRef    = useRef<HTMLInputElement>(null);
 
+  // Adjust styles for better mobile and desktop views
+  const isMobile = window.innerWidth <= 768;
+
+  // Update styles dynamically based on screen size
+  const cardImageClass = isMobile ? "h-7 w-5" : "h-9 w-6";
+  const dropdownImageClass = isMobile ? "h-9 w-6" : "h-11 w-8";
+
   // ── 300 ms debounce ────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setSearchQuery(rawQuery.trim()), 300);
@@ -200,7 +207,7 @@ export default function FeaturedProductsPicker({
                     <img
                       src={book.coverImageUrl}
                       alt={book.title}
-                      className="h-9 w-6 shrink-0 rounded object-cover shadow-sm"
+                      className={`${cardImageClass} shrink-0 rounded object-cover shadow-sm`}
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-text-primary">
@@ -234,7 +241,8 @@ export default function FeaturedProductsPicker({
             )}
 
           {/* ── Empty state ── */}
-          {selectedProductIds.length === 0 && (
+
+  {selectedProductIds.length === 0 && (
             <div className="rounded-xl border border-dashed border-black/10 bg-[#f8f4ee] px-4 py-4 text-center">
               <p className="text-xs text-text-muted">
                 No books selected. Search below to add books.
@@ -318,7 +326,7 @@ export default function FeaturedProductsPicker({
                             <img
                               src={book.coverImageUrl}
                               alt={book.title}
-                              className="h-11 w-8 shrink-0 rounded object-cover shadow-sm"
+                              className={`${dropdownImageClass} shrink-0 rounded object-cover shadow-sm`}
                             />
                             {/* Info */}
                             <div className="min-w-0 flex-1">

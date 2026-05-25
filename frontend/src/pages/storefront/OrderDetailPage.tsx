@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ExternalLink, Package, Truck } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { cancelOrder, getOrder } from "../../api/orders.api";
@@ -186,6 +186,53 @@ export default function OrderDetailPage() {
               {formatPrice(Number(order.totalAmount))}
             </p>
           </div>
+
+          {/* ── Shiprocket tracking card (shown only when AWB exists) ── */}
+          {order.awbCode && (
+            <div className="rounded-[1.75rem] border border-violet-200 bg-violet-50 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Package size={16} className="text-violet-600" />
+                <p className="text-[0.72rem] uppercase tracking-[0.28em] text-violet-700 font-semibold">
+                  Shipment Tracking
+                </p>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                {order.courierName && (
+                  <div className="flex items-center gap-2">
+                    <Truck size={14} className="text-violet-500 shrink-0" />
+                    <span className="font-medium text-text-primary">{order.courierName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-text-muted">AWB Code</span>
+                  <span className="font-mono text-xs font-semibold text-violet-700">
+                    {order.awbCode}
+                  </span>
+                </div>
+                {order.shiprocketStatus && order.shiprocketStatus !== "NOT_CREATED" && (
+                  <div className="flex justify-between">
+                    <span className="text-text-muted">Shipping Status</span>
+                    <span className="text-xs font-semibold text-violet-700 uppercase">
+                      {order.shiprocketStatus.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {order.trackingUrl && (
+                <a
+                  href={order.trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border border-violet-300 bg-white py-2.5 text-sm font-medium text-violet-700 transition-all hover:bg-violet-100"
+                >
+                  <ExternalLink size={14} />
+                  Track Your Shipment
+                </a>
+              )}
+            </div>
+          )}
 
           {canCancel ? (
             <button

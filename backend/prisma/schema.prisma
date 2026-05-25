@@ -102,6 +102,13 @@ model Book {
   stock         Int                      @default(0)
   language      String                   @default("English")
   publication   String?
+  isPrintBook        Boolean                  @default(false)
+  allowStapleBinding Boolean             @default(false)
+  allowSpiralBinding Boolean             @default(false)
+  height        Decimal?                 @db.Decimal(10, 2) // cm
+  length        Decimal?                 @db.Decimal(10, 2) // cm
+  breadth       Decimal?                 @db.Decimal(10, 2) // cm
+  weight        Decimal?                 @db.Decimal(10, 3) // kg
   searchVector  Unsupported("tsvector")?
   isFeatured    Boolean                  @default(false)
   createdAt     DateTime                 @default(now())
@@ -176,6 +183,19 @@ model Order {
   customerEmail    String?
   deliveryType     String?       @default("PAID")
   deliveryDistance Decimal?      @db.Decimal(5, 2)
+  // ── Shiprocket integration fields ───────────────────────────────────────
+  shiprocketOrderId    String?
+  shiprocketShipmentId String?
+  awbCode              String?
+  courierName          String?
+  trackingUrl          String?
+  labelUrl             String?
+  invoiceUrl           String?
+  manifestUrl          String?
+  shiprocketStatus     String?   @default("NOT_CREATED")
+  invoiceNumber    String?       @unique
+  invoiceSent      Boolean       @default(false)
+  invoiceSentAt    DateTime?
   createdAt        DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   user            User          @relation(fields: [userId], references: [id])
@@ -183,6 +203,16 @@ model Order {
   payment         Payment?
   returns        Return[]
   @@index([userId])
+  @@index([awbCode])
+}
+
+/// Cached Shiprocket JWT token – auto-refreshed when near expiry
+model ShiprocketToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  token     String   @db.Text
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model OrderItem {
@@ -229,14 +259,18 @@ model Return {
 }
 
 model Banner {
-  id          String   @id @default(uuid()) @db.Uuid
-  imageUrl    String
-  publicId    String
-  redirectUrl String
-  title       String?
-  isActive    Boolean  @default(true)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid()) @db.Uuid
+  imageUrl        String
+  publicId        String
+  desktopImageUrl String?
+  desktopPublicId String?
+  mobileImageUrl  String?
+  mobilePublicId  String?
+  redirectUrl     String
+  title           String?
+  isActive        Boolean  @default(true)
+  order           Int      @default(0)
+  createdAt       DateTime @default(now())
 }
 
 model Coupon {
@@ -330,6 +364,9 @@ model PrintOrder {
   status        String        @default("PENDING")
   /// Print orders MUST be prepaid — no COD
   paymentMethod PaymentMethod @default(ONLINE)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
   customerEmail   String?
   customerName    String?
   customerPhone   String?     @db.VarChar(20)
@@ -338,6 +375,9 @@ model PrintOrder {
   bwPrice       Decimal?      @db.Decimal(10, 2)
   bindingExtra  Decimal?      @db.Decimal(10, 2)
   sideExtra     Decimal?      @db.Decimal(10, 2)
+  invoiceNumber String?       @unique
+  invoiceSent   Boolean       @default(false)
+  invoiceSentAt DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   user          User          @relation(fields: [userId], references: [id])
@@ -395,16 +435,18 @@ model Category {
 
 /// Sub-category belonging to a Category
 model Subcategory {
-  id         String   @id @default(uuid()) @db.Uuid
-  categoryId String   @db.Uuid
-  name       String
-  slug       String   @unique
-  isActive   Boolean  @default(true)
-  order      Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  books      Book[]
+  id            String   @id @default(uuid()) @db.Uuid
+  categoryId    String   @db.Uuid
+  name          String
+  slug          String   @unique
+  imageUrl      String?
+  imagePublicId String?
+  isActive      Boolean  @default(true)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  books         Book[]
   @@unique([categoryId, name])
   @@index([categoryId])
 }
@@ -418,12 +460,25 @@ model HomepageConfig {
 }
 
 model ShippingSettings {
-  id                   String        @id @default(uuid()) @db.Uuid
-  freeRadius           Float         @default(5.0)
-  baseCharge           Decimal       @default(50) @db.Decimal(10, 2)
-  perKmCharge          Decimal       @default(10) @db.Decimal(10, 2)
-  maxCharge            Decimal?      @db.Decimal(10, 2)
-  prepaidDiscountType  String        @default("PERCENT")
-  prepaidDiscountValue Decimal       @default(5) @db.Decimal(10, 2)
-  updatedAt            DateTime      @updatedAt
+  id                    String   @id @default(uuid()) @db.Uuid
+  /// Master kill-switch: when false calculateShipping always returns 0
+  isShippingEnabled     Boolean  @default(true)
+  /// KM radius within which distance-based (per-km) pricing applies
+  distanceThreshold     Float    @default(3.0)
+  /// Charge per km for orders within the distanceThreshold
+  perKmRate             Decimal  @default(8)   @db.Decimal(10, 2)
+  /// Order value at or above which local delivery is free
+  freeDeliveryThreshold Decimal  @default(199) @db.Decimal(10, 2)
+  /// Fallback weight-based rate (₹/kg) used when state is not found
+  defaultKgRate         Decimal  @default(50)  @db.Decimal(10, 2)
+  /// JSON array: [{ "state": "Delhi", "rate": 50 }, ...]
+  stateRates            Json     @default("[]")
+  // ── Legacy fields (kept for backward compatibility) ──────────────────
+  freeRadius            Float    @default(5.0)
+  baseCharge            Decimal  @default(50) @db.Decimal(10, 2)
+  perKmCharge           Decimal  @default(10) @db.Decimal(10, 2)
+  maxCharge             Decimal? @db.Decimal(10, 2)
+  prepaidDiscountType   String   @default("PERCENT")
+  prepaidDiscountValue  Decimal  @default(5)  @db.Decimal(10, 2)
+  updatedAt             DateTime @updatedAt
 }

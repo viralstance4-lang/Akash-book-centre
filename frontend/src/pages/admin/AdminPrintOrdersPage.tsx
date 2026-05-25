@@ -43,7 +43,7 @@ const formatDate = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
 // ─── PDF helpers (use backend proxy — sets Content-Type: application/pdf) ────
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
+const API_BASE = import.meta.env.VITE_API_URL ?? "https://akash-book-centre-3.onrender.com/api/v1";
 
 /** Open a PrintFile in a new browser tab as a real PDF */
 async function openPdfInBrowser(fileId: string): Promise<void> {

@@ -32,3 +32,14 @@ export const verifyEmailSchema = z.object({
 export const resendVerificationSchema = z.object({
   email: z.email("Please provide a valid email address"),
 });
+
+/** Complete admin 2FA — submit OTP against a session token */
+export const adminVerifyOtpSchema = z.object({
+  otpSessionToken: z.string().min(1, "Session token is required"),
+  code:            z.string().length(6, "OTP must be exactly 6 digits"),
+});
+
+/** Resend admin 2FA OTP (requires valid session token) */
+export const adminResendOtpSchema = z.object({
+  otpSessionToken: z.string().min(1, "Session token is required"),
+});

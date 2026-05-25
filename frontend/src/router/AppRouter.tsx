@@ -18,6 +18,7 @@ import AdminPrintOrdersPage from "../pages/admin/AdminPrintOrdersPage";
 import AdminReturnsPage from "../pages/admin/AdminReturnsPage";
 import AdminReviewsPage from "../pages/admin/AdminReviewsPage";
 import AdminSettingsPage from "../pages/admin/AdminSettingsPage";
+import AdminShippingPage from "../pages/admin/AdminShippingPage";
 import AdminUsersPage from "../pages/admin/AdminUsersPage";
 import LoginPage from "../pages/auth/LoginPage";
 import RegisterPage from "../pages/auth/RegisterPage";
@@ -33,6 +34,8 @@ import HomePage from "../pages/storefront/HomePage";
 import OrderDetailPage from "../pages/storefront/OrderDetailPage";
 import SubcategoryPage from "../pages/storefront/SubcategoryPage";
 import OrdersPage from "../pages/storefront/OrdersPage";
+import AllBooksPage from "../pages/storefront/AllBooksPage";
+import FeaturedBooksPage from "../pages/storefront/FeaturedBooksPage";
 import PrintBookPage from "../pages/storefront/PrintBookPage";
 import ReturnsPage from "../pages/storefront/ReturnsPage";
 import MyReturnsPage from "../pages/storefront/MyReturnsPage";
@@ -127,6 +130,8 @@ export default function AppRouter() {
           <Route path="/category/:slug"         element={<CategoryPage />} />
           <Route path="/subcategory/:slug"       element={<SubcategoryPage />} />
           <Route path="/books/:id"              element={<BookDetailPage />} />
+          <Route path="/all-books"       element={<AllBooksPage />} />
+          <Route path="/featured"        element={<FeaturedBooksPage />} />
           <Route path="/print-book"     element={<PrintBookPage />} />
           <Route path="/returns"        element={<ReturnsPage />} />
           <Route path="/pages/:slug"    element={<DynamicPage />} />
@@ -157,6 +162,7 @@ export default function AppRouter() {
             <Route path="/admin/pages"        element={<AdminPagesPage />} />
             <Route path="/admin/print-orders" element={<AdminPrintOrdersPage />} />
             <Route path="/admin/returns"      element={<AdminReturnsPage />} />
+            <Route path="/admin/shipping"         element={<AdminShippingPage />} />
             <Route path="/admin/settings"          element={<AdminSettingsPage />} />
             <Route path="/admin/homepage-builder" element={<AdminHomepageBuilderPage />} />
           </Route>

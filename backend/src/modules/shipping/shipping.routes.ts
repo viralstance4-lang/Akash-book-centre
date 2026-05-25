@@ -1,13 +1,29 @@
 import { Router } from "express";
-import { ShippingController } from "./shipping.controller";
-import authMiddleware from "../../middleware/auth.middleware";
+import authMiddleware, { requireAdmin } from "../../middleware/auth.middleware";
+import validate from "../../middleware/validate";
+import {
+  getPublicShippingConfig,
+  calculateShipping,
+  getAdminShippingConfig,
+  updateAdminShippingConfig,
+  adminTestCalculation,
+} from "./shipping.controller";
+import { calculateShippingSchema, updateShippingConfigSchema } from "./shipping.schema";
 
-const router = Router();
+// ── Public storefront routes (/api/v1/shipping/...) ──────────────────────────
+const shippingRouter = Router();
 
-// Public route to get shipping settings
-router.get("/shipping-settings", ShippingController.getShippingSettings);
+shippingRouter.get("/config",    getPublicShippingConfig);
+shippingRouter.post("/calculate", validate(calculateShippingSchema), calculateShipping);
 
-// Admin route to update shipping settings
-router.put("/admin/shipping-settings", authMiddleware, ShippingController.updateShippingSettings);
+// ── Admin routes (/api/v1/admin/shipping/...) ─────────────────────────────────
+export const adminShippingRouter = Router();
 
-export default router;
+const adminMw = [authMiddleware, requireAdmin] as const;
+adminShippingRouter.use(...adminMw);
+
+adminShippingRouter.get("/config",     getAdminShippingConfig);
+adminShippingRouter.put("/config",     validate(updateShippingConfigSchema), updateAdminShippingConfig);
+adminShippingRouter.post("/calculate", validate(calculateShippingSchema), adminTestCalculation);
+
+export default shippingRouter;

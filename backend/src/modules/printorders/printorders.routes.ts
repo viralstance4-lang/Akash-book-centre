@@ -3,6 +3,7 @@ import multer from "multer";
 import authMiddleware, { requireAdmin } from "../../middleware/auth.middleware";
 import * as printController from "./printorders.controller";
 
+
 const router      = Router();
 const adminRouter = Router();
 
@@ -40,14 +41,16 @@ router.post(
   },
   printController.createPrintOrder,
 );
+router.post("/:id/verify-payment", authMiddleware, printController.verifyPrintPayment);
 router.get("/my-orders", authMiddleware, printController.getUserPrintOrders);
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 adminRouter.use(authMiddleware, requireAdmin);
-adminRouter.get("/",              printController.getAllPrintOrders);
-adminRouter.patch("/:id/status",  printController.updatePrintOrderStatus);
-adminRouter.delete("/:id",        printController.deletePrintOrder);
-adminRouter.put("/settings",      printController.upsertPrintSettings);
+adminRouter.get("/",                    printController.getAllPrintOrders);
+adminRouter.patch("/:id/status",        printController.updatePrintOrderStatus);
+adminRouter.post("/:id/resend-invoice", printController.resendPrintInvoice);
+adminRouter.delete("/:id",              printController.deletePrintOrder);
+adminRouter.put("/settings",            printController.upsertPrintSettings);
 
 export default router;
 export { adminRouter as adminPrintRouter };

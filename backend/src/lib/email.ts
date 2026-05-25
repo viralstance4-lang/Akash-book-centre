@@ -1,6 +1,9 @@
 import nodemailer from "nodemailer";
 import env from "../config/env";
 
+// Centralized support email — set via SUPPORT_EMAIL env var
+const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
@@ -43,11 +46,13 @@ type OrderInvoiceData = {
   orderId: string;
   items: OrderItem[];
   total: number;
+  deliveryCharge?: number;
   discount?: number;
   paymentMethod: string;
   shippingAddress: any;
   createdAt: string;
   customerEmail?: string;
+  invoiceNumber?: string;
 };
 
 const buildOrderHtml = (orderData: OrderInvoiceData, isAdmin = false) => {
@@ -99,24 +104,36 @@ const buildOrderHtml = (orderData: OrderInvoiceData, isAdmin = false) => {
       </div>
       <div style="background:#f8f4ee;padding:16px 32px;text-align:center;">
         <p style="margin:0;font-size:12px;color:#9a9a9a;">Akash Book Centre · ${isAdmin ? "Manage orders in your admin panel." : "Thank you for shopping with us!"}</p>
+        ${!isAdmin ? `<p style="margin:4px 0 0;font-size:11px;color:#b0b0b0;">Questions? Email us at <a href="mailto:${SUPPORT_EMAIL}" style="color:#9a9a9a;">${SUPPORT_EMAIL}</a></p>` : ""}
       </div>
     </div>
   `;
 };
 
-export const sendOrderInvoice = async (to: string, orderData: OrderInvoiceData) => {
+export const sendOrderInvoice = async (to: string, orderData: OrderInvoiceData, pdfBuffer?: Buffer) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
-  await sendMailSafe({
+  const subject = orderData.invoiceNumber
+    ? `Invoice ${orderData.invoiceNumber} — Order Confirmed #${orderData.orderId.slice(0, 8).toUpperCase()}`
+    : `Order Confirmed - #${orderData.orderId.slice(0, 8).toUpperCase()}`;
+  const mailOptions: nodemailer.SendMailOptions = {
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to,
-    subject: `Order Confirmed - #${orderData.orderId.slice(0, 8).toUpperCase()}`,
+    subject,
     html: buildOrderHtml(orderData, false),
-  });
+  };
+  if (pdfBuffer) {
+    mailOptions.attachments = [{
+      filename: `${orderData.invoiceNumber ?? `invoice-${orderData.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
+      content: pdfBuffer,
+      contentType: "application/pdf",
+    }];
+  }
+  await sendMailSafe(mailOptions);
 };
 
 export const sendAdminOrderNotification = async (orderData: OrderInvoiceData) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
-  const adminEmail = env.ADMIN_EMAIL || env.GMAIL_USER;
+  const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   await sendMailSafe({
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to: adminEmail,
@@ -151,6 +168,7 @@ type PrintOrderEmailData = {
   fileNames?: string[];
   fileItems?: PrintFileItem[];
   createdAt?: string;
+  invoiceNumber?: string;
 };
 
 const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
@@ -288,26 +306,38 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
         <p style="margin:4px 0 0;font-size:11px;color:#9a9a9a;">
           ${isAdmin ? "Admin notification — do not reply." : "Thank you for choosing us!"}
         </p>
+        ${!isAdmin ? `<p style="margin:4px 0 0;font-size:11px;color:#b0b0b0;">Questions? <a href="mailto:${SUPPORT_EMAIL}" style="color:#9a9a9a;">${SUPPORT_EMAIL}</a></p>` : ""}
       </div>
     </div>
   `;
 };
 
-export const sendPrintOrderInvoice = async (to: string, d: PrintOrderEmailData) => {
+export const sendPrintOrderInvoice = async (to: string, d: PrintOrderEmailData, pdfBuffer?: Buffer) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
   console.log(`[EMAIL] Sending print order invoice to ${to} for order #${d.orderId.slice(0, 8).toUpperCase()}`);
-  await sendMailSafe({
+  const subject = d.invoiceNumber
+    ? `Invoice ${d.invoiceNumber} — Print Order #${d.orderId.slice(0, 8).toUpperCase()}`
+    : `Your Print Order Invoice — #${d.orderId.slice(0, 8).toUpperCase()}`;
+  const mailOptions: nodemailer.SendMailOptions = {
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to,
-    subject: `Your Print Order Invoice — #${d.orderId.slice(0, 8).toUpperCase()}`,
+    subject,
     html: buildPrintOrderHtml(d, false),
-  });
+  };
+  if (pdfBuffer) {
+    mailOptions.attachments = [{
+      filename: `${d.invoiceNumber ?? `invoice-${d.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
+      content: pdfBuffer,
+      contentType: "application/pdf",
+    }];
+  }
+  await sendMailSafe(mailOptions);
   console.log(`[EMAIL] Print order invoice sent to ${to}`);
 };
 
 export const sendAdminPrintOrderNotification = async (d: PrintOrderEmailData) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
-  const adminEmail = env.ADMIN_EMAIL || env.GMAIL_USER;
+  const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   console.log(`[EMAIL] Sending admin print order notification to ${adminEmail}`);
   await sendMailSafe({
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
@@ -367,6 +397,47 @@ export const sendOtpEmail = async (to: string, code: string, expiryMinutes: numb
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to,
     subject: `${code} is your Akash Book Centre login code`,
+    html,
+  });
+};
+
+// ─── Admin Login OTP ─────────────────────────────────────────────────────────
+
+export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes: number) => {
+  if (!isGmailConfigured) {
+    console.warn("[EMAIL] Gmail not configured — admin OTP not sent. OTP:", code);
+    return;
+  }
+  const html = `
+    <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e0dbd3;border-radius:16px;overflow:hidden;">
+      <div style="background:#051d40;padding:28px 36px;">
+        <p style="margin:0 0 8px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.45);">Akash Book Centre</p>
+        <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">Admin Login Verification</h1>
+        <p style="margin:8px 0 0;font-size:13px;color:rgba(255,255,255,0.55);">Two-Factor Authentication Code</p>
+      </div>
+      <div style="padding:36px;">
+        <p style="margin:0 0 6px;font-size:15px;color:#1d1a17;font-weight:600;">Your Admin Login Verification Code is:</p>
+        <p style="margin:0 0 28px;font-size:13px;color:#6b7280;">Enter this code in the admin login screen to complete sign-in.</p>
+        <div style="text-align:center;background:linear-gradient(135deg,#051d40 0%,#0a3570 100%);border-radius:14px;padding:34px 24px;margin-bottom:28px;">
+          <p style="font-size:52px;font-weight:800;letter-spacing:18px;color:#d6b269;margin:0;font-family:monospace;">${code}</p>
+          <p style="margin:14px 0 0;font-size:12px;color:rgba(255,255,255,0.55);letter-spacing:.1em;text-transform:uppercase;">Valid for ${expiryMinutes} minutes only</p>
+        </div>
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:16px 18px;margin-bottom:24px;">
+          <p style="margin:0 0 6px;font-size:13px;color:#b91c1c;font-weight:700;">⚠ Security Notice</p>
+          <p style="margin:0;font-size:13px;color:#dc2626;line-height:1.6;">Do not share this code with anyone. This code grants admin access to the store management panel. Akash Book Centre staff will never ask you for this code.</p>
+        </div>
+        <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.7;">If you did not attempt to log in to the admin panel, your account credentials may be compromised. Please change your password immediately.</p>
+      </div>
+      <div style="background:#f8f4ee;padding:18px 36px;text-align:center;border-top:1px solid #e8e5df;">
+        <p style="margin:0;font-size:12px;font-weight:600;color:#1d1a17;">Akash Book Centre — Admin Security</p>
+        <p style="margin:4px 0 0;font-size:11px;color:#9a9a9a;">Automated security notification · Do not reply to this email</p>
+      </div>
+    </div>
+  `;
+  await sendMailSafe({
+    from: `"Akash Book Centre Security" <${env.GMAIL_USER}>`,
+    to,
+    subject: `${code} — Admin Login Verification Code (${expiryMinutes} min)`,
     html,
   });
 };

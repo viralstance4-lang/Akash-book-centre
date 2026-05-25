@@ -1,11 +1,15 @@
+import crypto from "crypto";
 import prisma from "../../lib/prisma";
 import { uploadImage, deleteImage } from "../../lib/cloudinary";
 import AppError from "../../lib/AppError";
+import razorpay from "../../config/razorpay";
+import env from "../../config/env";
 import {
   sendAdminPrintOrderNotification,
   sendInvoiceNotification,
   sendPrintOrderInvoice,
 } from "../../lib/email";
+import { generateInvoiceNumber, generateInvoicePdf } from "../../lib/invoice";
 import {
   calculateEstimatedMinutes,
   type CreatePrintOrderInput,
@@ -49,13 +53,6 @@ const getSettings = async () => {
 
 // ─── Per-file pricing helpers ─────────────────────────────────────────────────
 
-/**
- * Calculates total price when each file has its own copy count.
- *
- * Print cost  = pricePerPage × Σ(pageCount[i] × copies[i])
- * Binding cost = bindingRate × Σ(copies[i])   (one binding charge per physical copy)
- * Bulk rule applies to total raw pages (unweighted) as a threshold signal.
- */
 function calcPerFilePricing(params: {
   filePageCounts: number[];
   fileCopies:     number[];
@@ -66,7 +63,7 @@ function calcPerFilePricing(params: {
 }) {
   const { filePageCounts, fileCopies, printSide, colorType, bindingType, settings } = params;
 
-  const totalRawPages     = filePageCounts.reduce((s, n) => s + n, 0);
+  const totalRawPages      = filePageCounts.reduce((s, n) => s + n, 0);
   const totalWeightedPages = filePageCounts.reduce((s, n, i) => s + n * (fileCopies[i] ?? 1), 0);
   const totalCopies        = fileCopies.reduce((s, c) => s + c, 0);
 
@@ -84,7 +81,12 @@ function calcPerFilePricing(params: {
   return { pricePerPage, printCost, bindingCost, totalPrice, totalRawPages, totalWeightedPages, totalCopies };
 }
 
-// ─── Create Print Order (multi-file with per-file copies) ─────────────────────
+// ─── Phase 1: Create pending print order + Razorpay order ────────────────────
+//
+// Uploads PDFs, creates PrintOrder with status="AWAITING_PAYMENT",
+// creates a Razorpay order, stores razorpayOrderId on the print order,
+// and returns both IDs to the frontend so it can open Razorpay Checkout.
+// Emails are NOT sent at this stage — only after payment is verified.
 
 export const createPrintOrder = async (
   userId: string,
@@ -118,7 +120,6 @@ export const createPrintOrder = async (
     filePageCounts = files.map(() => perFile);
   }
 
-  // Per-file copies: prefer fileCopies array; fall back to global copies for all files
   const globalCopies = Math.max(1, Number(data.copies) || 1);
   let fileCopies: number[] = parseSafeJson<number>(data.fileCopies, []);
   if (fileCopies.length !== files.length) {
@@ -166,7 +167,25 @@ export const createPrintOrder = async (
     ),
   );
 
-  // ── Create order + files atomically ─────────────────────────────────────
+  // ── Create Razorpay order ──────────────────────────────────────────────
+  let razorpayOrder: any;
+  try {
+    razorpayOrder = await razorpay.orders.create({
+      amount:   Math.round(totalPrice * 100),   // paise
+      currency: "INR",
+      receipt:  `print_${Date.now()}`,
+    });
+  } catch (err: any) {
+    // Clean up uploaded Cloudinary files so we don't leak assets
+    await Promise.allSettled(uploadedFiles.map((f) => deleteImage(f.filePublicId)));
+    throw new AppError(
+      "Payment gateway is unavailable. Please try again.",
+      502,
+      "PAYMENT_GATEWAY_ERROR",
+    );
+  }
+
+  // ── Create PrintOrder with status AWAITING_PAYMENT ───────────────────
   const order = await prisma.printOrder.create({
     data: {
       userId,
@@ -177,11 +196,12 @@ export const createPrintOrder = async (
       orientation:      data.orientation,
       bindingType:      data.bindingType,
       pageCount:        totalRawPages,
-      copies:           totalCopies,   // sum of all per-file copies (for backward compat)
+      copies:           totalCopies,
       totalPrice,
       estimatedMinutes,
-      status:           "PENDING",
+      status:           "AWAITING_PAYMENT",
       paymentMethod:    "ONLINE",
+      razorpayOrderId:  razorpayOrder.id,
       customerEmail:    data.customerEmail,
       customerName:     data.customerName,
       customerPhone:    data.customerPhone,
@@ -192,52 +212,164 @@ export const createPrintOrder = async (
     include: { files: { orderBy: { order: "asc" } } },
   });
 
-  // ── Notifications ─────────────────────────────────────────────────────────
-  const emailPayload = {
-    orderId:          order.id,
-    colorType:        data.colorType,
-    printSide:        data.printSide,
-    orientation:      data.orientation,
-    bindingType:      data.bindingType,
-    pageCount:        totalRawPages,
-    copies:           totalCopies,
-    estimatedMinutes,
-    total:            Number(totalPrice),
-    paymentMethod:    "ONLINE",
-    customerEmail:    data.customerEmail,
-    customerName:     data.customerName,
-    customerPhone:    data.customerPhone,
-    customerAddress:  data.customerAddress,
-    fileNames,
-    fileItems: fileNames.map((name, i) => ({
-      name,
-      copies:    fileCopies[i]     ?? 1,
-      pageCount: filePageCounts[i] ?? 0,
-    })),
-    createdAt: order.createdAt.toISOString(),
+  console.log(`[PRINT ORDER] Pending #${order.id.slice(0, 8).toUpperCase()} | ₹${totalPrice} | Razorpay: ${razorpayOrder.id}`);
+
+  return {
+    printOrderId:    order.id,
+    razorpayOrderId: razorpayOrder.id,
+    amount:          totalPrice,
+    customerName:    data.customerName,
+    customerEmail:   data.customerEmail,
   };
+};
 
-  console.log(`[PRINT ORDER] Created #${order.id.slice(0, 8).toUpperCase()} | User: ${userId} | ₹${totalPrice} | Files: ${fileNames.length} | Customer: ${data.customerName} <${data.customerEmail}>`);
+// ─── Phase 2: Verify Razorpay payment + confirm PrintOrder ───────────────────
+//
+// Verifies HMAC signature. On success: marks order CONFIRMED, stores payment
+// IDs, then fires customer invoice + admin notification emails.
+// On failure: marks order PAYMENT_FAILED (PDFs remain in Cloudinary for retry).
 
-  if (data.customerEmail) {
-    sendPrintOrderInvoice(data.customerEmail, emailPayload).catch((err) => {
-      console.error("[PRINT ORDER] Customer invoice email failed:", (err as Error).message);
-    });
-  }
-  sendAdminPrintOrderNotification(emailPayload).catch((err) => {
-    console.error("[PRINT ORDER] Admin notification email failed:", (err as Error).message);
+export const verifyPrintOrderPayment = async (
+  userId: string,
+  printOrderId: string,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+) => {
+  const order = await prisma.printOrder.findUnique({
+    where:   { id: printOrderId },
+    include: { files: { orderBy: { order: "asc" } } },
   });
 
+  if (!order) throw new AppError("Print order not found", 404, "PRINT_ORDER_NOT_FOUND");
+  if (order.userId !== userId) throw new AppError("Forbidden", 403, "FORBIDDEN");
+  if (order.razorpayOrderId !== razorpayOrderId) {
+    throw new AppError("Order ID mismatch", 400, "ORDER_ID_MISMATCH");
+  }
+
+  // Idempotency: already confirmed (e.g. duplicate webhook)
+  if (order.status === "CONFIRMED") return order;
+
+  if (order.status !== "AWAITING_PAYMENT") {
+    throw new AppError(
+      "This order is no longer awaiting payment",
+      400,
+      "INVALID_ORDER_STATE",
+    );
+  }
+
+  // ── Cryptographic signature verification ──────────────────────────────
+  const expectedSignature = crypto
+    .createHmac("sha256", env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpaySignature) {
+    await prisma.printOrder.update({
+      where: { id: printOrderId },
+      data:  { status: "PAYMENT_FAILED", razorpayPaymentId, razorpaySignature },
+    });
+    throw new AppError("Payment verification failed", 400, "PAYMENT_VERIFICATION_FAILED");
+  }
+
+  // ── Generate invoice number ───────────────────────────────────────────
+  const invNum = generateInvoiceNumber();
+
+  // ── Confirm the order ─────────────────────────────────────────────────
+  const confirmed = await prisma.printOrder.update({
+    where: { id: printOrderId },
+    data: {
+      status:            "CONFIRMED",
+      razorpayPaymentId,
+      razorpaySignature,
+      invoiceNumber:     invNum,
+    },
+    include: { files: { orderBy: { order: "asc" } } },
+  });
+
+  console.log(`[PRINT ORDER] Confirmed #${printOrderId.slice(0, 8).toUpperCase()} | Payment: ${razorpayPaymentId}`);
+
+  // ── Send emails now that payment is verified ──────────────────────────
+  const fileNames = confirmed.files.map((f) => f.originalName);
+  const emailPayload = {
+    orderId:          confirmed.id,
+    colorType:        confirmed.colorType,
+    printSide:        confirmed.printSide,
+    orientation:      confirmed.orientation,
+    bindingType:      confirmed.bindingType,
+    pageCount:        confirmed.pageCount,
+    copies:           confirmed.copies,
+    estimatedMinutes: confirmed.estimatedMinutes,
+    total:            Number(confirmed.totalPrice),
+    paymentMethod:    "ONLINE" as const,
+    razorpayPaymentId,
+    customerEmail:    confirmed.customerEmail ?? "",
+    customerName:     confirmed.customerName  ?? "",
+    customerPhone:    confirmed.customerPhone ?? "",
+    customerAddress:  confirmed.customerAddress ?? "",
+    fileNames,
+    fileItems: confirmed.files.map((f) => ({
+      name:      f.originalName,
+      copies:    f.copies,
+      pageCount: f.pageCount,
+    })),
+    createdAt:     confirmed.createdAt.toISOString(),
+    invoiceNumber: invNum,
+  };
+
+  sendAdminPrintOrderNotification(emailPayload).catch((err) => {
+    console.error("[PRINT ORDER] Admin notification failed:", (err as Error).message);
+  });
   sendInvoiceNotification({
-    orderId:       order.id,
+    orderId:       confirmed.id,
     orderType:     "PRINT",
-    customerName:  data.customerName,
-    customerEmail: data.customerEmail,
-    total:         Number(totalPrice),
+    customerName:  confirmed.customerName  ?? "",
+    customerEmail: confirmed.customerEmail ?? "",
+    total:         Number(confirmed.totalPrice),
     paymentMethod: "ONLINE",
   }).catch(() => {});
 
-  return order;
+  if (confirmed.customerEmail) {
+    const sendWithPdf = async () => {
+      try {
+        const pdfBuffer = await generateInvoicePdf({
+          invoiceNumber: invNum,
+          orderId:       confirmed.id,
+          createdAt:     confirmed.createdAt,
+          customerName:  confirmed.customerName  ?? "Customer",
+          customerEmail: confirmed.customerEmail ?? undefined,
+          shippingAddress: {
+            name:  confirmed.customerName  ?? undefined,
+            phone: confirmed.customerPhone ?? undefined,
+            line1: confirmed.customerAddress ?? undefined,
+          },
+          items: [{ name: `Print Order — ${confirmed.pageCount} pages x ${confirmed.copies} copies`, quantity: 1, unitPrice: Number(confirmed.totalPrice) }],
+          subtotal:      Number(confirmed.totalPrice),
+          total:         Number(confirmed.totalPrice),
+          paymentMethod: "ONLINE",
+          isPrintOrder:  true,
+          printSpecs: {
+            colorType:   confirmed.colorType,
+            printSide:   confirmed.printSide,
+            orientation: confirmed.orientation,
+            bindingType: confirmed.bindingType,
+            pageCount:   confirmed.pageCount,
+            copies:      confirmed.copies,
+          },
+        });
+        await sendPrintOrderInvoice(confirmed.customerEmail!, emailPayload, pdfBuffer);
+        await prisma.printOrder.update({
+          where: { id: confirmed.id },
+          data:  { invoiceSent: true, invoiceSentAt: new Date() },
+        });
+      } catch (err) {
+        console.error("[INVOICE] Print order invoice failed:", (err as Error).message);
+      }
+    };
+    sendWithPdf().catch(() => {});
+  }
+
+  return confirmed;
 };
 
 // ─── User Print Orders ────────────────────────────────────────────────────────
@@ -264,22 +396,82 @@ export const updatePrintOrderStatus = async (id: string, status: string) =>
   prisma.printOrder.update({ where: { id }, data: { status } });
 
 export const deletePrintOrder = async (id: string) => {
-  // Fetch order + files so we can clean up Cloudinary assets
   const order = await prisma.printOrder.findUnique({
     where:   { id },
     include: { files: true },
   });
   if (!order) throw new AppError("Print order not found", 404, "NOT_FOUND");
 
-  // Delete every uploaded PDF from Cloudinary (fire-and-forget; DB delete still proceeds)
   const cloudinaryDeletes = [
-    // Legacy single-file field
     order.filePublicId ? deleteImage(order.filePublicId) : Promise.resolve(),
-    // Per-file records
     ...order.files.map((f) => (f.filePublicId ? deleteImage(f.filePublicId) : Promise.resolve())),
   ];
   await Promise.allSettled(cloudinaryDeletes);
-
-  // Delete the order — PrintFile rows cascade-delete via the FK relation
   await prisma.printOrder.delete({ where: { id } });
+};
+
+export const resendPrintInvoice = async (printOrderId: string) => {
+  const order = await prisma.printOrder.findUnique({
+    where:   { id: printOrderId },
+    include: { files: { orderBy: { order: "asc" } }, user: { select: { email: true, name: true } } },
+  });
+  if (!order) throw new AppError("Print order not found", 404, "NOT_FOUND");
+
+  const recipient = order.customerEmail ?? (order.user as any)?.email;
+  if (!recipient) throw new AppError("No customer email on this order", 400, "NO_EMAIL");
+
+  const invNum = (order as any).invoiceNumber ?? generateInvoiceNumber();
+
+  const pdfBuffer = await generateInvoicePdf({
+    invoiceNumber: invNum,
+    orderId:       order.id,
+    createdAt:     order.createdAt,
+    customerName:  order.customerName  ?? "Customer",
+    customerEmail: recipient,
+    shippingAddress: {
+      name:  order.customerName  ?? undefined,
+      phone: order.customerPhone ?? undefined,
+      line1: order.customerAddress ?? undefined,
+    },
+    items: [{ name: `Print Order — ${order.pageCount} pages x ${order.copies} copies`, quantity: 1, unitPrice: Number(order.totalPrice) }],
+    subtotal:      Number(order.totalPrice),
+    total:         Number(order.totalPrice),
+    paymentMethod: "ONLINE",
+    isPrintOrder:  true,
+    printSpecs: {
+      colorType:   order.colorType,
+      printSide:   order.printSide,
+      orientation: order.orientation,
+      bindingType: order.bindingType,
+      pageCount:   order.pageCount,
+      copies:      order.copies,
+    },
+  });
+
+  const emailPayload = {
+    orderId:          order.id,
+    colorType:        order.colorType,
+    printSide:        order.printSide,
+    orientation:      order.orientation,
+    bindingType:      order.bindingType,
+    pageCount:        order.pageCount,
+    copies:           order.copies,
+    estimatedMinutes: order.estimatedMinutes,
+    total:            Number(order.totalPrice),
+    paymentMethod:    "ONLINE" as const,
+    customerEmail:    recipient,
+    customerName:     order.customerName  ?? "",
+    customerPhone:    order.customerPhone ?? "",
+    customerAddress:  order.customerAddress ?? "",
+    fileItems: order.files.map((f) => ({ name: f.originalName, copies: f.copies, pageCount: f.pageCount })),
+    createdAt:     order.createdAt.toISOString(),
+    invoiceNumber: invNum,
+  };
+
+  await sendPrintOrderInvoice(recipient, emailPayload, pdfBuffer);
+
+  return prisma.printOrder.update({
+    where: { id: printOrderId },
+    data:  { invoiceNumber: invNum, invoiceSent: true, invoiceSentAt: new Date() },
+  });
 };

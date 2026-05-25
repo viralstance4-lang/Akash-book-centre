@@ -22,9 +22,10 @@ import printRouter, { adminPrintRouter } from "./modules/printorders/printorders
 import pdfRouter from "./modules/printorders/pdf.routes";
 import reviewsRouter, { adminReviewsRouter } from "./modules/reviews/reviews.routes";
 import settingsRouter from "./modules/settings/settings.routes";
-import shippingRouter from "./modules/shipping/shipping.routes";
+import shippingRouter, { adminShippingRouter } from "./modules/shipping/shipping.routes";
 import usersRouter from "./modules/users/users.routes";
 import returnsRouter, { adminReturnsRouter } from "./modules/returns/returns.routes";
+import adminShiprocketRouter, { shiprocketWebhookRouter } from "./modules/shiprocket/shiprocket.routes";
 
 const app = express();
 
@@ -68,10 +69,11 @@ app.use("/api/v1/coupons",     couponsRouter);
 app.use("/api/v1/print",       printRouter);
 app.use("/api/v1/pdf",         pdfRouter);
 app.use("/api/v1/settings",    settingsRouter);
-app.use("/api/v1",             shippingRouter);
+app.use("/api/v1/shipping",    shippingRouter);
 app.use("/api/v1/reviews",     reviewsRouter);
 app.use("/api/v1/pages",       pagesRouter);
 app.use("/api/v1/returns",      returnsRouter);
+app.use("/api/v1/shiprocket",   shiprocketWebhookRouter);
 app.use("/api/v1/featured",          featuredRouter);
 app.use("/api/v1/homepage-config",   homepageConfigRouter);
 app.use("/api/v1/categories",        categoriesRouter);
@@ -89,6 +91,8 @@ app.use("/api/v1/admin/featured",          adminFeaturedRouter);
 app.use("/api/v1/admin/homepage-config",   adminHomepageConfigRouter);
 app.use("/api/v1/admin/categories",        adminCategoriesRouter);
 app.use("/api/v1/admin/returns",       adminReturnsRouter);
+app.use("/api/v1/admin/shipping",     adminShippingRouter);
+app.use("/api/v1/admin/shiprocket",   adminShiprocketRouter);
 
 app.use(errorMiddleware);
 
