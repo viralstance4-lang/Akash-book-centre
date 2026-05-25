@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const stateRateSchema = z.object({
   state: z.string().min(1, "State name required").max(100).trim(),
-  rate: z.number({ required_error: "Rate required" }).positive("Rate must be positive").max(100_000),
+  rate: z.number().positive("Rate must be positive").max(100_000),
 });
 
 export const updateShippingConfigSchema = z.object({
