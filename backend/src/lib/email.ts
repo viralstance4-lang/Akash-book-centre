@@ -11,16 +11,18 @@ const isGmailConfigured = Boolean(
     !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
 );
 
-// ── Transporter with production-safe timeouts ─────────────────────────────────
-// connectionTimeout / greetingTimeout / socketTimeout prevent Gmail from hanging
-// indefinitely on Render's cold-started dyno.
+// ── Transporter — explicit port 587 (STARTTLS) ────────────────────────────────
+// Render free tier blocks outbound port 465 (Gmail SSL).
+// Port 587 with STARTTLS works on all Render plans.
+// Do NOT use service:"gmail" — it defaults to port 465 which times out on Render.
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
-  // Fail fast so the retry loop kicks in quickly rather than waiting minutes
-  connectionTimeout: 10_000,  // 10 s to establish TCP connection
-  greetingTimeout:   10_000,  // 10 s for SMTP greeting after connect
-  socketTimeout:     30_000,  // 30 s of inactivity allowed mid-transfer
+  host:   "smtp.gmail.com",
+  port:   587,
+  secure: false,  // STARTTLS (upgrades to TLS after connect)
+  auth:   { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
+  connectionTimeout: 15_000,
+  greetingTimeout:   15_000,
+  socketTimeout:     30_000,
 });
 
 // ── Startup transporter verification ─────────────────────────────────────────
