@@ -40,6 +40,16 @@ const schema = z.object({
   /** Optional secret token appended to webhook URL for basic security */
   SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
 
+  // ── Email — Resend (recommended for Render) or Gmail fallback ────────────────
+  /** Resend API key — get free at resend.com (3000 emails/month) */
+  RESEND_API_KEY: z.string().optional(),
+  /**
+   * "From" address for Resend emails.
+   * • Free tier (unverified domain): use "Akash Book Centre <onboarding@resend.dev>"
+   * • Verified domain: use "Akash Book Centre <noreply@yourdomain.com>"
+   */
+  RESEND_FROM: z.string().optional(),
+
   // ── Diagnostics (optional — remove after initial setup) ─────────────────────
   /** Secret key to access /api/v1/diag/email without login (remove after debugging) */
   DIAGNOSTIC_SECRET: z.string().optional(),

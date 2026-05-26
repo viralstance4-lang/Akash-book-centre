@@ -1,8 +1,14 @@
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import env from "../config/env";
 import logger from "../config/logger";
 
 const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
+
+// ── Provider selection ────────────────────────────────────────────────────────
+// Resend is preferred on Render — Gmail SMTP is blocked (IPv6/port issues).
+// Set RESEND_API_KEY in Render env to switch; Gmail is kept as local dev fallback.
+const useResend = Boolean(env.RESEND_API_KEY);
 
 const isGmailConfigured = Boolean(
   env.GMAIL_USER &&
@@ -11,80 +17,106 @@ const isGmailConfigured = Boolean(
     !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
 );
 
-// ── Transporter — explicit port 587 (STARTTLS) ────────────────────────────────
-// Render free tier blocks outbound port 465 (Gmail SSL).
-// Port 587 with STARTTLS works on all Render plans.
-// Do NOT use service:"gmail" — it defaults to port 465 which times out on Render.
-// IPv4 is forced via NODE_OPTIONS=--dns-result-order=ipv4first in Render env vars.
-// Render free tier has no IPv6 outbound — without this Gmail's IPv6 address
-// (2607:f8b0:...) is tried first and immediately fails with ENETUNREACH.
-const transporter = nodemailer.createTransport({
+const isEmailConfigured = useResend || isGmailConfigured;
+
+// ── Resend client ─────────────────────────────────────────────────────────────
+const resendClient = useResend ? new Resend(env.RESEND_API_KEY) : null;
+
+// ── Gmail transporter (local dev fallback) ────────────────────────────────────
+const gmailTransporter = nodemailer.createTransport({
   host:   "smtp.gmail.com",
   port:   587,
-  secure: false,  // STARTTLS — port 465 (SSL) is blocked on Render free tier
+  secure: false,
   auth:   { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
   connectionTimeout: 15_000,
   greetingTimeout:   15_000,
   socketTimeout:     30_000,
 });
 
-// ── Startup transporter verification ─────────────────────────────────────────
-// Called by server.ts on boot so SMTP misconfiguration is caught early.
+// ── Startup verification ──────────────────────────────────────────────────────
 export async function verifyTransporter(): Promise<void> {
+  if (useResend) {
+    logger.info("[EMAIL] Resend API configured — ready");
+    return;
+  }
   if (!isGmailConfigured) {
-    logger.warn("[EMAIL] Gmail credentials not configured — email sending is disabled");
+    logger.warn("[EMAIL] No email provider configured — set RESEND_API_KEY or GMAIL_USER+GMAIL_PASS");
     return;
   }
   try {
-    await transporter.verify();
-    logger.info("[EMAIL] SMTP transporter verified successfully");
+    await gmailTransporter.verify();
+    logger.info("[EMAIL] Gmail SMTP verified");
   } catch (err) {
-    logger.error({ err }, "[EMAIL] SMTP transporter verification failed");
+    logger.error({ err }, "[EMAIL] Gmail SMTP verify failed — set RESEND_API_KEY for Render");
     throw err;
   }
 }
 
 // ── Retry helper ──────────────────────────────────────────────────────────────
-// Retries up to maxAttempts with exponential backoff (2 s → 4 s → 8 s).
-// Email failures are non-fatal so errors are logged, never thrown.
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS    = 3;
 const BACKOFF_BASE_MS = 2_000;
-
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-const sendMailSafe = async (options: nodemailer.SendMailOptions): Promise<void> => {
-  if (!isGmailConfigured) {
-    logger.warn(
-      { GMAIL_USER: env.GMAIL_USER, GMAIL_PASS: env.GMAIL_PASS ? "SET" : "MISSING" },
-      "[EMAIL] Gmail not configured — skipping send",
-    );
+type MailPayload = {
+  to: string;
+  from: string;
+  subject: string;
+  html: string;
+  attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
+};
+
+const sendMailSafe = async (options: MailPayload): Promise<void> => {
+  if (!isEmailConfigured) {
+    logger.warn("[EMAIL] No provider configured — skipping send");
     return;
   }
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const info = await transporter.sendMail(options);
+      if (useResend && resendClient) {
+        const from = env.RESEND_FROM ?? "Akash Book Centre <onboarding@resend.dev>";
+        const payload: Parameters<typeof resendClient.emails.send>[0] = {
+          from,
+          to:      [options.to],
+          subject: options.subject,
+          html:    options.html,
+        };
+        if (options.attachments?.length) {
+          payload.attachments = options.attachments.map((a) => ({
+            filename: a.filename,
+            content:  a.content,
+          }));
+        }
+        const { error } = await resendClient.emails.send(payload);
+        if (error) throw new Error(error.message);
+      } else {
+        await gmailTransporter.sendMail({
+          from: options.from, to: options.to,
+          subject: options.subject, html: options.html,
+          attachments: options.attachments,
+        });
+      }
+
       logger.info(
-        { to: options.to, subject: options.subject, messageId: info.messageId, attempt },
+        { to: options.to, subject: options.subject, attempt, provider: useResend ? "resend" : "gmail" },
         "[EMAIL] Sent successfully",
       );
       return;
+
     } catch (err) {
       lastErr = err;
       logger.warn(
-        { to: options.to, subject: options.subject, attempt, maxAttempts: MAX_ATTEMPTS, err },
+        { to: options.to, attempt, maxAttempts: MAX_ATTEMPTS, err },
         `[EMAIL] Send attempt ${attempt} failed`,
       );
-      if (attempt < MAX_ATTEMPTS) {
-        await sleep(BACKOFF_BASE_MS * attempt); // 2 s, 4 s, 8 s
-      }
+      if (attempt < MAX_ATTEMPTS) await sleep(BACKOFF_BASE_MS * attempt);
     }
   }
 
   logger.error(
     { to: options.to, subject: options.subject, err: lastErr },
-    "[EMAIL] All send attempts failed — email not delivered",
+    "[EMAIL] All attempts failed",
   );
 };
 
@@ -176,13 +208,13 @@ export const sendOrderInvoice = async (
   orderData: OrderInvoiceData,
   pdfBuffer?: Buffer,
 ) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   logger.info({ to, orderId: orderData.orderId }, "[EMAIL] Sending order invoice");
   const subject = orderData.invoiceNumber
     ? `Invoice ${orderData.invoiceNumber} — Order Confirmed #${orderData.orderId.slice(0, 8).toUpperCase()}`
     : `Order Confirmed - #${orderData.orderId.slice(0, 8).toUpperCase()}`;
-  const mailOptions: nodemailer.SendMailOptions = {
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
+  const mailOptions: MailPayload = {
+    from: `"Akash Book Centre" <${env.GMAIL_USER ?? ""}>`,
     to,
     subject,
     html: buildOrderHtml(orderData, false),
@@ -200,7 +232,7 @@ export const sendOrderInvoice = async (
 };
 
 export const sendAdminOrderNotification = async (orderData: OrderInvoiceData) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   logger.info({ to: adminEmail, orderId: orderData.orderId }, "[EMAIL] Sending admin order notification");
   await sendMailSafe({
@@ -392,13 +424,13 @@ export const sendPrintOrderInvoice = async (
   d: PrintOrderEmailData,
   pdfBuffer?: Buffer,
 ) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   logger.info({ to, orderId: d.orderId }, "[EMAIL] Sending print order invoice");
   const subject = d.invoiceNumber
     ? `Invoice ${d.invoiceNumber} — Print Order #${d.orderId.slice(0, 8).toUpperCase()}`
     : `Your Print Order Invoice — #${d.orderId.slice(0, 8).toUpperCase()}`;
-  const mailOptions: nodemailer.SendMailOptions = {
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
+  const mailOptions: MailPayload = {
+    from: `"Akash Book Centre" <${env.GMAIL_USER ?? ""}>`,
     to,
     subject,
     html: buildPrintOrderHtml(d, false),
@@ -416,7 +448,7 @@ export const sendPrintOrderInvoice = async (
 };
 
 export const sendAdminPrintOrderNotification = async (d: PrintOrderEmailData) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   logger.info({ to: adminEmail, orderId: d.orderId }, "[EMAIL] Sending admin print order notification");
   await sendMailSafe({
@@ -435,7 +467,7 @@ export const sendVerificationEmail = async (
   code: string,
   expiryMinutes: number,
 ) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   logger.info({ to }, "[EMAIL] Sending verification email");
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
@@ -462,7 +494,7 @@ export const sendVerificationEmail = async (
 };
 
 export const sendOtpEmail = async (to: string, code: string, expiryMinutes: number) => {
-  if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  if (!isEmailConfigured) return;
   logger.info({ to }, "[EMAIL] Sending OTP email");
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
