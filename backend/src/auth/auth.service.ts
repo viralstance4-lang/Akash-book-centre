@@ -210,11 +210,25 @@ export const loginUser = async (data: LoginUserInput) => {
     );
   }
 
-  // ── Admin 2FA: send OTP, return session token (no JWT issued yet) ──────────
+  // ── Admin 2FA: only if email is fully configured ──────────────────────────
   if (user.role === "ADMIN") {
-    const otpSessionToken = await initiateAdminOtp(user.id);
-    const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL ?? "");
-    return { requiresAdminOtp: true as const, otpSessionToken, maskedEmail };
+    const emailReady = Boolean(
+      env.GMAIL_USER && env.GMAIL_PASS && env.ADMIN_OTP_EMAIL &&
+      !env.GMAIL_USER.toLowerCase().includes("your_gmail") &&
+      !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
+    );
+
+    if (emailReady) {
+      const otpSessionToken = await initiateAdminOtp(user.id);
+      const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL!);
+      return { requiresAdminOtp: true as const, otpSessionToken, maskedEmail };
+    }
+
+    // Email not configured on this deployment — skip 2FA, log direct access
+    console.warn(
+      "[AUTH] Admin 2FA bypassed — GMAIL_USER / GMAIL_PASS / ADMIN_OTP_EMAIL not set. " +
+      "Add these to your Render environment variables to enable OTP login.",
+    );
   }
 
   // ── Regular user: issue tokens immediately ─────────────────────────────────
