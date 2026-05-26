@@ -40,6 +40,10 @@ const schema = z.object({
   /** Optional secret token appended to webhook URL for basic security */
   SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
 
+  // ── Diagnostics (optional — remove after initial setup) ─────────────────────
+  /** Secret key to access /api/v1/diag/email without login (remove after debugging) */
+  DIAGNOSTIC_SECRET: z.string().optional(),
+
   // ── Render / Production ──────────────────────────────────────────────────────
   /** Full public URL of this backend, e.g. https://your-app.onrender.com */
   BACKEND_URL: z.string().optional(),

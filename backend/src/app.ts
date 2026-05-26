@@ -27,6 +27,7 @@ import usersRouter from "./modules/users/users.routes";
 import returnsRouter, { adminReturnsRouter } from "./modules/returns/returns.routes";
 import adminShiprocketRouter, { shiprocketWebhookRouter } from "./modules/shiprocket/shiprocket.routes";
 import adminUtilsRouter from "./modules/admin/admin.routes";
+import diagRouter from "./modules/admin/diag.routes";
 
 const app = express();
 
@@ -155,6 +156,7 @@ app.use("/api/v1/admin/returns",          adminReturnsRouter);
 app.use("/api/v1/admin/shipping",         adminShippingRouter);
 app.use("/api/v1/admin/shiprocket",       adminShiprocketRouter);
 app.use("/api/v1/admin",                  adminUtilsRouter);
+app.use("/api/v1/diag",                   diagRouter);
 
 app.use(errorMiddleware);
 
