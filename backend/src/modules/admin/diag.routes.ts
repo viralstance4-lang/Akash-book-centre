@@ -43,7 +43,7 @@ const emailDiag: RequestHandler = async (req, res) => {
   const transporter = nodemailer.createTransport({
     host:   "smtp.gmail.com",
     port:   587,
-    secure: false,
+    secure: false,  // STARTTLS
     auth:   { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
     connectionTimeout: 15_000,
     greetingTimeout:   15_000,

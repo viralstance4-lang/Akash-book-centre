@@ -15,10 +15,13 @@ const isGmailConfigured = Boolean(
 // Render free tier blocks outbound port 465 (Gmail SSL).
 // Port 587 with STARTTLS works on all Render plans.
 // Do NOT use service:"gmail" — it defaults to port 465 which times out on Render.
+// IPv4 is forced via NODE_OPTIONS=--dns-result-order=ipv4first in Render env vars.
+// Render free tier has no IPv6 outbound — without this Gmail's IPv6 address
+// (2607:f8b0:...) is tried first and immediately fails with ENETUNREACH.
 const transporter = nodemailer.createTransport({
   host:   "smtp.gmail.com",
   port:   587,
-  secure: false,  // STARTTLS (upgrades to TLS after connect)
+  secure: false,  // STARTTLS — port 465 (SSL) is blocked on Render free tier
   auth:   { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
   connectionTimeout: 15_000,
   greetingTimeout:   15_000,
