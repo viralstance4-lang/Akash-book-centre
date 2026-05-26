@@ -1,55 +1,22 @@
-import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import env from "../config/env";
 import logger from "../config/logger";
 
 const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
-
-// ── Provider selection ────────────────────────────────────────────────────────
-// Resend is preferred on Render — Gmail SMTP is blocked (IPv6/port issues).
-// Set RESEND_API_KEY in Render env to switch; Gmail is kept as local dev fallback.
-const useResend = Boolean(env.RESEND_API_KEY);
-
-const isGmailConfigured = Boolean(
-  env.GMAIL_USER &&
-    env.GMAIL_PASS &&
-    !env.GMAIL_USER.toLowerCase().includes("your_gmail") &&
-    !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
-);
-
-const isEmailConfigured = useResend || isGmailConfigured;
+const FROM_ADDRESS  = env.RESEND_FROM ?? "Akash Book Centre <onboarding@resend.dev>";
 
 // ── Resend client ─────────────────────────────────────────────────────────────
-const resendClient = useResend ? new Resend(env.RESEND_API_KEY) : null;
+const resendClient = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
-// ── Gmail transporter (local dev fallback) ────────────────────────────────────
-const gmailTransporter = nodemailer.createTransport({
-  host:   "smtp.gmail.com",
-  port:   587,
-  secure: false,
-  auth:   { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
-  connectionTimeout: 15_000,
-  greetingTimeout:   15_000,
-  socketTimeout:     30_000,
-});
+export const isEmailConfigured = Boolean(resendClient);
 
 // ── Startup verification ──────────────────────────────────────────────────────
 export async function verifyTransporter(): Promise<void> {
-  if (useResend) {
-    logger.info("[EMAIL] Resend API configured — ready");
+  if (!resendClient) {
+    logger.warn("[EMAIL] RESEND_API_KEY not set — emails will be skipped");
     return;
   }
-  if (!isGmailConfigured) {
-    logger.warn("[EMAIL] No email provider configured — set RESEND_API_KEY or GMAIL_USER+GMAIL_PASS");
-    return;
-  }
-  try {
-    await gmailTransporter.verify();
-    logger.info("[EMAIL] Gmail SMTP verified");
-  } catch (err) {
-    logger.error({ err }, "[EMAIL] Gmail SMTP verify failed — set RESEND_API_KEY for Render");
-    throw err;
-  }
+  logger.info({ from: FROM_ADDRESS }, "[EMAIL] Resend API configured — ready");
 }
 
 // ── Retry helper ──────────────────────────────────────────────────────────────
@@ -59,47 +26,37 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 type MailPayload = {
   to: string;
-  from: string;
   subject: string;
   html: string;
   attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
 };
 
 const sendMailSafe = async (options: MailPayload): Promise<void> => {
-  if (!isEmailConfigured) {
-    logger.warn("[EMAIL] No provider configured — skipping send");
+  if (!resendClient) {
+    logger.warn("[EMAIL] Resend not configured — skipping send");
     return;
   }
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      if (useResend && resendClient) {
-        const from = env.RESEND_FROM ?? "Akash Book Centre <onboarding@resend.dev>";
-        const payload: Parameters<typeof resendClient.emails.send>[0] = {
-          from,
-          to:      [options.to],
-          subject: options.subject,
-          html:    options.html,
-        };
-        if (options.attachments?.length) {
-          payload.attachments = options.attachments.map((a) => ({
-            filename: a.filename,
-            content:  a.content,
-          }));
-        }
-        const { error } = await resendClient.emails.send(payload);
-        if (error) throw new Error(error.message);
-      } else {
-        await gmailTransporter.sendMail({
-          from: options.from, to: options.to,
-          subject: options.subject, html: options.html,
-          attachments: options.attachments,
-        });
+      const payload: Parameters<typeof resendClient.emails.send>[0] = {
+        from:    FROM_ADDRESS,
+        to:      [options.to],
+        subject: options.subject,
+        html:    options.html,
+      };
+      if (options.attachments?.length) {
+        payload.attachments = options.attachments.map((a) => ({
+          filename: a.filename,
+          content:  a.content,
+        }));
       }
+      const { error } = await resendClient.emails.send(payload);
+      if (error) throw new Error(error.message);
 
       logger.info(
-        { to: options.to, subject: options.subject, attempt, provider: useResend ? "resend" : "gmail" },
+        { to: options.to, subject: options.subject, attempt },
         "[EMAIL] Sent successfully",
       );
       return;
@@ -214,7 +171,6 @@ export const sendOrderInvoice = async (
     ? `Invoice ${orderData.invoiceNumber} — Order Confirmed #${orderData.orderId.slice(0, 8).toUpperCase()}`
     : `Order Confirmed - #${orderData.orderId.slice(0, 8).toUpperCase()}`;
   const mailOptions: MailPayload = {
-    from: `"Akash Book Centre" <${env.GMAIL_USER ?? ""}>`,
     to,
     subject,
     html: buildOrderHtml(orderData, false),
@@ -236,7 +192,6 @@ export const sendAdminOrderNotification = async (orderData: OrderInvoiceData) =>
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   logger.info({ to: adminEmail, orderId: orderData.orderId }, "[EMAIL] Sending admin order notification");
   await sendMailSafe({
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to: adminEmail,
     subject: `[NEW ORDER] #${orderData.orderId.slice(0, 8).toUpperCase()} — ${orderData.paymentMethod} — ₹${orderData.total}`,
     html: buildOrderHtml(orderData, true),
@@ -430,7 +385,6 @@ export const sendPrintOrderInvoice = async (
     ? `Invoice ${d.invoiceNumber} — Print Order #${d.orderId.slice(0, 8).toUpperCase()}`
     : `Your Print Order Invoice — #${d.orderId.slice(0, 8).toUpperCase()}`;
   const mailOptions: MailPayload = {
-    from: `"Akash Book Centre" <${env.GMAIL_USER ?? ""}>`,
     to,
     subject,
     html: buildPrintOrderHtml(d, false),
@@ -452,14 +406,13 @@ export const sendAdminPrintOrderNotification = async (d: PrintOrderEmailData) =>
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
   logger.info({ to: adminEmail, orderId: d.orderId }, "[EMAIL] Sending admin print order notification");
   await sendMailSafe({
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to: adminEmail,
     subject: `[PRINT ORDER] #${d.orderId.slice(0, 8).toUpperCase()} — ₹${d.total} — ${d.customerName ?? "Customer"}`,
     html: buildPrintOrderHtml(d, true),
   });
 };
 
-// ─── OTP Email ────────────────────────────────────────────────────────────────
+// ─── OTP / Verification Emails ────────────────────────────────────────────────
 
 export const sendVerificationEmail = async (
   to: string,
@@ -486,7 +439,6 @@ export const sendVerificationEmail = async (
     </div>
   `;
   await sendMailSafe({
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to,
     subject: `${code} — Verify your Akash Book Centre account`,
     html,
@@ -512,7 +464,6 @@ export const sendOtpEmail = async (to: string, code: string, expiryMinutes: numb
     </div>
   `;
   await sendMailSafe({
-    from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to,
     subject: `${code} is your Akash Book Centre login code`,
     html,
@@ -522,8 +473,8 @@ export const sendOtpEmail = async (to: string, code: string, expiryMinutes: numb
 // ─── Admin Login OTP ─────────────────────────────────────────────────────────
 
 export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes: number) => {
-  if (!isGmailConfigured) {
-    logger.warn({ code }, "[EMAIL] Gmail not configured — admin OTP not sent");
+  if (!isEmailConfigured) {
+    logger.warn({ code }, "[EMAIL] Resend not configured — admin OTP not sent");
     return;
   }
   logger.info({ to }, "[EMAIL] Sending admin login OTP");
@@ -553,13 +504,183 @@ export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes:
       </div>
     </div>
   `;
-  logger.info({ to, expiryMinutes }, "[ADMIN OTP] Sending admin OTP email");
   await sendMailSafe({
-    from: `"Akash Book Centre Security" <${env.GMAIL_USER}>`,
     to,
     subject: `${code} — Admin Login Verification Code (${expiryMinutes} min)`,
     html,
   });
+};
+
+// ─── Return / Refund Emails ───────────────────────────────────────────────────
+
+type ReturnEmailData = {
+  orderId: string;
+  returnId: string;
+  customerName: string;
+  customerEmail?: string;
+  reason: string;
+  items: Array<{ title: string; quantity: number }>;
+  refundAmount?: number;
+  status: string;
+};
+
+export const sendReturnRequestEmail = async (to: string, d: ReturnEmailData) => {
+  if (!isEmailConfigured) return;
+  logger.info({ to, returnId: d.returnId }, "[EMAIL] Sending return request confirmation");
+  const itemsHtml = d.items
+    .map((i) => `<li style="padding:4px 0;font-size:13px;color:#5a5a5a;">${i.title} × ${i.quantity}</li>`)
+    .join("");
+  const html = `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
+      <div style="background:#1d1a17;padding:24px 32px;">
+        <h1 style="color:white;margin:0;font-size:22px;">Return Request Received</h1>
+        <p style="color:rgba(255,255,255,0.6);margin:6px 0 0;font-size:14px;">Order #${d.orderId.slice(0, 8).toUpperCase()}</p>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="color:#5a5a5a;font-size:15px;margin:0 0 16px;">Hi <strong>${d.customerName}</strong>, we have received your return request.</p>
+        <div style="background:#f8f4ee;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;color:#9a9a9a;letter-spacing:.06em;">Return Reference</p>
+          <p style="margin:0;font-size:18px;font-weight:bold;color:#1d1a17;">#${d.returnId.slice(0, 8).toUpperCase()}</p>
+        </div>
+        <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#1d1a17;">Items Requested for Return:</p>
+        <ul style="margin:0 0 16px;padding-left:20px;">${itemsHtml}</ul>
+        <p style="font-size:13px;color:#5a5a5a;margin:0 0 8px;"><strong>Reason:</strong> ${d.reason}</p>
+        ${d.refundAmount ? `<p style="font-size:13px;color:#5a5a5a;margin:0 0 8px;"><strong>Refund Amount:</strong> ₹${d.refundAmount}</p>` : ""}
+        <p style="font-size:13px;color:#5a5a5a;margin:0 0 20px;"><strong>Status:</strong> ${d.status}</p>
+        <p style="font-size:13px;color:#9a9a9a;line-height:1.6;">Our team will review your request and get back to you within 2–3 business days. For queries, contact us at <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d1a17;">${SUPPORT_EMAIL}</a>.</p>
+      </div>
+      <div style="background:#f8f4ee;padding:16px 32px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#9a9a9a;">Akash Book Centre · Thank you for your patience.</p>
+      </div>
+    </div>
+  `;
+  await sendMailSafe({ to, subject: `Return Request Received — #${d.returnId.slice(0, 8).toUpperCase()}`, html });
+};
+
+export const sendAdminReturnNotification = async (d: ReturnEmailData) => {
+  if (!isEmailConfigured) return;
+  const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
+  logger.info({ to: adminEmail, returnId: d.returnId }, "[EMAIL] Sending admin return notification");
+  const itemsHtml = d.items
+    .map((i) => `<li style="padding:4px 0;font-size:13px;color:#5a5a5a;">${i.title} × ${i.quantity}</li>`)
+    .join("");
+  const html = `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
+      <div style="background:#8f2d22;padding:24px 32px;">
+        <h1 style="color:white;margin:0;font-size:22px;">🔄 New Return Request</h1>
+        <p style="color:rgba(255,255,255,0.7);margin:6px 0 0;">Order #${d.orderId.slice(0, 8).toUpperCase()}</p>
+      </div>
+      <div style="padding:28px 32px;">
+        <div style="background:#fef9c3;border-left:4px solid #ca8a04;border-radius:8px;padding:14px 16px;margin-bottom:20px;">
+          <p style="margin:0;font-size:13px;color:#5a5a5a;">
+            <strong>Customer:</strong> ${d.customerName} &nbsp;|&nbsp;
+            <strong>Email:</strong> ${d.customerEmail ?? "—"} &nbsp;|&nbsp;
+            <strong>Return #:</strong> ${d.returnId.slice(0, 8).toUpperCase()}
+          </p>
+        </div>
+        <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#1d1a17;">Items:</p>
+        <ul style="margin:0 0 16px;padding-left:20px;">${itemsHtml}</ul>
+        <p style="font-size:13px;color:#5a5a5a;margin:0 0 8px;"><strong>Reason:</strong> ${d.reason}</p>
+        ${d.refundAmount ? `<p style="font-size:13px;color:#5a5a5a;margin:0;"><strong>Refund Amount:</strong> ₹${d.refundAmount}</p>` : ""}
+      </div>
+      <div style="background:#f8f4ee;padding:16px 32px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#9a9a9a;">Review and process this return in your admin panel.</p>
+      </div>
+    </div>
+  `;
+  await sendMailSafe({
+    to: adminEmail,
+    subject: `[RETURN REQUEST] #${d.returnId.slice(0, 8).toUpperCase()} — Order #${d.orderId.slice(0, 8).toUpperCase()}`,
+    html,
+  });
+};
+
+// ─── Shipment Tracking Email ──────────────────────────────────────────────────
+
+type ShipmentUpdateData = {
+  orderId: string;
+  customerName: string;
+  trackingId?: string;
+  courierName?: string;
+  trackingUrl?: string;
+  status: string;
+  estimatedDelivery?: string;
+};
+
+export const sendShipmentUpdateEmail = async (to: string, d: ShipmentUpdateData) => {
+  if (!isEmailConfigured) return;
+  logger.info({ to, orderId: d.orderId }, "[EMAIL] Sending shipment update");
+  const html = `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
+      <div style="background:#1d1a17;padding:24px 32px;">
+        <h1 style="color:white;margin:0;font-size:22px;">📦 Shipment Update</h1>
+        <p style="color:rgba(255,255,255,0.6);margin:6px 0 0;font-size:14px;">Order #${d.orderId.slice(0, 8).toUpperCase()}</p>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="color:#5a5a5a;font-size:15px;margin:0 0 20px;">Hi <strong>${d.customerName}</strong>, here is an update on your shipment.</p>
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px 20px;margin-bottom:20px;">
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;color:#16a34a;letter-spacing:.06em;">Current Status</p>
+          <p style="margin:0;font-size:18px;font-weight:bold;color:#15803d;">${d.status}</p>
+        </div>
+        ${d.trackingId ? `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          ${d.courierName ? `<tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;width:45%;">Courier</td><td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${d.courierName}</td></tr>` : ""}
+          <tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;">Tracking ID</td><td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${d.trackingId}</td></tr>
+          ${d.estimatedDelivery ? `<tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;">Est. Delivery</td><td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${d.estimatedDelivery}</td></tr>` : ""}
+        </table>` : ""}
+        ${d.trackingUrl ? `<a href="${d.trackingUrl}" style="display:inline-block;background:#1d1a17;color:white;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;margin-bottom:20px;">Track Your Order</a>` : ""}
+        <p style="font-size:13px;color:#9a9a9a;line-height:1.6;margin:0;">Questions? Contact us at <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d1a17;">${SUPPORT_EMAIL}</a></p>
+      </div>
+      <div style="background:#f8f4ee;padding:16px 32px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#9a9a9a;">Akash Book Centre · Thank you for your order.</p>
+      </div>
+    </div>
+  `;
+  await sendMailSafe({
+    to,
+    subject: `Your Order #${d.orderId.slice(0, 8).toUpperCase()} has been shipped — ${d.status}`,
+    html,
+  });
+};
+
+// ─── Contact Form / Support Email ─────────────────────────────────────────────
+
+type ContactFormData = {
+  name: string;
+  email: string;
+  phone?: string;
+  subject: string;
+  message: string;
+};
+
+export const sendContactFormEmail = async (d: ContactFormData) => {
+  if (!isEmailConfigured) return;
+  const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
+  logger.info({ from: d.email, subject: d.subject }, "[EMAIL] Sending contact form submission");
+  const html = `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
+      <div style="background:#1d1a17;padding:24px 32px;">
+        <h1 style="color:white;margin:0;font-size:22px;">📬 New Contact Form Submission</h1>
+        <p style="color:rgba(255,255,255,0.6);margin:6px 0 0;font-size:14px;">Akash Book Centre Website</p>
+      </div>
+      <div style="padding:28px 32px;">
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;width:80px;">Name</td><td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${d.name}</td></tr>
+          <tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;">Email</td><td style="padding:7px 0;font-size:13px;color:#1d1a17;"><a href="mailto:${d.email}" style="color:#1d1a17;">${d.email}</a></td></tr>
+          ${d.phone ? `<tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;">Phone</td><td style="padding:7px 0;font-size:13px;color:#1d1a17;">${d.phone}</td></tr>` : ""}
+          <tr><td style="padding:7px 0;font-size:13px;color:#9a9a9a;vertical-align:top;">Subject</td><td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${d.subject}</td></tr>
+        </table>
+        <div style="background:#f8f4ee;border-radius:8px;padding:16px;">
+          <p style="margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;color:#9a9a9a;letter-spacing:.06em;">Message</p>
+          <p style="margin:0;font-size:14px;color:#5a5a5a;line-height:1.7;white-space:pre-wrap;">${d.message}</p>
+        </div>
+      </div>
+      <div style="background:#f8f4ee;padding:16px 32px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#9a9a9a;">Reply directly to ${d.email} to respond to this customer.</p>
+      </div>
+    </div>
+  `;
+  await sendMailSafe({ to: adminEmail, subject: `[CONTACT] ${d.subject} — ${d.name}`, html });
 };
 
 // ─── SMS / WhatsApp Invoice Notification ─────────────────────────────────────
