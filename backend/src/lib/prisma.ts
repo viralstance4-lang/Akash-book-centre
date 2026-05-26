@@ -14,7 +14,7 @@ const pool = new Pool({
   connectionString: env.DATABASE_URL,
   max: isProduction ? 5 : 3,       // max simultaneous PG connections
   idleTimeoutMillis: 30_000,       // release idle connections after 30 s
-  connectionTimeoutMillis: 10_000, // fail fast if Neon is unreachable on startup
+  connectionTimeoutMillis: 60_000, // Neon serverless cold-start can take 20-30 s — give it 60 s
   ssl: isProduction ? { rejectUnauthorized: false } : undefined,
 });
 
