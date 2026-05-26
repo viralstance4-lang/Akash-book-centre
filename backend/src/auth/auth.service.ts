@@ -6,7 +6,7 @@ import env from "../config/env";
 import AppError from "../lib/AppError";
 import logger from "../config/logger";
 import prisma from "../lib/prisma";
-import { sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
+import { isEmailConfigured, sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
 import { verifyOtp } from "./otp/otp.service";
 
 type RegisterUserInput = { name: string; email: string; password: string };
@@ -128,10 +128,13 @@ const sendRegistrationOtp = async (userId: string, email: string, name: string) 
   });
 
   // Fire-and-forget: OTP is already in DB, so respond immediately.
-  // Email arrives within seconds even if SMTP is slow on first connect.
-  sendVerificationEmail(email, name, code, OTP_EXPIRY_MINUTES).catch((err) =>
-    logger.error({ err, email }, "[AUTH] Failed to send verification email"),
-  );
+  // If email fails (e.g. Resend domain restriction), user can use "Resend code".
+  sendVerificationEmail(email, name, code, OTP_EXPIRY_MINUTES).catch((err) => {
+    logger.error(
+      { err: (err as Error).message, email },
+      "[AUTH] ❌ Verification email failed — check RESEND_FROM domain is verified in resend.com dashboard",
+    );
+  });
 };
 
 // ─── Verify Registration Email ────────────────────────────────────────────────
@@ -215,24 +218,16 @@ export const loginUser = async (data: LoginUserInput) => {
     );
   }
 
-  // ── Admin 2FA: only if email is fully configured ──────────────────────────
+  // ── Admin 2FA: requires Resend + ADMIN_OTP_EMAIL ─────────────────────────
   if (user.role === "ADMIN") {
-    const emailReady = Boolean(
-      env.GMAIL_USER && env.GMAIL_PASS && env.ADMIN_OTP_EMAIL &&
-      !env.GMAIL_USER.toLowerCase().includes("your_gmail") &&
-      !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
-    );
-
-    if (emailReady) {
+    if (isEmailConfigured && env.ADMIN_OTP_EMAIL) {
       const otpSessionToken = await initiateAdminOtp(user.id);
-      const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL!);
+      const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL);
       return { requiresAdminOtp: true as const, otpSessionToken, maskedEmail };
     }
 
-    // Email not configured on this deployment — skip 2FA, log direct access
-    console.warn(
-      "[AUTH] Admin 2FA bypassed — GMAIL_USER / GMAIL_PASS / ADMIN_OTP_EMAIL not set. " +
-      "Add these to your Render environment variables to enable OTP login.",
+    logger.warn(
+      "[AUTH] Admin 2FA bypassed — RESEND_API_KEY or ADMIN_OTP_EMAIL not set in environment.",
     );
   }
 
