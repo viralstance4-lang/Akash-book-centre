@@ -23,8 +23,8 @@ const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_ATTEMPTS = 5;
 
 // ── Admin 2FA constants ────────────────────────────────────────────────────────
-const ADMIN_OTP_EXPIRY_MINUTES      = 5;
-const ADMIN_OTP_SESSION_MINUTES     = 10;
+const ADMIN_OTP_EXPIRY_MINUTES      = 15;  // increased — email delivery on Render can be slow
+const ADMIN_OTP_SESSION_MINUTES     = 20;  // must be > OTP expiry
 const ADMIN_OTP_MAX_ATTEMPTS        = 5;
 const ADMIN_OTP_RESEND_COOLDOWN_SEC = 60;
 
