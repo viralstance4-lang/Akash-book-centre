@@ -4,6 +4,7 @@ import jwt, { type Secret, type SignOptions } from "jsonwebtoken";
 
 import env from "../config/env";
 import AppError from "../lib/AppError";
+import logger from "../config/logger";
 import prisma from "../lib/prisma";
 import { sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
 import { verifyOtp } from "./otp/otp.service";
@@ -126,7 +127,11 @@ const sendRegistrationOtp = async (userId: string, email: string, name: string) 
     data: { userId, code, target: email, type: "VERIFY", expiresAt },
   });
 
-  await sendVerificationEmail(email, name, code, OTP_EXPIRY_MINUTES);
+  // Fire-and-forget: OTP is already in DB, so respond immediately.
+  // Email arrives within seconds even if SMTP is slow on first connect.
+  sendVerificationEmail(email, name, code, OTP_EXPIRY_MINUTES).catch((err) =>
+    logger.error({ err, email }, "[AUTH] Failed to send verification email"),
+  );
 };
 
 // ─── Verify Registration Email ────────────────────────────────────────────────
@@ -371,7 +376,11 @@ export const initiateAdminOtp = async (userId: string): Promise<string> => {
     data: { userId, code, target: otpEmail, type: "ADMIN_2FA", expiresAt },
   });
 
-  await sendAdminLoginOtp(otpEmail, code, ADMIN_OTP_EXPIRY_MINUTES);
+  // Fire-and-forget: session token + OTP are in DB already.
+  // Decoupling email from request prevents SMTP cold-start timeouts on Render.
+  sendAdminLoginOtp(otpEmail, code, ADMIN_OTP_EXPIRY_MINUTES).catch((err) =>
+    logger.error({ err, otpEmail }, "[AUTH] Failed to send admin OTP email"),
+  );
 
   return generateAdminOtpSessionToken(userId);
 };
