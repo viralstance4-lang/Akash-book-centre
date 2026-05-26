@@ -40,6 +40,16 @@ const schema = z.object({
   /** Optional secret token appended to webhook URL for basic security */
   SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
 
+  // ── Render / Production ──────────────────────────────────────────────────────
+  /** Full public URL of this backend, e.g. https://your-app.onrender.com */
+  BACKEND_URL: z.string().optional(),
+  /** Global API request timeout in ms (default: 30 000) */
+  REQUEST_TIMEOUT_MS: z
+    .string()
+    .optional()
+    .default("30000")
+    .transform((v) => parseInt(v, 10)),
+
   // ── Twilio (optional – for SMS/WhatsApp invoice notifications) ──────────────
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN:  z.string().optional(),

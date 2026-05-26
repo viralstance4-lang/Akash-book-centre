@@ -1,35 +1,86 @@
 import nodemailer from "nodemailer";
 import env from "../config/env";
+import logger from "../config/logger";
 
-// Centralized support email — set via SUPPORT_EMAIL env var
 const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
-});
 
 const isGmailConfigured = Boolean(
   env.GMAIL_USER &&
-  env.GMAIL_PASS &&
-  !env.GMAIL_USER.toLowerCase().includes("your_gmail") &&
-  !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password")
+    env.GMAIL_PASS &&
+    !env.GMAIL_USER.toLowerCase().includes("your_gmail") &&
+    !env.GMAIL_PASS.toLowerCase().includes("your_16_digit_app_password"),
 );
 
-const sendMailSafe = async (options: nodemailer.SendMailOptions) => {
+// ── Transporter with production-safe timeouts ─────────────────────────────────
+// connectionTimeout / greetingTimeout / socketTimeout prevent Gmail from hanging
+// indefinitely on Render's cold-started dyno.
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: { user: env.GMAIL_USER, pass: env.GMAIL_PASS },
+  // Fail fast so the retry loop kicks in quickly rather than waiting minutes
+  connectionTimeout: 10_000,  // 10 s to establish TCP connection
+  greetingTimeout:   10_000,  // 10 s for SMTP greeting after connect
+  socketTimeout:     30_000,  // 30 s of inactivity allowed mid-transfer
+});
+
+// ── Startup transporter verification ─────────────────────────────────────────
+// Called by server.ts on boot so SMTP misconfiguration is caught early.
+export async function verifyTransporter(): Promise<void> {
   if (!isGmailConfigured) {
-    console.warn(
-      "[EMAIL] Gmail is not configured or is using placeholder credentials. Email not sent.",
+    logger.warn("[EMAIL] Gmail credentials not configured — email sending is disabled");
+    return;
+  }
+  try {
+    await transporter.verify();
+    logger.info("[EMAIL] SMTP transporter verified successfully");
+  } catch (err) {
+    logger.error({ err }, "[EMAIL] SMTP transporter verification failed");
+    throw err;
+  }
+}
+
+// ── Retry helper ──────────────────────────────────────────────────────────────
+// Retries up to maxAttempts with exponential backoff (2 s → 4 s → 8 s).
+// Email failures are non-fatal so errors are logged, never thrown.
+const MAX_ATTEMPTS = 3;
+const BACKOFF_BASE_MS = 2_000;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+const sendMailSafe = async (options: nodemailer.SendMailOptions): Promise<void> => {
+  if (!isGmailConfigured) {
+    logger.warn(
       { GMAIL_USER: env.GMAIL_USER, GMAIL_PASS: env.GMAIL_PASS ? "SET" : "MISSING" },
+      "[EMAIL] Gmail not configured — skipping send",
     );
     return;
   }
 
-  try {
-    await transporter.sendMail(options);
-  } catch (error) {
-    console.error("[EMAIL] Failed to send email:", error);
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const info = await transporter.sendMail(options);
+      logger.info(
+        { to: options.to, subject: options.subject, messageId: info.messageId, attempt },
+        "[EMAIL] Sent successfully",
+      );
+      return;
+    } catch (err) {
+      lastErr = err;
+      logger.warn(
+        { to: options.to, subject: options.subject, attempt, maxAttempts: MAX_ATTEMPTS, err },
+        `[EMAIL] Send attempt ${attempt} failed`,
+      );
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(BACKOFF_BASE_MS * attempt); // 2 s, 4 s, 8 s
+      }
+    }
   }
+
+  logger.error(
+    { to: options.to, subject: options.subject, err: lastErr },
+    "[EMAIL] All send attempts failed — email not delivered",
+  );
 };
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
@@ -56,13 +107,17 @@ type OrderInvoiceData = {
 };
 
 const buildOrderHtml = (orderData: OrderInvoiceData, isAdmin = false) => {
-  const itemsHtml = orderData.items.map((item) => `
+  const itemsHtml = orderData.items
+    .map(
+      (item) => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;">${item.title}${item.bindingType && item.bindingType !== "NONE" ? ` <span style="font-size:11px;color:#b45309;">(${item.bindingType === "SPIRAL" ? "Spiral" : "Staple"} Binding)</span>` : ""}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;text-align:center;">${item.quantity}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;text-align:right;">₹${item.price}${item.bindingExtra ? ` +₹${item.bindingExtra}` : ""}</td>
     </tr>
-  `).join("");
+  `,
+    )
+    .join("");
 
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
@@ -71,13 +126,14 @@ const buildOrderHtml = (orderData: OrderInvoiceData, isAdmin = false) => {
         <p style="color:rgba(255,255,255,0.7);margin:8px 0 0;">Order #${orderData.orderId.slice(0, 8).toUpperCase()}</p>
       </div>
       <div style="padding:24px 32px;">
-        ${isAdmin
-          ? `<p style="color:#5a5a5a;background:#fef9c3;padding:12px;border-radius:8px;border-left:4px solid #ca8a04;">
+        ${
+          isAdmin
+            ? `<p style="color:#5a5a5a;background:#fef9c3;padding:12px;border-radius:8px;border-left:4px solid #ca8a04;">
               <strong>Customer:</strong> ${orderData.shippingAddress?.name ?? "—"} &nbsp;|&nbsp;
               <strong>Phone:</strong> ${orderData.shippingAddress?.phone ?? "—"} &nbsp;|&nbsp;
               <strong>Email:</strong> ${orderData.customerEmail ?? "—"}
             </p>`
-          : `<p style="color:#5a5a5a;">Thank you for your order. Here is your invoice:</p>`
+            : `<p style="color:#5a5a5a;">Thank you for your order. Here is your invoice:</p>`
         }
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <thead>
@@ -110,8 +166,13 @@ const buildOrderHtml = (orderData: OrderInvoiceData, isAdmin = false) => {
   `;
 };
 
-export const sendOrderInvoice = async (to: string, orderData: OrderInvoiceData, pdfBuffer?: Buffer) => {
+export const sendOrderInvoice = async (
+  to: string,
+  orderData: OrderInvoiceData,
+  pdfBuffer?: Buffer,
+) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  logger.info({ to, orderId: orderData.orderId }, "[EMAIL] Sending order invoice");
   const subject = orderData.invoiceNumber
     ? `Invoice ${orderData.invoiceNumber} — Order Confirmed #${orderData.orderId.slice(0, 8).toUpperCase()}`
     : `Order Confirmed - #${orderData.orderId.slice(0, 8).toUpperCase()}`;
@@ -122,11 +183,13 @@ export const sendOrderInvoice = async (to: string, orderData: OrderInvoiceData, 
     html: buildOrderHtml(orderData, false),
   };
   if (pdfBuffer) {
-    mailOptions.attachments = [{
-      filename: `${orderData.invoiceNumber ?? `invoice-${orderData.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf",
-    }];
+    mailOptions.attachments = [
+      {
+        filename: `${orderData.invoiceNumber ?? `invoice-${orderData.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ];
   }
   await sendMailSafe(mailOptions);
 };
@@ -134,6 +197,7 @@ export const sendOrderInvoice = async (to: string, orderData: OrderInvoiceData, 
 export const sendAdminOrderNotification = async (orderData: OrderInvoiceData) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
+  logger.info({ to: adminEmail, orderId: orderData.orderId }, "[EMAIL] Sending admin order notification");
   await sendMailSafe({
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to: adminEmail,
@@ -172,17 +236,19 @@ type PrintOrderEmailData = {
 };
 
 const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
-  const orderRef  = d.orderId.slice(0, 8).toUpperCase();
+  const orderRef = d.orderId.slice(0, 8).toUpperCase();
   const orderDate = d.createdAt
     ? new Date(d.createdAt).toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" })
     : new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" });
 
-  const fileItems: PrintFileItem[] = d.fileItems && d.fileItems.length > 0
-    ? d.fileItems
-    : (d.fileNames ?? []).map((n) => ({ name: n, copies: 1 }));
+  const fileItems: PrintFileItem[] =
+    d.fileItems && d.fileItems.length > 0
+      ? d.fileItems
+      : (d.fileNames ?? []).map((n) => ({ name: n, copies: 1 }));
 
-  const filesHtml = fileItems.length > 0
-    ? `
+  const filesHtml =
+    fileItems.length > 0
+      ? `
       <table style="width:100%;border-collapse:collapse;margin:0 0 20px;">
         <thead>
           <tr style="background:#f8f4ee;">
@@ -193,32 +259,34 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
           </tr>
         </thead>
         <tbody>
-          ${fileItems.map((f, i) => `
+          ${fileItems
+            .map(
+              (f, i) => `
             <tr>
               <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;font-size:12px;color:#9a9a9a;">${i + 1}</td>
               <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;font-size:13px;color:#1d1a17;max-width:260px;overflow:hidden;text-overflow:ellipsis;">${f.name}</td>
               <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;font-size:13px;color:#5a5a5a;text-align:center;">${f.pageCount ?? "—"}</td>
               <td style="padding:8px 12px;border-bottom:1px solid #f0ece4;font-size:13px;font-weight:bold;color:#1d1a17;text-align:center;">${f.copies}</td>
             </tr>
-          `).join("")}
+          `,
+            )
+            .join("")}
         </tbody>
       </table>`
-    : "";
+      : "";
 
   const specRows = [
-    ["Print Type",     d.colorType === "color" ? "Color" : "Black &amp; White"],
-    ["Print Side",     d.printSide === "single" ? "Single Side" : "Both Sides"],
-    ["Orientation",    d.orientation.charAt(0).toUpperCase() + d.orientation.slice(1)],
-    ["Binding",        d.bindingType === "spiral" ? "Spiral Binding" : "Staple Binding"],
-    ["Total Pages",    String(d.pageCount)],
-    ["Total Copies",   String(d.copies)],
-    ["Est. Print Time",`~${d.estimatedMinutes} min`],
+    ["Print Type", d.colorType === "color" ? "Color" : "Black &amp; White"],
+    ["Print Side", d.printSide === "single" ? "Single Side" : "Both Sides"],
+    ["Orientation", d.orientation.charAt(0).toUpperCase() + d.orientation.slice(1)],
+    ["Binding", d.bindingType === "spiral" ? "Spiral Binding" : "Staple Binding"],
+    ["Total Pages", String(d.pageCount)],
+    ["Total Copies", String(d.copies)],
+    ["Est. Print Time", `~${d.estimatedMinutes} min`],
   ];
 
   return `
     <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e0dbd3;border-radius:16px;overflow:hidden;">
-
-      <!-- Header -->
       <div style="background:#1d1a17;padding:28px 36px;">
         <p style="margin:0 0 6px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.5);">
           ${isAdmin ? "Admin Notification" : "Order Invoice"}
@@ -230,12 +298,10 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
           Order #${orderRef} &nbsp;·&nbsp; ${orderDate}
         </p>
       </div>
-
       <div style="padding:28px 36px;">
-
-        <!-- Greeting / Customer Info -->
-        ${isAdmin
-          ? `<div style="background:#fef9c3;border-left:4px solid #ca8a04;border-radius:8px;padding:14px 16px;margin-bottom:24px;">
+        ${
+          isAdmin
+            ? `<div style="background:#fef9c3;border-left:4px solid #ca8a04;border-radius:8px;padding:14px 16px;margin-bottom:24px;">
               <p style="margin:0;font-size:13px;font-weight:bold;color:#5a5a5a;margin-bottom:8px;">Customer Details</p>
               <table style="border-collapse:collapse;width:100%;">
                 <tr><td style="padding:3px 0;font-size:13px;color:#9a9a9a;width:90px;">Name</td><td style="padding:3px 0;font-size:13px;color:#1d1a17;font-weight:600;">${d.customerName ?? "—"}</td></tr>
@@ -244,33 +310,35 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
                 <tr><td style="padding:3px 0;font-size:13px;color:#9a9a9a;vertical-align:top;">Address</td><td style="padding:3px 0;font-size:13px;color:#1d1a17;">${d.customerAddress ?? "—"}</td></tr>
               </table>
             </div>`
-          : `<p style="margin:0 0 20px;font-size:15px;color:#5a5a5a;">
+            : `<p style="margin:0 0 20px;font-size:15px;color:#5a5a5a;">
               Hi <strong>${d.customerName ?? "there"}</strong>, thank you for your print order!
               We have received your request and will process it shortly.
             </p>`
         }
-
-        <!-- Files / Items -->
-        ${fileItems.length > 0 ? `
+        ${
+          fileItems.length > 0
+            ? `
           <p style="margin:0 0 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9a9a9a;">
             Uploaded Files (${fileItems.length})
           </p>
-          ${filesHtml}` : ""}
-
-        <!-- Print Specifications -->
+          ${filesHtml}`
+            : ""
+        }
         <p style="margin:0 0 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9a9a9a;">
           Print Specifications
         </p>
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-          ${specRows.map(([k, v]) => `
+          ${specRows
+            .map(
+              ([k, v]) => `
             <tr>
               <td style="padding:7px 0;font-size:13px;color:#9a9a9a;width:45%;">${k}</td>
               <td style="padding:7px 0;font-size:13px;font-weight:600;color:#1d1a17;">${v}</td>
             </tr>
-          `).join("")}
+          `,
+            )
+            .join("")}
         </table>
-
-        <!-- Total -->
         <div style="background:#f8f4ee;border-radius:12px;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;">
           <div>
             <p style="margin:0;font-size:12px;color:#9a9a9a;text-transform:uppercase;letter-spacing:.06em;">Total Amount</p>
@@ -281,26 +349,28 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
             <p style="margin:4px 0 0;font-size:13px;font-weight:600;color:#1d1a17;">Online (Prepaid)</p>
           </div>
         </div>
-
-        <!-- Customer details in customer email -->
-        ${!isAdmin ? `
+        ${
+          !isAdmin
+            ? `
           <div style="margin-top:20px;border:1px solid #e8e5df;border-radius:10px;padding:16px 18px;">
             <p style="margin:0 0 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9a9a9a;">Your Contact Details</p>
             <table style="border-collapse:collapse;width:100%;">
               <tr><td style="padding:3px 0;font-size:13px;color:#9a9a9a;width:80px;">Phone</td><td style="padding:3px 0;font-size:13px;color:#1d1a17;">${d.customerPhone ?? "—"}</td></tr>
               <tr><td style="padding:3px 0;font-size:13px;color:#9a9a9a;vertical-align:top;">Address</td><td style="padding:3px 0;font-size:13px;color:#1d1a17;">${d.customerAddress ?? "—"}</td></tr>
             </table>
-          </div>` : ""}
-
+          </div>`
+            : ""
+        }
         <p style="margin:20px 0 0;font-size:13px;color:#9a9a9a;line-height:1.6;">
-          ${isAdmin
-            ? "Log in to your admin panel to view and manage this order."
-            : "If you have any questions about your order, please contact us and quote your order number <strong>#" + orderRef + "</strong>."
+          ${
+            isAdmin
+              ? "Log in to your admin panel to view and manage this order."
+              : "If you have any questions about your order, please contact us and quote your order number <strong>#" +
+                orderRef +
+                "</strong>."
           }
         </p>
       </div>
-
-      <!-- Footer -->
       <div style="background:#f8f4ee;padding:18px 36px;text-align:center;border-top:1px solid #e8e5df;">
         <p style="margin:0;font-size:13px;font-weight:600;color:#1d1a17;">Akash Book Centre</p>
         <p style="margin:4px 0 0;font-size:11px;color:#9a9a9a;">
@@ -312,9 +382,13 @@ const buildPrintOrderHtml = (d: PrintOrderEmailData, isAdmin = false) => {
   `;
 };
 
-export const sendPrintOrderInvoice = async (to: string, d: PrintOrderEmailData, pdfBuffer?: Buffer) => {
+export const sendPrintOrderInvoice = async (
+  to: string,
+  d: PrintOrderEmailData,
+  pdfBuffer?: Buffer,
+) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
-  console.log(`[EMAIL] Sending print order invoice to ${to} for order #${d.orderId.slice(0, 8).toUpperCase()}`);
+  logger.info({ to, orderId: d.orderId }, "[EMAIL] Sending print order invoice");
   const subject = d.invoiceNumber
     ? `Invoice ${d.invoiceNumber} — Print Order #${d.orderId.slice(0, 8).toUpperCase()}`
     : `Your Print Order Invoice — #${d.orderId.slice(0, 8).toUpperCase()}`;
@@ -325,33 +399,39 @@ export const sendPrintOrderInvoice = async (to: string, d: PrintOrderEmailData, 
     html: buildPrintOrderHtml(d, false),
   };
   if (pdfBuffer) {
-    mailOptions.attachments = [{
-      filename: `${d.invoiceNumber ?? `invoice-${d.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf",
-    }];
+    mailOptions.attachments = [
+      {
+        filename: `${d.invoiceNumber ?? `invoice-${d.orderId.slice(0, 8).toUpperCase()}`}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ];
   }
   await sendMailSafe(mailOptions);
-  console.log(`[EMAIL] Print order invoice sent to ${to}`);
 };
 
 export const sendAdminPrintOrderNotification = async (d: PrintOrderEmailData) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
   const adminEmail = env.ADMIN_EMAIL || SUPPORT_EMAIL;
-  console.log(`[EMAIL] Sending admin print order notification to ${adminEmail}`);
+  logger.info({ to: adminEmail, orderId: d.orderId }, "[EMAIL] Sending admin print order notification");
   await sendMailSafe({
     from: `"Akash Book Centre" <${env.GMAIL_USER}>`,
     to: adminEmail,
     subject: `[PRINT ORDER] #${d.orderId.slice(0, 8).toUpperCase()} — ₹${d.total} — ${d.customerName ?? "Customer"}`,
     html: buildPrintOrderHtml(d, true),
   });
-  console.log(`[EMAIL] Admin print order notification sent to ${adminEmail}`);
 };
 
 // ─── OTP Email ────────────────────────────────────────────────────────────────
 
-export const sendVerificationEmail = async (to: string, name: string, code: string, expiryMinutes: number) => {
+export const sendVerificationEmail = async (
+  to: string,
+  name: string,
+  code: string,
+  expiryMinutes: number,
+) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  logger.info({ to }, "[EMAIL] Sending verification email");
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
       <div style="background:#1d1a17;padding:24px 32px;">
@@ -378,6 +458,7 @@ export const sendVerificationEmail = async (to: string, name: string, code: stri
 
 export const sendOtpEmail = async (to: string, code: string, expiryMinutes: number) => {
   if (!env.GMAIL_USER || !env.GMAIL_PASS) return;
+  logger.info({ to }, "[EMAIL] Sending OTP email");
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#fff;border:1px solid #e8e5df;border-radius:12px;overflow:hidden;">
       <div style="background:#1d1a17;padding:24px 32px;">
@@ -405,9 +486,10 @@ export const sendOtpEmail = async (to: string, code: string, expiryMinutes: numb
 
 export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes: number) => {
   if (!isGmailConfigured) {
-    console.warn("[EMAIL] Gmail not configured — admin OTP not sent. OTP:", code);
+    logger.warn({ code }, "[EMAIL] Gmail not configured — admin OTP not sent");
     return;
   }
+  logger.info({ to }, "[EMAIL] Sending admin login OTP");
   const html = `
     <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e0dbd3;border-radius:16px;overflow:hidden;">
       <div style="background:#051d40;padding:28px 36px;">
@@ -434,6 +516,7 @@ export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes:
       </div>
     </div>
   `;
+  logger.info({ to, expiryMinutes }, "[ADMIN OTP] Sending admin OTP email");
   await sendMailSafe({
     from: `"Akash Book Centre Security" <${env.GMAIL_USER}>`,
     to,
@@ -443,13 +526,7 @@ export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes:
 };
 
 // ─── SMS / WhatsApp Invoice Notification ─────────────────────────────────────
-/**
- * Sends an order-placed SMS/WhatsApp notification to the configured
- * INVOICE_NOTIFY_PHONES list (comma-separated in env).
- *
- * Uses Twilio if TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM are set.
- * Falls back to a console warn if Twilio is not configured.
- */
+
 export const sendInvoiceNotification = async (payload: {
   orderId: string;
   orderType: "BOOK" | "PRINT";
@@ -469,23 +546,21 @@ export const sendInvoiceNotification = async (payload: {
     `Amount: ₹${payload.total}\n` +
     `Payment: ${payload.paymentMethod === "COD" ? "Cash on Delivery" : "Online (Razorpay)"}`;
 
-  // Attempt Twilio send
   if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_FROM) {
     for (const to of phones) {
       try {
-        const body = JSON.stringify({
-          Body: message,
-          From: env.TWILIO_FROM,
-          To: to,
-        });
         const authHeader = Buffer.from(
           `${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`,
         ).toString("base64");
         const url = `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`;
+        const params = new URLSearchParams({
+          Body: message,
+          From: env.TWILIO_FROM,
+          To: to,
+        }).toString();
 
         const http = await import("https");
         await new Promise<void>((resolve, reject) => {
-          const params = new URLSearchParams(JSON.parse(body) as Record<string, string>).toString();
           const options = {
             method: "POST",
             headers: {
@@ -502,13 +577,15 @@ export const sendInvoiceNotification = async (payload: {
           req.write(params);
           req.end();
         });
+        logger.info({ to }, "[Invoice Notify] Twilio message sent");
       } catch (err) {
-        console.warn(`[Invoice Notify] Failed to send to ${to}:`, (err as Error).message);
+        logger.warn({ to, err }, "[Invoice Notify] Failed to send Twilio message");
       }
     }
   } else {
-    // Fallback: log for local/dev environments
-    console.info("[Invoice Notify] Twilio not configured. Would have sent:\n", message);
-    console.info("[Invoice Notify] Recipients:", phones.join(", "));
+    logger.info(
+      { phones, message },
+      "[Invoice Notify] Twilio not configured — would have sent notification",
+    );
   }
 };
