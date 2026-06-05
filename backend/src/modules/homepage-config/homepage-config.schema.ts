@@ -4,16 +4,18 @@ export const SECTION_TYPES = ["banner", "categories", "newArrivals", "featuredPr
 
 export const SectionConfigSchema = z.object({
   // categories section
-  showAll:              z.boolean().optional(),
-  selectedCategoryIds:  z.array(z.string()).optional(),
+  showAll:                z.boolean().optional(),
+  selectedCategoryIds:    z.array(z.string()).optional(),
   // newArrivals section
-  categoryId:           z.string().optional(),
-  title:                z.string().optional(),
+  categoryId:             z.string().optional(),
+  subcategoryId:          z.string().optional(),
+  selectedSubcategoryIds: z.array(z.string()).optional(),
+  title:                  z.string().optional(),
   // featuredProducts section
-  useManual:            z.boolean().optional(),
-  selectedProductIds:   z.array(z.string()).optional(),
+  useManual:              z.boolean().optional(),
+  selectedProductIds:     z.array(z.string()).optional(),
   // shared
-  limit:                z.number().int().positive().max(100).optional(),
+  limit:                  z.number().int().positive().max(100).optional(),
 });
 
 export const HomepageSectionSchema = z.object({

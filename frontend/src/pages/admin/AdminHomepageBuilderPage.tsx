@@ -1,10 +1,6 @@
 /**
- * AdminHomepageBuilderPage
- * ─────────────────────────────────────────────────────────────────────────────
- * Drag-and-drop homepage section builder.
- * DnD library: @hello-pangea/dnd  (API-identical to react-beautiful-dnd,
- *              but fully supports React 18 StrictMode — react-beautiful-dnd
- *              has a known upstream bug in StrictMode that breaks dragging).
+ * AdminHomepageBuilderPage — drag-and-drop homepage section builder
+ * with inline expandable config panels (category + subcategory picker).
  */
 
 import {
@@ -19,7 +15,6 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  Edit2,
   GripVertical,
   Image,
   LayoutDashboard,
@@ -43,9 +38,10 @@ import type {
   SectionType,
 } from "../../api/homepage.api";
 import { getCategories } from "../../api/categories.api";
+import type { Category, Subcategory } from "../../api/categories.api";
 import FeaturedProductsPicker from "../../components/admin/FeaturedProductsPicker";
 
-// ─── Section metadata ────────────────────────────────────────────────────────
+// ─── Section metadata ─────────────────────────────────────────────────────────
 
 interface SectionMeta {
   label: string;
@@ -69,7 +65,7 @@ const SECTION_META: Record<SectionType, SectionMeta> = {
   },
   newArrivals: {
     label: "New Arrivals",
-    description: "Recently added books from a chosen category",
+    description: "Recently added books from a chosen category / subcategory",
     icon: BookOpen,
     configurable: true,
   },
@@ -93,7 +89,7 @@ const SECTION_META: Record<SectionType, SectionMeta> = {
   },
 };
 
-// ─── Limit slider sub-component ──────────────────────────────────────────────
+// ─── Limit slider ─────────────────────────────────────────────────────────────
 
 function LimitInput({
   value,
@@ -111,10 +107,10 @@ function LimitInput({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
           {label}
         </p>
-        <span className="text-sm font-medium text-text-primary">{value}</span>
+        <span className="text-sm font-semibold text-text-primary">{value}</span>
       </div>
       <input
         type="range"
@@ -123,7 +119,7 @@ function LimitInput({
         step={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0]"
+        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0] accent-[#1d1a17]"
       />
       <div className="flex justify-between text-[10px] text-text-muted">
         <span>{min}</span>
@@ -133,220 +129,322 @@ function LimitInput({
   );
 }
 
-// ─── Config editor modal ─────────────────────────────────────────────────────
+// ─── Toggle switch ────────────────────────────────────────────────────────────
 
-interface ConfigModalProps {
-  section: HomepageSection;
-  onSave: (config: SectionConfig) => void;
-  onClose: () => void;
+function Toggle({
+  value,
+  onChange,
+  label,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-3">
+      <button
+        type="button"
+        onClick={() => onChange(!value)}
+        className={`relative h-6 w-11 rounded-full transition-colors ${
+          value ? "bg-[#1d1a17]" : "bg-black/20"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            value ? "translate-x-5" : ""
+          }`}
+        />
+      </button>
+      <span className="text-sm font-medium text-text-primary">{label}</span>
+    </label>
+  );
 }
 
-function ConfigModal({ section, onSave, onClose }: ConfigModalProps) {
-  const [draft, setDraft] = useState<SectionConfig>({
-    ...section.config,
-    title: section.title ?? section.config?.title ?? "",
-  });
+// ─── Category chip grid ───────────────────────────────────────────────────────
 
-  const { data: categoriesData } = useQuery({
-    queryKey: ["categories"],
-    queryFn: getCategories,
-  });
-  const categories = categoriesData?.data ?? [];
-
-  const toggleBool = (key: "showAll" | "useManual") =>
-    setDraft((d) => ({ ...d, [key]: !d[key] }));
-
-  const toggleCategory = (id: string) =>
-    setDraft((d) => {
-      const prev = d.selectedCategoryIds ?? [];
-      return {
-        ...d,
-        selectedCategoryIds: prev.includes(id)
-          ? prev.filter((x) => x !== id)
-          : [...prev, id],
-      };
-    });
-
-
+function CategoryChips({
+  categories,
+  selectedIds,
+  onToggle,
+}: {
+  categories: Category[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (!categories.length)
+    return <p className="text-xs text-text-muted">No categories found.</p>;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-black/10 px-5 py-4">
-          <div>
-            <p className="font-serif text-lg text-text-primary">
-              Configure: {SECTION_META[section.type].label}
-            </p>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {SECTION_META[section.type].description}
-            </p>
-          </div>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {categories.map((cat) => {
+        const sel = selectedIds.includes(cat.id);
+        return (
           <button
+            key={cat.id}
             type="button"
-            onClick={onClose}
-            className="rounded-full p-1.5 text-text-muted hover:bg-[#f4efe7]"
+            onClick={() => onToggle(cat.id)}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+              sel
+                ? "border-[#1d1a17] bg-[#1d1a17] text-white"
+                : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
+            }`}
           >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="max-h-[60vh] space-y-5 overflow-y-auto p-5">
-          {/* ── categories ── */}
-          {section.type === "categories" && (
-            <>
-              <label className="flex cursor-pointer items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => toggleBool("showAll")}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    draft.showAll ? "bg-[#1d1a17]" : "bg-black/20"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      draft.showAll ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-                <span className="text-sm font-medium text-text-primary">
-                  Show all categories
-                </span>
-              </label>
-              {!draft.showAll && (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                    Select categories to display
-                  </p>
-                  <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto pr-1">
-                    {categories.map((g) => {
-                      const sel = (draft.selectedCategoryIds ?? []).includes(g.id);
-                      return (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => toggleCategory(g.id)}
-                          className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-all ${
-                            sel
-                              ? "border-[#1d1a17] bg-[#1d1a17] text-white"
-                              : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/20"
-                          }`}
-                        >
-                          {sel && <Check size={12} />}
-                          {g.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <LimitInput
-                value={draft.limit ?? 8}
-                onChange={(v) => setDraft((d) => ({ ...d, limit: v }))}
-                label="Max categories to show"
-                min={2}
-                max={20}
+            {cat.imageUrl && (
+              <img
+                src={cat.imageUrl}
+                alt=""
+                className="h-6 w-6 rounded-md object-cover shrink-0"
               />
-            </>
-          )}
-
-          {/* ── newArrivals ── */}
-          {section.type === "newArrivals" && (
-            <>
-              <div className="space-y-2">
-                <label className="block text-xs font-medium uppercase tracking-wide text-text-muted">
-                  Section title
-                </label>
-                <input
-                  type="text"
-                  value={draft.title ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-                  placeholder="Enter section title (e.g., Best Sellers)"
-                  className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition-all focus:border-black/20 focus:ring-2 focus:ring-black/10"
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                  Filter by category (optional)
-                </p>
-                <select
-                  value={draft.categoryId ?? ""}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, categoryId: e.target.value }))
-                  }
-                  className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-text-primary"
-                >
-                  <option value="">All categories</option>
-                  {categories.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <LimitInput
-                value={draft.limit ?? 6}
-                onChange={(v) => setDraft((d) => ({ ...d, limit: v }))}
-                label="Number of books to show"
-                min={2}
-                max={24}
-              />
-            </>
-          )}
-
-          {/* ── featuredProducts ── */}
-          {section.type === "featuredProducts" && (
-            <FeaturedProductsPicker
-              selectedProductIds={draft.selectedProductIds ?? []}
-              useManual={draft.useManual ?? false}
-              limit={draft.limit ?? 4}
-              onChangeSelectedIds={(ids) =>
-                setDraft((d) => ({ ...d, selectedProductIds: ids }))
-              }
-              onToggleManual={() =>
-                setDraft((d) => ({ ...d, useManual: !d.useManual }))
-              }
-              onChangeLimit={(v) => setDraft((d) => ({ ...d, limit: v }))}
-            />
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end gap-2 border-t border-black/10 px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted transition-all hover:bg-[#f4efe7]"
-          >
-            Cancel
+            )}
+            <span className="truncate leading-tight">{cat.name}</span>
+            {sel && <Check size={12} className="ml-auto shrink-0" />}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              onSave(draft);
-              onClose();
-            }}
-            className="rounded-full bg-[#1d1a17] px-5 py-2 text-sm text-white transition-all hover:bg-black"
-          >
-            Save changes
-          </button>
-        </div>
-      </div>
+        );
+      })}
     </div>
   );
 }
 
-// ─── Draggable section card ──────────────────────────────────────────────────
+// ─── Subcategory chip grid ────────────────────────────────────────────────────
+
+function SubcategoryChips({
+  subcategories,
+  selectedIds,
+  onToggle,
+}: {
+  subcategories: Subcategory[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (!subcategories.length)
+    return (
+      <p className="text-xs italic text-text-muted">
+        No subcategories for this category.
+      </p>
+    );
+  return (
+    <div className="flex flex-wrap gap-2">
+      {subcategories.map((sub) => {
+        const sel = selectedIds.includes(sub.id);
+        return (
+          <button
+            key={sub.id}
+            type="button"
+            onClick={() => onToggle(sub.id)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+              sel
+                ? "border-[#1d1a17] bg-[#1d1a17] text-white"
+                : "border-black/10 bg-white text-text-primary hover:border-black/30"
+            }`}
+          >
+            {sub.name}
+            {sel && <Check size={10} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Inline config panel ──────────────────────────────────────────────────────
+
+interface InlineConfigProps {
+  section: HomepageSection;
+  categories: Category[];
+  onChange: (config: SectionConfig) => void;
+}
+
+function InlineConfig({ section, categories, onChange }: InlineConfigProps) {
+  const cfg = section.config;
+
+  const setField = <K extends keyof SectionConfig>(key: K, val: SectionConfig[K]) =>
+    onChange({ ...cfg, [key]: val });
+
+  const toggleCategoryId = (id: string) => {
+    const prev = cfg.selectedCategoryIds ?? [];
+    const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    onChange({ ...cfg, selectedCategoryIds: next });
+  };
+
+  const toggleSubcategoryId = (id: string) => {
+    const prev = cfg.selectedSubcategoryIds ?? [];
+    const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    onChange({ ...cfg, selectedSubcategoryIds: next });
+  };
+
+  // Subcategories of the selected category (for newArrivals)
+  const selectedCat = categories.find((c) => c.id === (cfg.categoryId ?? ""));
+  const availableSubcategories: Subcategory[] = selectedCat?.subcategories ?? [];
+
+  // ── categories section ────────────────────────────────────────────────────
+  if (section.type === "categories") {
+    return (
+      <div className="space-y-5 pt-4 border-t border-black/8">
+        <Toggle
+          value={cfg.showAll ?? true}
+          onChange={(v) => setField("showAll", v)}
+          label="Show all categories"
+        />
+
+        {!(cfg.showAll ?? true) && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Select categories to display
+            </p>
+            <CategoryChips
+              categories={categories}
+              selectedIds={cfg.selectedCategoryIds ?? []}
+              onToggle={toggleCategoryId}
+            />
+          </div>
+        )}
+
+        <LimitInput
+          value={cfg.limit ?? 8}
+          onChange={(v) => setField("limit", v)}
+          label="Max categories to show"
+          min={2}
+          max={20}
+        />
+      </div>
+    );
+  }
+
+  // ── newArrivals section ───────────────────────────────────────────────────
+  if (section.type === "newArrivals") {
+    return (
+      <div className="space-y-5 pt-4 border-t border-black/8">
+        {/* Title */}
+        <div className="space-y-1.5">
+          <label className="block text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Section Title
+          </label>
+          <input
+            type="text"
+            value={cfg.title ?? ""}
+            onChange={(e) => setField("title", e.target.value)}
+            placeholder="e.g. New Arrivals, Best Sellers…"
+            className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition-all focus:border-black/30 focus:ring-2 focus:ring-black/8"
+          />
+        </div>
+
+        {/* Category */}
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Filter by Category
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => onChange({ ...cfg, categoryId: "", selectedSubcategoryIds: [] })}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-all ${
+                !cfg.categoryId
+                  ? "border-[#1d1a17] bg-[#1d1a17] text-white"
+                  : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
+              }`}
+            >
+              {!cfg.categoryId && <Check size={12} />}
+              All Categories
+            </button>
+            {categories.map((cat) => {
+              const sel = cfg.categoryId === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() =>
+                    onChange({ ...cfg, categoryId: cat.id, selectedSubcategoryIds: [] })
+                  }
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+                    sel
+                      ? "border-[#1d1a17] bg-[#1d1a17] text-white"
+                      : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
+                  }`}
+                >
+                  {cat.imageUrl && (
+                    <img
+                      src={cat.imageUrl}
+                      alt=""
+                      className="h-5 w-5 rounded object-cover shrink-0"
+                    />
+                  )}
+                  <span className="truncate">{cat.name}</span>
+                  {sel && <Check size={12} className="ml-auto shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Subcategory — only when category is selected */}
+        {cfg.categoryId && (
+          <div className="space-y-2 rounded-2xl border border-black/8 bg-[#f8f4ee] p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Filter by Subcategory{" "}
+              <span className="font-normal normal-case text-text-muted/70">
+                (optional — leave empty to show all from category)
+              </span>
+            </p>
+            <SubcategoryChips
+              subcategories={availableSubcategories}
+              selectedIds={cfg.selectedSubcategoryIds ?? []}
+              onToggle={toggleSubcategoryId}
+            />
+            {(cfg.selectedSubcategoryIds ?? []).length > 0 && (
+              <button
+                type="button"
+                onClick={() => setField("selectedSubcategoryIds", [])}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
+              >
+                <X size={10} /> Clear subcategory filter
+              </button>
+            )}
+          </div>
+        )}
+
+        <LimitInput
+          value={cfg.limit ?? 6}
+          onChange={(v) => setField("limit", v)}
+          label="Books to show"
+          min={2}
+          max={24}
+        />
+      </div>
+    );
+  }
+
+  // ── featuredProducts section ──────────────────────────────────────────────
+  if (section.type === "featuredProducts") {
+    return (
+      <div className="pt-4 border-t border-black/8">
+        <FeaturedProductsPicker
+          selectedProductIds={cfg.selectedProductIds ?? []}
+          useManual={cfg.useManual ?? false}
+          limit={cfg.limit ?? 4}
+          onChangeSelectedIds={(ids) => setField("selectedProductIds", ids)}
+          onToggleManual={() => setField("useManual", !(cfg.useManual ?? false))}
+          onChangeLimit={(v) => setField("limit", v)}
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ─── Draggable section card ───────────────────────────────────────────────────
 
 interface SectionCardProps {
   section: HomepageSection;
   index: number;
   isFirst: boolean;
   isLast: boolean;
-  onToggle: () => void;
+  isExpanded: boolean;
+  categories: Category[];
+  onToggleExpand: () => void;
+  onToggleEnabled: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  onEditConfig: () => void;
+  onConfigChange: (config: SectionConfig) => void;
 }
 
 function SectionCard({
@@ -354,10 +452,13 @@ function SectionCard({
   index,
   isFirst,
   isLast,
-  onToggle,
+  isExpanded,
+  categories,
+  onToggleExpand,
+  onToggleEnabled,
   onMoveUp,
   onMoveDown,
-  onEditConfig,
+  onConfigChange,
 }: SectionCardProps) {
   const meta = SECTION_META[section.type];
   const Icon = meta.icon;
@@ -368,210 +469,205 @@ function SectionCard({
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`flex items-center gap-3 rounded-2xl border bg-white px-4 py-3.5 transition-all select-none
+          className={`rounded-2xl border bg-white transition-all select-none
             ${
               snapshot.isDragging
-                ? "border-[#1d1a17] shadow-lg ring-2 ring-[#1d1a17]/20 rotate-[1deg] scale-[1.02]"
+                ? "border-[#1d1a17] shadow-lg ring-2 ring-[#1d1a17]/20 rotate-[0.5deg] scale-[1.01]"
+                : isExpanded
+                ? "border-[#1d1a17]/30 shadow-md"
                 : "border-black/10 hover:border-black/20 hover:shadow-sm"
             }
             ${!section.enabled ? "opacity-60" : ""}`}
         >
-          {/* Drag handle — only this element activates the drag */}
-          <span
-            {...provided.dragHandleProps}
-            className="cursor-grab touch-none text-text-muted/40 hover:text-text-muted active:cursor-grabbing shrink-0"
-            title="Drag to reorder"
-          >
-            <GripVertical size={18} />
-          </span>
-
-          {/* Section icon */}
-          <span
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-              section.enabled ? "bg-[#f4efe7]" : "bg-black/5"
-            }`}
-          >
-            <Icon
-              size={16}
-              className={section.enabled ? "text-[#1d1a17]" : "text-text-muted"}
-            />
-          </span>
-
-          {/* Label + description */}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-medium text-text-primary">
-                {meta.label}
-              </p>
-              {!section.enabled && (
-                <span className="shrink-0 rounded-full bg-black/8 px-2 py-0.5 text-[10px] text-text-muted">
-                  Hidden
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 truncate text-xs text-text-muted">
-              {meta.description}
-            </p>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex shrink-0 items-center gap-1">
-            {/* ↑ Move Up */}
-            <button
-              type="button"
-              onClick={onMoveUp}
-              disabled={isFirst}
-              title="Move up"
-              className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
+          {/* ── Header row ── */}
+          <div className="flex items-center gap-3 px-4 py-3.5">
+            {/* Drag handle */}
+            <span
+              {...provided.dragHandleProps}
+              className="cursor-grab touch-none text-text-muted/40 hover:text-text-muted active:cursor-grabbing shrink-0"
+              title="Drag to reorder"
             >
-              <ChevronUp size={14} />
-            </button>
+              <GripVertical size={18} />
+            </span>
 
-            {/* ↓ Move Down */}
-            <button
-              type="button"
-              onClick={onMoveDown}
-              disabled={isLast}
-              title="Move down"
-              className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ChevronDown size={14} />
-            </button>
-
-            {/* ✎ Configure */}
-            {meta.configurable && (
-              <button
-                type="button"
-                onClick={onEditConfig}
-                title="Configure section"
-                className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7]"
-              >
-                <Edit2 size={14} />
-              </button>
-            )}
-
-            {/* Toggle on/off */}
-            <button
-              type="button"
-              onClick={onToggle}
-              title={section.enabled ? "Hide section" : "Show section"}
-              className={`relative ml-1 h-6 w-11 rounded-full transition-colors ${
-                section.enabled ? "bg-[#1d1a17]" : "bg-black/20"
+            {/* Section icon */}
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                section.enabled ? "bg-[#f4efe7]" : "bg-black/5"
               }`}
             >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                  section.enabled ? "translate-x-5" : ""
-                }`}
+              <Icon
+                size={16}
+                className={section.enabled ? "text-[#1d1a17]" : "text-text-muted"}
               />
+            </span>
+
+            {/* Label — clicking expands if configurable */}
+            <button
+              type="button"
+              onClick={meta.configurable ? onToggleExpand : undefined}
+              className={`min-w-0 flex-1 text-left ${
+                meta.configurable ? "cursor-pointer" : "cursor-default"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-medium text-text-primary">
+                  {meta.label}
+                </p>
+                {!section.enabled && (
+                  <span className="shrink-0 rounded-full bg-black/8 px-2 py-0.5 text-[10px] text-text-muted">
+                    Hidden
+                  </span>
+                )}
+                {isExpanded && (
+                  <span className="shrink-0 rounded-full bg-[#1d1a17]/8 px-2 py-0.5 text-[10px] font-medium text-[#1d1a17]">
+                    Editing
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 truncate text-xs text-text-muted">
+                {meta.description}
+              </p>
             </button>
+
+            {/* Action buttons */}
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={onMoveUp}
+                disabled={isFirst}
+                className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={onMoveDown}
+                disabled={isLast}
+                className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <ChevronDown size={14} />
+              </button>
+
+              {/* Expand/collapse toggle for configurable sections */}
+              {meta.configurable && (
+                <button
+                  type="button"
+                  onClick={onToggleExpand}
+                  title={isExpanded ? "Collapse" : "Configure section"}
+                  className={`rounded-lg p-1.5 transition-all ${
+                    isExpanded
+                      ? "bg-[#1d1a17] text-white"
+                      : "text-text-muted hover:bg-[#f4efe7]"
+                  }`}
+                >
+                  <ChevronDown
+                    size={14}
+                    className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+              )}
+
+              {/* Show/hide toggle */}
+              <button
+                type="button"
+                onClick={onToggleEnabled}
+                className={`relative ml-1 h-6 w-11 rounded-full transition-colors ${
+                  section.enabled ? "bg-[#1d1a17]" : "bg-black/20"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    section.enabled ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
           </div>
+
+          {/* ── Expanded inline config ── */}
+          {isExpanded && meta.configurable && (
+            <div className="px-4 pb-5">
+              <InlineConfig
+                section={section}
+                categories={categories}
+                onChange={onConfigChange}
+              />
+            </div>
+          )}
         </div>
       )}
     </Draggable>
   );
 }
 
-// ─── Main page ───────────────────────────────────────────────────────────────
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminHomepageBuilderPage() {
   const queryClient = useQueryClient();
   const [sections, setSections] = useState<HomepageSection[]>([]);
-  const [editingSection, setEditingSection] = useState<HomepageSection | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // ── Fetch current config ──────────────────────────────────────────────────
+  // ── Fetch config ──────────────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery({
     queryKey: ["homepage-config"],
     queryFn: getHomepageConfig,
   });
 
+  const { data: categoriesData } = useQuery({
+    queryKey: ["categories"],
+    queryFn: getCategories,
+  });
+  const categories: Category[] = categoriesData?.data ?? [];
+
   useEffect(() => {
     if (data) {
-      const sorted = [...data.sections].sort((a, b) => a.order - b.order);
-      console.log("[HomepageBuilder] Loaded config from API:", sorted);
-      setSections(sorted);
+      setSections([...data.sections].sort((a, b) => a.order - b.order));
       setIsDirty(false);
     }
   }, [data]);
 
-  // ── Save mutation ─────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
 
   const saveMutation = useMutation({
-    mutationFn: (secs: HomepageSection[]) => {
-      console.log("[HomepageBuilder] Saving to API:", secs);
-      return updateHomepageConfig(secs);
-    },
+    mutationFn: (secs: HomepageSection[]) => updateHomepageConfig(secs),
     onSuccess: (updated) => {
-      const sorted = [...updated.sections].sort((a, b) => a.order - b.order);
-      console.log("[HomepageBuilder] Save successful, DB returned:", sorted);
-      setSections(sorted);
+      setSections([...updated.sections].sort((a, b) => a.order - b.order));
       setIsDirty(false);
       setSaveSuccess(true);
       void queryClient.invalidateQueries({ queryKey: ["homepage-config"] });
       setTimeout(() => setSaveSuccess(false), 2500);
     },
     onError: (err: any) => {
-      console.error("[HomepageBuilder] Save failed:", err);
-      console.error("[HomepageBuilder] Error response:", err?.response?.data);
-      console.error("[HomepageBuilder] Error status:", err?.response?.status);
-      console.error("[HomepageBuilder] Error message:", err?.message);
-      alert(`Failed to save layout: ${err?.response?.data?.message || err?.message || "Unknown error"}`);
+      alert(`Save failed: ${err?.response?.data?.message ?? err?.message ?? "Unknown error"}`);
     },
   });
 
-  // ── Drag end handler (react-beautiful-dnd / @hello-pangea/dnd) ────────────
+  // ── Drag end ──────────────────────────────────────────────────────────────
 
   const handleDragEnd = (result: DropResult) => {
     const { destination, source } = result;
-
-    // Dropped outside any droppable zone — do nothing
-    if (!destination) {
-      console.log("[HomepageBuilder] Drag cancelled (dropped outside)");
-      return;
-    }
-
-    // Dropped in same position — do nothing
-    if (destination.index === source.index) {
-      console.log("[HomepageBuilder] Drag ended at same position — no change");
-      return;
-    }
-
-    // Reorder array
+    if (!destination || destination.index === source.index) return;
     const reordered = Array.from(sections);
     const [moved] = reordered.splice(source.index, 1);
     reordered.splice(destination.index, 0, moved);
-
-    // Reassign sequential order numbers
-    const withOrder = reordered.map((s, i) => ({ ...s, order: i + 1 }));
-
-    console.log(
-      `[HomepageBuilder] Dragged "${moved.type}" from index ${source.index} → ${destination.index}`,
-    );
-    console.log("[HomepageBuilder] Updated section order:", withOrder.map((s) => `${s.order}. ${s.type}`));
-
-    setSections(withOrder);
+    setSections(reordered.map((s, i) => ({ ...s, order: i + 1 })));
     setIsDirty(true);
   };
 
-  // ── Up / Down button reorder ──────────────────────────────────────────────
+  // ── Move ──────────────────────────────────────────────────────────────────
 
   const moveSection = (id: string, dir: "up" | "down") => {
     setSections((prev) => {
       const idx = prev.findIndex((s) => s.id === id);
-      if (idx < 0) return prev;
       const swapIdx = dir === "up" ? idx - 1 : idx + 1;
-      if (swapIdx < 0 || swapIdx >= prev.length) return prev;
+      if (idx < 0 || swapIdx < 0 || swapIdx >= prev.length) return prev;
       const next = [...prev];
       [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-      const withOrder = next.map((s, i) => ({ ...s, order: i + 1 }));
-      console.log(
-        `[HomepageBuilder] Moved "${id}" ${dir}:`,
-        withOrder.map((s) => `${s.order}. ${s.type}`),
-      );
-      return withOrder;
+      return next.map((s, i) => ({ ...s, order: i + 1 }));
     });
     setIsDirty(true);
   };
@@ -585,49 +681,37 @@ export default function AdminHomepageBuilderPage() {
     setIsDirty(true);
   };
 
-  // ── Save section config ───────────────────────────────────────────────────
+  // ── Config change (inline) ────────────────────────────────────────────────
 
-  const saveSectionConfig = (id: string, config: SectionConfig) => {
+  const updateConfig = (id: string, config: SectionConfig) => {
     setSections((prev) =>
       prev.map((s) =>
         s.id === id
           ? {
               ...s,
               config,
-              title: config.title?.trim() ? config.title : s.title,
-              categoryId: config.categoryId ? config.categoryId : undefined,
+              title: config.title?.trim() || s.title,
+              categoryId: config.categoryId || undefined,
             }
           : s,
       ),
     );
     setIsDirty(true);
-    console.log("[HomepageBuilder] Updated config for section:", id, config);
   };
 
-  // ── Reset to last saved ───────────────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────────────────────
 
   const resetToSaved = () => {
     if (data) {
-      const sorted = [...data.sections].sort((a, b) => a.order - b.order);
-      setSections(sorted);
+      setSections([...data.sections].sort((a, b) => a.order - b.order));
       setIsDirty(false);
-      console.log("[HomepageBuilder] Reset to saved state");
     }
   };
 
-  // ── Save handler ──────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
 
   const handleSave = () => {
-    const payload = sections.map((s, i) => {
-      const updated = { ...s, order: i + 1 };
-      console.log(`[HomepageBuilder] Preparing section ${updated.order}: ${updated.type} (${updated.enabled ? 'enabled' : 'disabled'})`);
-      return updated;
-    });
-    
-    console.log("[HomepageBuilder] handleSave: sending payload with", payload.length, 'sections');
-    console.log("[HomepageBuilder] Full payload:", JSON.stringify(payload, null, 2));
-    
-    saveMutation.mutate(payload);
+    saveMutation.mutate(sections.map((s, i) => ({ ...s, order: i + 1 })));
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -650,19 +734,17 @@ export default function AdminHomepageBuilderPage() {
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-text-muted">
           Drag{" "}
-          <GripVertical
-            size={12}
-            className="inline-block align-middle text-text-muted"
-          />{" "}
-          handle to reorder · toggle switch to show/hide · pencil to configure.
-          Changes are not live until you save.
+          <GripVertical size={12} className="inline-block align-middle" />{" "}
+          to reorder · toggle to show/hide · click{" "}
+          <ChevronDown size={12} className="inline-block align-middle" />{" "}
+          to configure a section.
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {isDirty && (
             <button
               type="button"
               onClick={resetToSaved}
-              className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-2 text-sm text-text-muted transition-all hover:bg-[#f4efe7]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-2 text-sm text-text-muted hover:bg-[#f4efe7]"
             >
               <RotateCcw size={13} /> Reset
             </button>
@@ -671,32 +753,25 @@ export default function AdminHomepageBuilderPage() {
             type="button"
             onClick={handleSave}
             disabled={saveMutation.isPending || !isDirty}
-            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all
-              ${saveSuccess ? "bg-emerald-600 text-white" : "bg-[#1d1a17] text-white hover:bg-black"}
-              disabled:cursor-not-allowed disabled:opacity-50`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50
+              ${saveSuccess ? "bg-emerald-600 text-white" : "bg-[#1d1a17] text-white hover:bg-black"}`}
           >
             {saveSuccess ? (
-              <>
-                <Check size={13} /> Saved!
-              </>
+              <><Check size={13} /> Saved!</>
             ) : saveMutation.isPending ? (
-              <>
-                <Save size={13} /> Saving…
-              </>
+              <><Save size={13} /> Saving…</>
             ) : (
-              <>
-                <Save size={13} /> Save Layout
-              </>
+              <><Save size={13} /> Save Layout</>
             )}
           </button>
         </div>
       </div>
 
-      {/* ── Unsaved-changes banner ── */}
+      {/* ── Unsaved banner ── */}
       {isDirty && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           You have unsaved changes.{" "}
-          <strong>Click Save Layout</strong> to publish them to the homepage.
+          <strong>Click Save Layout</strong> to publish to the homepage.
         </div>
       )}
 
@@ -707,12 +782,10 @@ export default function AdminHomepageBuilderPage() {
             Sections ({visibleCount} of {sections.length} visible)
           </p>
           <p className="text-xs text-text-muted">
-            Drag <GripVertical size={11} className="inline align-middle" /> to
-            reorder
+            Drag <GripVertical size={11} className="inline align-middle" /> to reorder
           </p>
         </div>
 
-        {/* DragDropContext wraps the entire droppable list */}
         <DragDropContext onDragEnd={handleDragEnd}>
           <Droppable droppableId="homepage-sections">
             {(provided, snapshot) => (
@@ -730,13 +803,17 @@ export default function AdminHomepageBuilderPage() {
                     index={index}
                     isFirst={index === 0}
                     isLast={index === sections.length - 1}
-                    onToggle={() => toggleSection(section.id)}
+                    isExpanded={expandedId === section.id}
+                    categories={categories}
+                    onToggleExpand={() =>
+                      setExpandedId(expandedId === section.id ? null : section.id)
+                    }
+                    onToggleEnabled={() => toggleSection(section.id)}
                     onMoveUp={() => moveSection(section.id, "up")}
                     onMoveDown={() => moveSection(section.id, "down")}
-                    onEditConfig={() => setEditingSection(section)}
+                    onConfigChange={(config) => updateConfig(section.id, config)}
                   />
                 ))}
-                {/* Required placeholder keeps list height stable during drag */}
                 {provided.placeholder}
               </div>
             )}
@@ -744,7 +821,7 @@ export default function AdminHomepageBuilderPage() {
         </DragDropContext>
       </div>
 
-      {/* ── Order preview strip ── */}
+      {/* ── Render order strip ── */}
       <div className="rounded-2xl border border-black/8 bg-white px-5 py-3">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
           Current render order
@@ -771,9 +848,7 @@ export default function AdminHomepageBuilderPage() {
         <div className="flex items-center gap-3">
           <LayoutDashboard size={18} className="shrink-0 text-text-muted" />
           <div>
-            <p className="text-sm font-medium text-text-primary">
-              Live Preview
-            </p>
+            <p className="text-sm font-medium text-text-primary">Live Preview</p>
             <p className="mt-0.5 text-xs text-text-muted">
               Save the layout, then{" "}
               <a
@@ -789,18 +864,6 @@ export default function AdminHomepageBuilderPage() {
           </div>
         </div>
       </div>
-
-      {/* ── Config modal ── */}
-      {editingSection && (
-        <ConfigModal
-          section={editingSection}
-          onSave={(config) => {
-            saveSectionConfig(editingSection.id, config);
-            setEditingSection(null);
-          }}
-          onClose={() => setEditingSection(null)}
-        />
-      )}
     </div>
   );
 }

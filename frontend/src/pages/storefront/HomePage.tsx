@@ -87,11 +87,18 @@ export default function HomePage() {
   // ── Section-specific helpers ──────────────────────────────────────────────────
   // books array is already sorted newest-first from the API (orderBy createdAt desc)
   const getNewArrivals = (section: HomepageSection) => {
-    const limit      = section.config.limit ?? 6;
-    const categoryId = section.categoryId ?? section.config.categoryId;
-    const filtered   = categoryId
-      ? books.filter((b) => b.category?.id === categoryId)
+    const limit                = section.config.limit ?? 6;
+    const categoryId           = section.categoryId ?? section.config.categoryId;
+    const selectedSubcatIds    = section.config.selectedSubcategoryIds ?? [];
+    let filtered = categoryId
+      ? books.filter((b) => b.category?.id === categoryId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === categoryId))
       : books;
+    if (selectedSubcatIds.length > 0) {
+      filtered = filtered.filter((b) =>
+        selectedSubcatIds.includes(b.subcategoryId ?? "") ||
+        b.bookSubcategories?.some((bs: any) => selectedSubcatIds.includes(bs.subcategory?.id ?? ""))
+      );
+    }
     return filtered.slice(0, limit);
   };
 
