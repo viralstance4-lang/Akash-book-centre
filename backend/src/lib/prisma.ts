@@ -6,16 +6,16 @@ import env from "../config/env";
 import logger from "../config/logger";
 
 const isProduction = env.NODE_ENV === "production";
+const isLocalDb =
+  env.DATABASE_URL.includes("localhost") ||
+  env.DATABASE_URL.includes("127.0.0.1");
 
-// ── PostgreSQL connection pool ─────────────────────────────────────────────────
-// Neon's free tier has a limited max_connections.
-// Keep the pool small so a cold-started Render dyno doesn't exhaust them.
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
-  max: isProduction ? 5 : 3,       // max simultaneous PG connections
-  idleTimeoutMillis: 30_000,       // release idle connections after 30 s
-  connectionTimeoutMillis: 60_000, // Neon serverless cold-start can take 20-30 s — give it 60 s
-  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+  max: isProduction ? 5 : 3,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 60_000,
+  ssl: isProduction && !isLocalDb ? { rejectUnauthorized: false } : undefined,
 });
 
 pool.on("error", (err) => {
@@ -33,8 +33,6 @@ const prisma =
   globalThis.prisma ??
   new PrismaClient({
     adapter,
-    // Emit errors and warnings to stdout so Render captures them in logs.
-    // In development, also emit slow queries.
     log: isProduction
       ? [
           { emit: "stdout", level: "error" },

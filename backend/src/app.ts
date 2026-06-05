@@ -31,6 +31,12 @@ import diagRouter from "./modules/admin/diag.routes";
 
 const app = express();
 
+// When running behind a proxy/load-balancer (production), trust the first proxy
+// so that `req.ip` reflects the actual client IP instead of the proxy's IP.
+if (env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 // ── Minimal cookie parser (no dep) ─────────────────────────────────────────────
 const cookieParser: RequestHandler = (req, _res, next) => {
   req.cookies = Object.fromEntries(
