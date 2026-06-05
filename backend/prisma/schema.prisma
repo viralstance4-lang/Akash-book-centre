@@ -491,6 +491,30 @@ model Subcategory {
 }
 
 /// Stores the dynamic homepage section layout & per-section config
+
+/// Dynamic homepage sections — fully configurable from admin panel
+model HomepageSection {
+  id            String   @id @default(uuid()) @db.Uuid
+  title         String   @db.VarChar(255)
+  subtitle      String?  @db.VarChar(255)
+  description   String?  @db.Text
+  /// 'books' | 'banner' | 'categories' | 'printCta' | 'allBooks'
+  type          String   @default("books")      @db.VarChar(50)
+  /// 'horizontal' | 'grid' | 'carousel'
+  layoutType    String   @default("horizontal") @db.VarChar(50)
+  /// 'newArrivals' | 'bestSellers' | 'featured' | 'all'
+  bookFilter    String   @default("newArrivals") @db.VarChar(50)
+  categoryId    String?  @db.Uuid
+  subcategoryId String?  @db.Uuid
+  isEnabled     Boolean  @default(true)
+  order         Int      @default(0)
+  /// Extra JSON settings (limit, showAll, selectedProductIds, etc.)
+  config        Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([order])
+  @@index([isEnabled])
+}
 model HomepageConfig {
   id        String   @id @default(uuid()) @db.Uuid
   /// JSON array of HomepageSection objects (type, enabled, order, config)

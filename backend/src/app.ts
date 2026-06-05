@@ -15,6 +15,7 @@ import cartRouter from "./modules/cart/cart.routes";
 import couponsRouter, { adminCouponsRouter } from "./modules/coupons/coupons.routes";
 import featuredRouter, { adminFeaturedRouter } from "./modules/featured/featured.routes";
 import homepageConfigRouter, { adminHomepageConfigRouter } from "./modules/homepage-config/homepage-config.routes";
+import homepageSectionsRouter, { adminHomepageSectionsRouter } from "./modules/homepage-sections/homepage-sections.routes";
 import ordersRouter, { adminOrdersRouter } from "./modules/orders/orders.routes";
 import pagesRouter, { adminPagesRouter } from "./modules/pages/pages.routes";
 import paymentsRouter from "./modules/payments/payments.routes";
@@ -144,6 +145,7 @@ app.use("/api/v1/returns",          returnsRouter);
 app.use("/api/v1/shiprocket",       shiprocketWebhookRouter);
 app.use("/api/v1/featured",         featuredRouter);
 app.use("/api/v1/homepage-config",  homepageConfigRouter);
+app.use("/api/v1/homepage-sections", homepageSectionsRouter);
 app.use("/api/v1/categories",       categoriesRouter);
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ app.use("/api/v1/admin/reviews",          adminReviewsRouter);
 app.use("/api/v1/admin/pages",            adminPagesRouter);
 app.use("/api/v1/admin/featured",         adminFeaturedRouter);
 app.use("/api/v1/admin/homepage-config",  adminHomepageConfigRouter);
+app.use("/api/v1/admin/homepage-sections", adminHomepageSectionsRouter);
 app.use("/api/v1/admin/categories",       adminCategoriesRouter);
 app.use("/api/v1/admin/returns",          adminReturnsRouter);
 app.use("/api/v1/admin/shipping",         adminShippingRouter);

@@ -1,599 +1,414 @@
 /**
- * AdminHomepageBuilderPage — drag-and-drop homepage section builder
- * with inline expandable config panels (category + subcategory picker).
+ * AdminHomepageBuilderPage — fully dynamic homepage builder.
+ * Supports create / edit / delete / duplicate / reorder sections.
  */
-
 import {
   DragDropContext,
   Droppable,
   Draggable,
   type DropResult,
 } from "@hello-pangea/dnd";
-
 import {
-  BookOpen,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  GripVertical,
-  Image,
-  LayoutDashboard,
-  Layers3,
-  Library,
-  Printer,
-  RotateCcw,
-  Save,
-  Star,
-  X,
+  BookOpen, ChevronDown, ChevronUp, Copy, GripVertical,
+  Image, LayoutDashboard, LayoutGrid, Layers3, Library,
+  Loader2, Plus, Printer, RotateCcw, Save, Trash2, X, Check,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  getHomepageConfig,
-  updateHomepageConfig,
-} from "../../api/homepage.api";
-import type {
-  HomepageSection,
-  SectionConfig,
-  SectionType,
-} from "../../api/homepage.api";
+  adminGetAllSections, adminCreateSection, adminUpdateSection,
+  adminDeleteSection, adminDuplicateSection, adminReorderSections,
+  type HomepageSection, type SectionType, type LayoutType, type BookFilterType,
+  type CreateSectionPayload,
+} from "../../api/homepage-sections.api";
 import { getCategories } from "../../api/categories.api";
-import type { Category, Subcategory } from "../../api/categories.api";
+import type { Category } from "../../api/categories.api";
 import FeaturedProductsPicker from "../../components/admin/FeaturedProductsPicker";
 
-// ─── Section metadata ─────────────────────────────────────────────────────────
+// ─── Metadata ────────────────────────────────────────────────────────────────
 
-interface SectionMeta {
-  label: string;
-  description: string;
-  icon: React.ElementType;
-  configurable: boolean;
-}
-
-const SECTION_META: Record<SectionType, SectionMeta> = {
-  banner: {
-    label: "Banner Slider",
-    description: "Rotating image banners at the top of the page",
-    icon: Image,
-    configurable: false,
-  },
-  categories: {
-    label: "Browse by Category",
-    description: "Category cards for quick catalogue filtering",
-    icon: Layers3,
-    configurable: true,
-  },
-  newArrivals: {
-    label: "New Arrivals",
-    description: "Recently added books from a chosen category / subcategory",
-    icon: BookOpen,
-    configurable: true,
-  },
-  featuredProducts: {
-    label: "Featured Books",
-    description: "Curated or auto-selected highlight books",
-    icon: Star,
-    configurable: true,
-  },
-  printSection: {
-    label: "Print CTA",
-    description: "Call-to-action banner for the print service",
-    icon: Printer,
-    configurable: false,
-  },
-  allBooks: {
-    label: "All Books Grid",
-    description: "Full catalogue with search & price filters",
-    icon: Library,
-    configurable: false,
-  },
+const TYPE_META: Record<SectionType, { label: string; icon: React.ElementType; color: string }> = {
+  books:      { label: "Book Section",        icon: BookOpen,      color: "bg-blue-50 text-blue-600" },
+  banner:     { label: "Banner Slider",       icon: Image,         color: "bg-purple-50 text-purple-600" },
+  categories: { label: "Browse by Category",  icon: Layers3,       color: "bg-orange-50 text-orange-600" },
+  printCta:   { label: "Print CTA",           icon: Printer,       color: "bg-green-50 text-green-600" },
+  allBooks:   { label: "All Books Grid",      icon: Library,       color: "bg-gray-50 text-gray-600" },
 };
 
-// ─── Limit slider ─────────────────────────────────────────────────────────────
+const LAYOUT_OPTIONS: { value: LayoutType; label: string; icon: React.ElementType }[] = [
+  { value: "horizontal", label: "Horizontal Scroll", icon: LayoutDashboard },
+  { value: "carousel",   label: "Carousel",          icon: LayoutDashboard },
+  { value: "grid",       label: "Grid",              icon: LayoutGrid },
+];
 
-function LimitInput({
-  value,
-  onChange,
-  label,
-  min,
-  max,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  label: string;
-  min: number;
-  max: number;
-}) {
+const FILTER_OPTIONS: { value: BookFilterType; label: string; desc: string }[] = [
+  { value: "newArrivals",  label: "New Arrivals",  desc: "Recently added books" },
+  { value: "bestSellers",  label: "Best Sellers",  desc: "Featured / popular books" },
+  { value: "featured",     label: "Featured",      desc: "Manually featured books" },
+  { value: "all",          label: "All Books",     desc: "All books from category" },
+];
+
+const FIXED_TYPES: SectionType[] = ["banner", "printCta", "allBooks"];
+
+const EMPTY_SECTION: CreateSectionPayload = {
+  title: "", subtitle: "", description: "",
+  type: "books", layoutType: "horizontal", bookFilter: "newArrivals",
+  categoryId: null, subcategoryId: null,
+  isEnabled: true, order: 0,
+  config: { limit: 8 },
+};
+
+// ─── Small helpers ────────────────────────────────────────────────────────────
+
+function LimitSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-          {label}
-        </p>
-        <span className="text-sm font-semibold text-text-primary">{value}</span>
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs text-text-muted">
+        <span className="font-semibold uppercase tracking-wide">Books to show</span>
+        <span className="font-semibold text-text-primary">{value}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={1}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0] accent-[#1d1a17]"
-      />
-      <div className="flex justify-between text-[10px] text-text-muted">
-        <span>{min}</span>
-        <span>{max}</span>
-      </div>
+      <input type="range" min={2} max={24} step={1} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="h-2 w-full cursor-pointer accent-[#1d1a17]" />
+      <div className="flex justify-between text-[10px] text-text-muted"><span>2</span><span>24</span></div>
     </div>
   );
 }
 
-// ─── Toggle switch ────────────────────────────────────────────────────────────
-
-function Toggle({
-  value,
-  onChange,
-  label,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3">
-      <button
-        type="button"
-        onClick={() => onChange(!value)}
-        className={`relative h-6 w-11 rounded-full transition-colors ${
-          value ? "bg-[#1d1a17]" : "bg-black/20"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            value ? "translate-x-5" : ""
-          }`}
-        />
-      </button>
-      <span className="text-sm font-medium text-text-primary">{label}</span>
-    </label>
-  );
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-muted">{children}</p>;
 }
 
-// ─── Category chip grid ───────────────────────────────────────────────────────
+// ─── Section Create / Edit Modal ──────────────────────────────────────────────
 
-function CategoryChips({
-  categories,
-  selectedIds,
-  onToggle,
-}: {
+interface SectionModalProps {
+  initial: HomepageSection | null;        // null = create mode
   categories: Category[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-}) {
-  if (!categories.length)
-    return <p className="text-xs text-text-muted">No categories found.</p>;
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {categories.map((cat) => {
-        const sel = selectedIds.includes(cat.id);
-        return (
-          <button
-            key={cat.id}
-            type="button"
-            onClick={() => onToggle(cat.id)}
-            className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
-              sel
-                ? "border-[#1d1a17] bg-[#1d1a17] text-white"
-                : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
-            }`}
-          >
-            {cat.imageUrl && (
-              <img
-                src={cat.imageUrl}
-                alt=""
-                className="h-6 w-6 rounded-md object-cover shrink-0"
-              />
-            )}
-            <span className="truncate leading-tight">{cat.name}</span>
-            {sel && <Check size={12} className="ml-auto shrink-0" />}
-          </button>
-        );
-      })}
-    </div>
+  onSave: (data: CreateSectionPayload) => void;
+  onClose: () => void;
+  isSaving: boolean;
+}
+
+function SectionModal({ initial, categories, onSave, onClose, isSaving }: SectionModalProps) {
+  const isNew = initial === null;
+  const [form, setForm] = useState<CreateSectionPayload>(
+    initial
+      ? { title: initial.title, subtitle: initial.subtitle ?? "", description: initial.description ?? "",
+          type: initial.type, layoutType: initial.layoutType, bookFilter: initial.bookFilter,
+          categoryId: initial.categoryId ?? null, subcategoryId: initial.subcategoryId ?? null,
+          isEnabled: initial.isEnabled, order: initial.order, config: { ...initial.config } }
+      : { ...EMPTY_SECTION },
   );
-}
 
-// ─── Subcategory chip grid ────────────────────────────────────────────────────
+  const set = <K extends keyof CreateSectionPayload>(k: K, v: CreateSectionPayload[K]) =>
+    setForm(f => ({ ...f, [k]: v }));
 
-function SubcategoryChips({
-  subcategories,
-  selectedIds,
-  onToggle,
-}: {
-  subcategories: Subcategory[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-}) {
-  if (!subcategories.length)
-    return (
-      <p className="text-xs italic text-text-muted">
-        No subcategories for this category.
-      </p>
-    );
+  const selectedCat = categories.find(c => c.id === form.categoryId);
+  const subcats = selectedCat?.subcategories ?? [];
+
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const isBooks = form.type === "books";
+  const isCats  = form.type === "categories";
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {subcategories.map((sub) => {
-        const sel = selectedIds.includes(sub.id);
-        return (
-          <button
-            key={sub.id}
-            type="button"
-            onClick={() => onToggle(sub.id)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
-              sel
-                ? "border-[#1d1a17] bg-[#1d1a17] text-white"
-                : "border-black/10 bg-white text-text-primary hover:border-black/30"
-            }`}
-          >
-            {sub.name}
-            {sel && <Check size={10} />}
+    <div ref={overlayRef} onClick={e => e.target === overlayRef.current && onClose()}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-black/8 px-5 py-4">
+          <h2 className="font-serif text-lg text-text-primary">
+            {isNew ? "Add New Section" : "Edit Section"}
+          </h2>
+          <button onClick={onClose} className="rounded-full p-1.5 text-text-muted hover:bg-[#f4efe7]">
+            <X size={16} />
           </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Inline config panel ──────────────────────────────────────────────────────
-
-interface InlineConfigProps {
-  section: HomepageSection;
-  categories: Category[];
-  onChange: (config: SectionConfig) => void;
-}
-
-function InlineConfig({ section, categories, onChange }: InlineConfigProps) {
-  const cfg = section.config;
-
-  const setField = <K extends keyof SectionConfig>(key: K, val: SectionConfig[K]) =>
-    onChange({ ...cfg, [key]: val });
-
-  const toggleCategoryId = (id: string) => {
-    const prev = cfg.selectedCategoryIds ?? [];
-    const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-    onChange({ ...cfg, selectedCategoryIds: next });
-  };
-
-  const toggleSubcategoryId = (id: string) => {
-    const prev = cfg.selectedSubcategoryIds ?? [];
-    const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-    onChange({ ...cfg, selectedSubcategoryIds: next });
-  };
-
-  // Subcategories of the selected category (for newArrivals)
-  const selectedCat = categories.find((c) => c.id === (cfg.categoryId ?? ""));
-  const availableSubcategories: Subcategory[] = selectedCat?.subcategories ?? [];
-
-  // ── categories section ────────────────────────────────────────────────────
-  if (section.type === "categories") {
-    return (
-      <div className="space-y-5 pt-4 border-t border-black/8">
-        <Toggle
-          value={cfg.showAll ?? true}
-          onChange={(v) => setField("showAll", v)}
-          label="Show all categories"
-        />
-
-        {!(cfg.showAll ?? true) && (
-          <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-              Select categories to display
-            </p>
-            <CategoryChips
-              categories={categories}
-              selectedIds={cfg.selectedCategoryIds ?? []}
-              onToggle={toggleCategoryId}
-            />
-          </div>
-        )}
-
-        <LimitInput
-          value={cfg.limit ?? 8}
-          onChange={(v) => setField("limit", v)}
-          label="Max categories to show"
-          min={2}
-          max={20}
-        />
-      </div>
-    );
-  }
-
-  // ── newArrivals section ───────────────────────────────────────────────────
-  if (section.type === "newArrivals") {
-    return (
-      <div className="space-y-5 pt-4 border-t border-black/8">
-        {/* Title */}
-        <div className="space-y-1.5">
-          <label className="block text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-            Section Title
-          </label>
-          <input
-            type="text"
-            value={cfg.title ?? ""}
-            onChange={(e) => setField("title", e.target.value)}
-            placeholder="e.g. New Arrivals, Best Sellers…"
-            className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition-all focus:border-black/30 focus:ring-2 focus:ring-black/8"
-          />
         </div>
 
-        {/* Category */}
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-            Filter by Category
-          </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => onChange({ ...cfg, categoryId: "", selectedSubcategoryIds: [] })}
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-all ${
-                !cfg.categoryId
-                  ? "border-[#1d1a17] bg-[#1d1a17] text-white"
-                  : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
-              }`}
-            >
-              {!cfg.categoryId && <Check size={12} />}
-              All Categories
-            </button>
-            {categories.map((cat) => {
-              const sel = cfg.categoryId === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() =>
-                    onChange({ ...cfg, categoryId: cat.id, selectedSubcategoryIds: [] })
-                  }
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
-                    sel
-                      ? "border-[#1d1a17] bg-[#1d1a17] text-white"
-                      : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"
-                  }`}
-                >
-                  {cat.imageUrl && (
-                    <img
-                      src={cat.imageUrl}
-                      alt=""
-                      className="h-5 w-5 rounded object-cover shrink-0"
-                    />
+        {/* Body */}
+        <div className="space-y-5 p-5">
+
+          {/* Section Type */}
+          <div>
+            <FieldLabel>Section Type</FieldLabel>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {(Object.entries(TYPE_META) as [SectionType, typeof TYPE_META[SectionType]][]).map(([type, meta]) => {
+                const Icon = meta.icon;
+                const sel  = form.type === type;
+                return (
+                  <button key={type} type="button" onClick={() => set("type", type)}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all
+                      ${sel ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"}`}>
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate text-xs">{meta.label}</span>
+                    {sel && <Check size={10} className="ml-auto shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Title */}
+          <div>
+            <FieldLabel>Section Title *</FieldLabel>
+            <input value={form.title} onChange={e => set("title", e.target.value)}
+              placeholder="e.g. New Arrivals, Best Sellers, Science Books…"
+              className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30 focus:ring-2 focus:ring-black/8" />
+          </div>
+
+          {/* Subtitle */}
+          <div>
+            <FieldLabel>Subtitle <span className="normal-case font-normal">(optional)</span></FieldLabel>
+            <input value={form.subtitle ?? ""} onChange={e => set("subtitle", e.target.value)}
+              placeholder="e.g. Hand-picked for you"
+              className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30 focus:ring-2 focus:ring-black/8" />
+          </div>
+
+          {/* ── Books-specific fields ── */}
+          {isBooks && (
+            <>
+              {/* Layout type */}
+              <div>
+                <FieldLabel>Layout</FieldLabel>
+                <div className="flex gap-2">
+                  {LAYOUT_OPTIONS.map(opt => (
+                    <button key={opt.value} type="button" onClick={() => set("layoutType", opt.value)}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition-all
+                        ${form.layoutType === opt.value ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Book filter */}
+              <div>
+                <FieldLabel>Books to Display</FieldLabel>
+                <div className="grid grid-cols-2 gap-2">
+                  {FILTER_OPTIONS.map(opt => (
+                    <button key={opt.value} type="button" onClick={() => set("bookFilter", opt.value)}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition-all
+                        ${form.bookFilter === opt.value ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"}`}>
+                      <p className={`text-sm font-medium ${form.bookFilter === opt.value ? "text-white" : "text-text-primary"}`}>{opt.label}</p>
+                      <p className={`mt-0.5 text-[10px] ${form.bookFilter === opt.value ? "text-white/70" : "text-text-muted"}`}>{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Featured picker */}
+              {form.bookFilter === "featured" && (
+                <div className="rounded-2xl border border-black/8 bg-[#f8f4ee] p-3">
+                  <FeaturedProductsPicker
+                    selectedProductIds={form.config.selectedProductIds ?? []}
+                    useManual={form.config.useManual ?? false}
+                    limit={form.config.limit ?? 4}
+                    onChangeSelectedIds={ids => set("config", { ...form.config, selectedProductIds: ids })}
+                    onToggleManual={() => set("config", { ...form.config, useManual: !form.config.useManual })}
+                    onChangeLimit={v => set("config", { ...form.config, limit: v })}
+                  />
+                </div>
+              )}
+
+              {/* Category */}
+              {form.bookFilter !== "featured" && (
+                <>
+                  <div>
+                    <FieldLabel>Category Filter <span className="normal-case font-normal">(optional)</span></FieldLabel>
+                    <select value={form.categoryId ?? ""}
+                      onChange={e => { set("categoryId", e.target.value || null); set("subcategoryId", null); }}
+                      className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30">
+                      <option value="">All Categories</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Subcategory */}
+                  {form.categoryId && subcats.length > 0 && (
+                    <div>
+                      <FieldLabel>Subcategory Filter <span className="normal-case font-normal">(optional)</span></FieldLabel>
+                      <select value={form.subcategoryId ?? ""}
+                        onChange={e => set("subcategoryId", e.target.value || null)}
+                        className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30">
+                        <option value="">All Subcategories</option>
+                        {subcats.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
                   )}
-                  <span className="truncate">{cat.name}</span>
-                  {sel && <Check size={12} className="ml-auto shrink-0" />}
+
+                  <LimitSlider value={form.config.limit ?? 8}
+                    onChange={v => set("config", { ...form.config, limit: v })} />
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── Categories-section fields ── */}
+          {isCats && (
+            <>
+              <div className="flex items-center gap-3">
+                <button type="button"
+                  onClick={() => set("config", { ...form.config, showAll: !(form.config.showAll ?? true) })}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.config.showAll !== false ? "bg-[#1d1a17]" : "bg-black/20"}`}>
+                  <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.config.showAll !== false ? "translate-x-5" : ""}`} />
                 </button>
-              );
-            })}
+                <span className="text-sm font-medium text-text-primary">Show all categories</span>
+              </div>
+              <div>
+                <FieldLabel>Max categories to show</FieldLabel>
+                <input type="number" min={2} max={20} value={form.config.limit ?? 8}
+                  onChange={e => set("config", { ...form.config, limit: Number(e.target.value) })}
+                  className="w-24 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:border-black/30" />
+              </div>
+            </>
+          )}
+
+          {/* Status */}
+          <div className="flex items-center gap-3 rounded-xl border border-black/8 px-4 py-3">
+            <button type="button" onClick={() => set("isEnabled", !form.isEnabled)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${form.isEnabled ? "bg-[#1d1a17]" : "bg-black/20"}`}>
+              <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.isEnabled ? "translate-x-5" : ""}`} />
+            </button>
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {form.isEnabled ? "Active" : "Inactive"}
+              </p>
+              <p className="text-xs text-text-muted">
+                {form.isEnabled ? "Visible on homepage" : "Hidden from homepage"}
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Subcategory — only when category is selected */}
-        {cfg.categoryId && (
-          <div className="space-y-2 rounded-2xl border border-black/8 bg-[#f8f4ee] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-              Filter by Subcategory{" "}
-              <span className="font-normal normal-case text-text-muted/70">
-                (optional — leave empty to show all from category)
-              </span>
-            </p>
-            <SubcategoryChips
-              subcategories={availableSubcategories}
-              selectedIds={cfg.selectedSubcategoryIds ?? []}
-              onToggle={toggleSubcategoryId}
-            />
-            {(cfg.selectedSubcategoryIds ?? []).length > 0 && (
-              <button
-                type="button"
-                onClick={() => setField("selectedSubcategoryIds", [])}
-                className="mt-1 inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
-              >
-                <X size={10} /> Clear subcategory filter
-              </button>
-            )}
-          </div>
-        )}
-
-        <LimitInput
-          value={cfg.limit ?? 6}
-          onChange={(v) => setField("limit", v)}
-          label="Books to show"
-          min={2}
-          max={24}
-        />
+        {/* Footer */}
+        <div className="flex justify-end gap-2 border-t border-black/8 px-5 py-4">
+          <button onClick={onClose}
+            className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:bg-[#f4efe7]">
+            Cancel
+          </button>
+          <button onClick={() => onSave(form)} disabled={!form.title.trim() || isSaving}
+            className="inline-flex items-center gap-2 rounded-full bg-[#1d1a17] px-5 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed">
+            {isSaving && <Loader2 size={13} className="animate-spin" />}
+            {isNew ? "Create Section" : "Save Changes"}
+          </button>
+        </div>
       </div>
-    );
-  }
-
-  // ── featuredProducts section ──────────────────────────────────────────────
-  if (section.type === "featuredProducts") {
-    return (
-      <div className="pt-4 border-t border-black/8">
-        <FeaturedProductsPicker
-          selectedProductIds={cfg.selectedProductIds ?? []}
-          useManual={cfg.useManual ?? false}
-          limit={cfg.limit ?? 4}
-          onChangeSelectedIds={(ids) => setField("selectedProductIds", ids)}
-          onToggleManual={() => setField("useManual", !(cfg.useManual ?? false))}
-          onChangeLimit={(v) => setField("limit", v)}
-        />
-      </div>
-    );
-  }
-
-  return null;
+    </div>
+  );
 }
 
-// ─── Draggable section card ───────────────────────────────────────────────────
+// ─── Section Card ─────────────────────────────────────────────────────────────
 
 interface SectionCardProps {
   section: HomepageSection;
   index: number;
   isFirst: boolean;
   isLast: boolean;
-  isExpanded: boolean;
+  isFixed: boolean;
   categories: Category[];
-  onToggleExpand: () => void;
-  onToggleEnabled: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
+  onToggle: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  onConfigChange: (config: SectionConfig) => void;
 }
 
-function SectionCard({
-  section,
-  index,
-  isFirst,
-  isLast,
-  isExpanded,
-  categories,
-  onToggleExpand,
-  onToggleEnabled,
-  onMoveUp,
-  onMoveDown,
-  onConfigChange,
-}: SectionCardProps) {
-  const meta = SECTION_META[section.type];
+function SectionCard({ section, index, isFirst, isLast, isFixed, onEdit, onDelete, onDuplicate, onToggle, onMoveUp, onMoveDown }: SectionCardProps) {
+  const meta = TYPE_META[section.type];
   const Icon = meta.icon;
+  const [confirmDel, setConfirmDel] = useState(false);
+
 
   return (
     <Draggable draggableId={section.id} index={index}>
       {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
+        <div ref={provided.innerRef} {...provided.draggableProps}
           className={`rounded-2xl border bg-white transition-all select-none
-            ${
-              snapshot.isDragging
-                ? "border-[#1d1a17] shadow-lg ring-2 ring-[#1d1a17]/20 rotate-[0.5deg] scale-[1.01]"
-                : isExpanded
-                ? "border-[#1d1a17]/30 shadow-md"
-                : "border-black/10 hover:border-black/20 hover:shadow-sm"
-            }
-            ${!section.enabled ? "opacity-60" : ""}`}
-        >
-          {/* ── Header row ── */}
+            ${snapshot.isDragging ? "border-[#1d1a17] shadow-xl ring-2 ring-[#1d1a17]/20 rotate-[0.5deg]" : "border-black/10 hover:border-black/20 hover:shadow-sm"}
+            ${!section.isEnabled ? "opacity-55" : ""}`}>
+
           <div className="flex items-center gap-3 px-4 py-3.5">
             {/* Drag handle */}
-            <span
-              {...provided.dragHandleProps}
-              className="cursor-grab touch-none text-text-muted/40 hover:text-text-muted active:cursor-grabbing shrink-0"
-              title="Drag to reorder"
-            >
+            <span {...provided.dragHandleProps}
+              className="cursor-grab touch-none text-text-muted/40 hover:text-text-muted active:cursor-grabbing shrink-0">
               <GripVertical size={18} />
             </span>
 
-            {/* Section icon */}
-            <span
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                section.enabled ? "bg-[#f4efe7]" : "bg-black/5"
-              }`}
-            >
-              <Icon
-                size={16}
-                className={section.enabled ? "text-[#1d1a17]" : "text-text-muted"}
-              />
+            {/* Icon */}
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${meta.color}`}>
+              <Icon size={16} />
             </span>
 
-            {/* Label — clicking expands if configurable */}
-            <button
-              type="button"
-              onClick={meta.configurable ? onToggleExpand : undefined}
-              className={`min-w-0 flex-1 text-left ${
-                meta.configurable ? "cursor-pointer" : "cursor-default"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-medium text-text-primary">
-                  {meta.label}
-                </p>
-                {!section.enabled && (
-                  <span className="shrink-0 rounded-full bg-black/8 px-2 py-0.5 text-[10px] text-text-muted">
-                    Hidden
-                  </span>
+            {/* Info */}
+            <div className="min-w-0 flex-1 cursor-pointer" onClick={onEdit}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <p className="text-sm font-medium text-text-primary truncate">{section.title}</p>
+                {!section.isEnabled && (
+                  <span className="rounded-full bg-black/8 px-2 py-0.5 text-[10px] text-text-muted">Hidden</span>
                 )}
-                {isExpanded && (
-                  <span className="shrink-0 rounded-full bg-[#1d1a17]/8 px-2 py-0.5 text-[10px] font-medium text-[#1d1a17]">
-                    Editing
-                  </span>
+                {isFixed && (
+                  <span className="rounded-full border border-black/10 px-2 py-0.5 text-[10px] text-text-muted">Fixed</span>
                 )}
               </div>
-              <p className="mt-0.5 truncate text-xs text-text-muted">
-                {meta.description}
-              </p>
-            </button>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs text-text-muted">{meta.label}</p>
+                {section.type === "books" && (
+                  <>
+                    <span className="text-text-muted/40">·</span>
+                    <span className="text-xs text-text-muted capitalize">{section.bookFilter}</span>
+                    <span className="text-text-muted/40">·</span>
+                    <span className="text-xs text-text-muted capitalize">{section.layoutType}</span>
+                  </>
+                )}
+              </div>
+            </div>
 
-            {/* Action buttons */}
+            {/* Controls */}
             <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={onMoveUp}
-                disabled={isFirst}
-                className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
-              >
+              <button onClick={onMoveUp} disabled={isFirst}
+                className="rounded-lg p-1.5 text-text-muted hover:bg-[#f4efe7] disabled:opacity-30 disabled:cursor-not-allowed">
                 <ChevronUp size={14} />
               </button>
-              <button
-                type="button"
-                onClick={onMoveDown}
-                disabled={isLast}
-                className="rounded-lg p-1.5 text-text-muted transition-all hover:bg-[#f4efe7] disabled:cursor-not-allowed disabled:opacity-30"
-              >
+              <button onClick={onMoveDown} disabled={isLast}
+                className="rounded-lg p-1.5 text-text-muted hover:bg-[#f4efe7] disabled:opacity-30 disabled:cursor-not-allowed">
                 <ChevronDown size={14} />
               </button>
-
-              {/* Expand/collapse toggle for configurable sections */}
-              {meta.configurable && (
-                <button
-                  type="button"
-                  onClick={onToggleExpand}
-                  title={isExpanded ? "Collapse" : "Configure section"}
-                  className={`rounded-lg p-1.5 transition-all ${
-                    isExpanded
-                      ? "bg-[#1d1a17] text-white"
-                      : "text-text-muted hover:bg-[#f4efe7]"
-                  }`}
-                >
-                  <ChevronDown
-                    size={14}
-                    className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                  />
-                </button>
+              <button onClick={onDuplicate} title="Duplicate"
+                className="rounded-lg p-1.5 text-text-muted hover:bg-[#f4efe7]">
+                <Copy size={14} />
+              </button>
+              {!isFixed && (
+                confirmDel ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => { onDelete(); setConfirmDel(false); }}
+                      className="rounded-lg px-2 py-1 text-xs font-medium bg-red-500 text-white hover:bg-red-600">
+                      Delete
+                    </button>
+                    <button onClick={() => setConfirmDel(false)}
+                      className="rounded-lg px-2 py-1 text-xs text-text-muted hover:bg-[#f4efe7]">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDel(true)} title="Delete"
+                    className="rounded-lg p-1.5 text-text-muted hover:bg-red-50 hover:text-red-500">
+                    <Trash2 size={14} />
+                  </button>
+                )
               )}
-
               {/* Show/hide toggle */}
-              <button
-                type="button"
-                onClick={onToggleEnabled}
-                className={`relative ml-1 h-6 w-11 rounded-full transition-colors ${
-                  section.enabled ? "bg-[#1d1a17]" : "bg-black/20"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                    section.enabled ? "translate-x-5" : ""
-                  }`}
-                />
+              <button onClick={onToggle}
+                className={`relative ml-1 h-6 w-11 rounded-full transition-colors ${section.isEnabled ? "bg-[#1d1a17]" : "bg-black/20"}`}>
+                <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${section.isEnabled ? "translate-x-5" : ""}`} />
               </button>
             </div>
           </div>
 
-          {/* ── Expanded inline config ── */}
-          {isExpanded && meta.configurable && (
-            <div className="px-4 pb-5">
-              <InlineConfig
-                section={section}
-                categories={categories}
-                onChange={onConfigChange}
-              />
-            </div>
+          {/* Subtitle strip */}
+          {section.subtitle && (
+            <p className="px-16 pb-2.5 text-xs text-text-muted">{section.subtitle}</p>
           )}
         </div>
       )}
@@ -601,120 +416,112 @@ function SectionCard({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminHomepageBuilderPage() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const [sections, setSections] = useState<HomepageSection[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modalSection, setModalSection] = useState<HomepageSection | "new" | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveOk, setSaveOk] = useState(false);
 
-  // ── Fetch config ──────────────────────────────────────────────────────────
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["homepage-config"],
-    queryFn: getHomepageConfig,
+  // Queries
+  const { data: rawSections = [], isLoading } = useQuery({
+    queryKey: ["homepage-sections-admin"],
+    queryFn:  adminGetAllSections,
   });
-
-  const { data: categoriesData } = useQuery({
-    queryKey: ["categories"],
-    queryFn: getCategories,
-  });
+  const { data: categoriesData } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
   const categories: Category[] = categoriesData?.data ?? [];
 
   useEffect(() => {
-    if (data) {
-      setSections([...data.sections].sort((a, b) => a.order - b.order));
+    if (rawSections.length) {
+      setSections([...rawSections].sort((a, b) => a.order - b.order));
       setIsDirty(false);
     }
-  }, [data]);
+  }, [rawSections]);
 
-  // ── Save ──────────────────────────────────────────────────────────────────
-
-  const saveMutation = useMutation({
-    mutationFn: (secs: HomepageSection[]) => updateHomepageConfig(secs),
-    onSuccess: (updated) => {
-      setSections([...updated.sections].sort((a, b) => a.order - b.order));
-      setIsDirty(false);
-      setSaveSuccess(true);
-      void queryClient.invalidateQueries({ queryKey: ["homepage-config"] });
-      setTimeout(() => setSaveSuccess(false), 2500);
-    },
-    onError: (err: any) => {
-      alert(`Save failed: ${err?.response?.data?.message ?? err?.message ?? "Unknown error"}`);
-    },
+  // Mutations
+  const createMut = useMutation({
+    mutationFn: adminCreateSection,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); },
+    onError: (e: any) => alert(e?.response?.data?.message ?? "Create failed"),
   });
 
-  // ── Drag end ──────────────────────────────────────────────────────────────
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminUpdateSection(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); },
+    onError: (e: any) => alert(e?.response?.data?.message ?? "Update failed"),
+  });
 
-  const handleDragEnd = (result: DropResult) => {
-    const { destination, source } = result;
-    if (!destination || destination.index === source.index) return;
-    const reordered = Array.from(sections);
-    const [moved] = reordered.splice(source.index, 1);
-    reordered.splice(destination.index, 0, moved);
-    setSections(reordered.map((s, i) => ({ ...s, order: i + 1 })));
+  const deleteMut = useMutation({
+    mutationFn: adminDeleteSection,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }),
+  });
+
+  const dupMut = useMutation({
+    mutationFn: adminDuplicateSection,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }),
+  });
+
+  const reorderMut = useMutation({
+    mutationFn: adminReorderSections,
+    onSuccess: (updated) => {
+      setSections([...updated].sort((a, b) => a.order - b.order));
+      setIsDirty(false);
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 2000);
+      qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] });
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? "Reorder failed"),
+  });
+
+  // Drag end
+  const handleDragEnd = (r: DropResult) => {
+    if (!r.destination || r.destination.index === r.source.index) return;
+    const next = Array.from(sections);
+    const [moved] = next.splice(r.source.index, 1);
+    next.splice(r.destination.index, 0, moved);
+    setSections(next.map((s, i) => ({ ...s, order: i + 1 })));
     setIsDirty(true);
   };
 
-  // ── Move ──────────────────────────────────────────────────────────────────
-
-  const moveSection = (id: string, dir: "up" | "down") => {
-    setSections((prev) => {
-      const idx = prev.findIndex((s) => s.id === id);
-      const swapIdx = dir === "up" ? idx - 1 : idx + 1;
-      if (idx < 0 || swapIdx < 0 || swapIdx >= prev.length) return prev;
+  // Move by button
+  const move = (id: string, dir: "up" | "down") => {
+    setSections(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      const swap = dir === "up" ? idx - 1 : idx + 1;
+      if (idx < 0 || swap < 0 || swap >= prev.length) return prev;
       const next = [...prev];
-      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
       return next.map((s, i) => ({ ...s, order: i + 1 }));
     });
     setIsDirty(true);
   };
 
-  // ── Toggle visibility ─────────────────────────────────────────────────────
-
-  const toggleSection = (id: string) => {
-    setSections((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)),
-    );
-    setIsDirty(true);
+  // Toggle enable inline
+  const toggle = (id: string) => {
+    updateMut.mutate({ id, data: { isEnabled: !sections.find(s => s.id === id)?.isEnabled } });
   };
 
-  // ── Config change (inline) ────────────────────────────────────────────────
-
-  const updateConfig = (id: string, config: SectionConfig) => {
-    setSections((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              config,
-              title: config.title?.trim() || s.title,
-              categoryId: config.categoryId || undefined,
-            }
-          : s,
-      ),
-    );
-    setIsDirty(true);
+  // Save reorder
+  const saveOrder = () => {
+    reorderMut.mutate(sections.map(s => s.id));
   };
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
+  // Reset
+  const reset = () => {
+    setSections([...rawSections].sort((a, b) => a.order - b.order));
+    setIsDirty(false);
+  };
 
-  const resetToSaved = () => {
-    if (data) {
-      setSections([...data.sections].sort((a, b) => a.order - b.order));
-      setIsDirty(false);
+  // Modal save
+  const handleModalSave = (data: CreateSectionPayload) => {
+    if (modalSection === "new") {
+      createMut.mutate(data);
+    } else if (modalSection) {
+      updateMut.mutate({ id: modalSection.id, data });
     }
   };
-
-  // ── Save ──────────────────────────────────────────────────────────────────
-
-  const handleSave = () => {
-    saveMutation.mutate(sections.map((s, i) => ({ ...s, order: i + 1 })));
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -726,137 +533,114 @@ export default function AdminHomepageBuilderPage() {
     );
   }
 
-  const visibleCount = sections.filter((s) => s.enabled).length;
+  const visibleCount = sections.filter(s => s.isEnabled).length;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+
       {/* ── Toolbar ── */}
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm text-text-muted">
-          Drag{" "}
-          <GripVertical size={12} className="inline-block align-middle" />{" "}
-          to reorder · toggle to show/hide · click{" "}
-          <ChevronDown size={12} className="inline-block align-middle" />{" "}
-          to configure a section.
-        </p>
-        <div className="flex shrink-0 items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-text-muted">
+            Drag <GripVertical size={11} className="inline align-middle" /> to reorder ·
+            toggle to show/hide · click row to edit · <Copy size={11} className="inline align-middle" /> to duplicate
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
           {isDirty && (
-            <button
-              type="button"
-              onClick={resetToSaved}
-              className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-2 text-sm text-text-muted hover:bg-[#f4efe7]"
-            >
+            <button onClick={reset}
+              className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-2 text-sm text-text-muted hover:bg-[#f4efe7]">
               <RotateCcw size={13} /> Reset
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saveMutation.isPending || !isDirty}
-            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50
-              ${saveSuccess ? "bg-emerald-600 text-white" : "bg-[#1d1a17] text-white hover:bg-black"}`}
-          >
-            {saveSuccess ? (
-              <><Check size={13} /> Saved!</>
-            ) : saveMutation.isPending ? (
-              <><Save size={13} /> Saving…</>
-            ) : (
-              <><Save size={13} /> Save Layout</>
-            )}
+          {isDirty && (
+            <button onClick={saveOrder} disabled={reorderMut.isPending}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all disabled:opacity-50
+                ${saveOk ? "bg-emerald-600 text-white" : "bg-[#1d1a17] text-white hover:bg-black"}`}>
+              {saveOk ? <><Check size={13} /> Saved!</> : reorderMut.isPending ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : <><Save size={13} /> Save Order</>}
+            </button>
+          )}
+          <button onClick={() => setModalSection("new")}
+            className="inline-flex items-center gap-1.5 rounded-full bg-[#1d1a17] px-4 py-2 text-sm font-medium text-white hover:bg-black">
+            <Plus size={14} /> Add Section
           </button>
         </div>
       </div>
 
-      {/* ── Unsaved banner ── */}
-      {isDirty && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          You have unsaved changes.{" "}
-          <strong>Click Save Layout</strong> to publish to the homepage.
+      {/* ── Section count ── */}
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+          Sections ({visibleCount} of {sections.length} visible)
+        </p>
+        <p className="text-xs text-text-muted">Drag <GripVertical size={11} className="inline align-middle" /> to reorder</p>
+      </div>
+
+      {/* ── Drag & drop list ── */}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="sections">
+          {(provided, snapshot) => (
+            <div ref={provided.innerRef} {...provided.droppableProps}
+              className={`space-y-2 rounded-2xl transition-colors ${snapshot.isDraggingOver ? "bg-[#f4efe7]/50 p-2" : ""}`}>
+              {sections.map((section, idx) => (
+                <SectionCard
+                  key={section.id}
+                  section={section}
+                  index={idx}
+                  isFirst={idx === 0}
+                  isLast={idx === sections.length - 1}
+                  isFixed={FIXED_TYPES.includes(section.type)}
+                  categories={categories}
+                  onEdit={() => setModalSection(section)}
+                  onDelete={() => deleteMut.mutate(section.id)}
+                  onDuplicate={() => dupMut.mutate(section.id)}
+                  onToggle={() => toggle(section.id)}
+                  onMoveUp={() => move(section.id, "up")}
+                  onMoveDown={() => move(section.id, "down")}
+                />
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
+
+      {/* Empty state */}
+      {sections.length === 0 && (
+        <div className="rounded-2xl border-2 border-dashed border-black/10 py-12 text-center">
+          <LayoutDashboard size={32} className="mx-auto mb-3 text-text-muted/50" />
+          <p className="font-medium text-text-primary">No sections yet</p>
+          <p className="mt-1 text-sm text-text-muted">Click "Add Section" to build your homepage</p>
+          <button onClick={() => setModalSection("new")}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[#1d1a17] px-4 py-2 text-sm font-medium text-white hover:bg-black">
+            <Plus size={14} /> Add First Section
+          </button>
         </div>
       )}
 
-      {/* ── Section list ── */}
-      <div className="space-y-2">
-        <div className="mb-1 flex items-center justify-between px-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-            Sections ({visibleCount} of {sections.length} visible)
-          </p>
-          <p className="text-xs text-text-muted">
-            Drag <GripVertical size={11} className="inline align-middle" /> to reorder
-          </p>
-        </div>
-
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <Droppable droppableId="homepage-sections">
-            {(provided, snapshot) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                className={`space-y-2 rounded-2xl transition-colors ${
-                  snapshot.isDraggingOver ? "bg-[#f4efe7]/60 p-2" : ""
-                }`}
-              >
-                {sections.map((section, index) => (
-                  <SectionCard
-                    key={section.id}
-                    section={section}
-                    index={index}
-                    isFirst={index === 0}
-                    isLast={index === sections.length - 1}
-                    isExpanded={expandedId === section.id}
-                    categories={categories}
-                    onToggleExpand={() =>
-                      setExpandedId(expandedId === section.id ? null : section.id)
-                    }
-                    onToggleEnabled={() => toggleSection(section.id)}
-                    onMoveUp={() => moveSection(section.id, "up")}
-                    onMoveDown={() => moveSection(section.id, "down")}
-                    onConfigChange={(config) => updateConfig(section.id, config)}
-                  />
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
-      </div>
-
       {/* ── Render order strip ── */}
-      <div className="rounded-2xl border border-black/8 bg-white px-5 py-3">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
-          Current render order
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {sections.map((s, i) => (
-            <span
-              key={s.id}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                s.enabled
-                  ? "bg-[#1d1a17] text-white"
-                  : "bg-black/8 text-text-muted line-through"
-              }`}
-            >
-              <span className="opacity-60">{i + 1}.</span>
-              {SECTION_META[s.type].label}
-            </span>
-          ))}
+      {sections.length > 0 && (
+        <div className="rounded-2xl border border-black/8 bg-white px-5 py-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">Current render order</p>
+          <div className="flex flex-wrap gap-2">
+            {sections.map((s, i) => (
+              <span key={s.id}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${s.isEnabled ? "bg-[#1d1a17] text-white" : "bg-black/8 text-text-muted line-through"}`}>
+                <span className="opacity-60">{i + 1}.</span>{s.title}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── Live preview hint ── */}
+      {/* ── Live preview ── */}
       <div className="rounded-2xl border border-dashed border-black/10 bg-white px-5 py-4">
         <div className="flex items-center gap-3">
           <LayoutDashboard size={18} className="shrink-0 text-text-muted" />
           <div>
             <p className="text-sm font-medium text-text-primary">Live Preview</p>
             <p className="mt-0.5 text-xs text-text-muted">
-              Save the layout, then{" "}
-              <a
-                href="/"
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2 hover:text-text-primary"
-              >
+              After saving,{" "}
+              <a href="/" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-text-primary">
                 open the homepage
               </a>{" "}
               to see your changes.
@@ -864,6 +648,17 @@ export default function AdminHomepageBuilderPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Create / Edit Modal ── */}
+      {modalSection !== null && (
+        <SectionModal
+          initial={modalSection === "new" ? null : modalSection}
+          categories={categories}
+          onSave={handleModalSave}
+          onClose={() => setModalSection(null)}
+          isSaving={createMut.isPending || updateMut.isPending}
+        />
+      )}
     </div>
   );
 }

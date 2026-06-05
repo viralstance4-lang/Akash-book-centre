@@ -8,8 +8,8 @@ import type { Book } from "../../types";
 import { addToCart, getCart } from "../../api/cart.api";
 import { getBanners } from "../../api/banners.api";
 import { getFeaturedBooks } from "../../api/featured.api";
-import { getHomepageConfig } from "../../api/homepage.api";
-import type { HomepageSection } from "../../api/homepage.api";
+import { getHomepageSections } from "../../api/homepage-sections.api";
+import type { HomepageSection } from "../../api/homepage-sections.api";
 import BookSlider from "../../components/ui/BookSlider";
 import BannerSlider from "../../components/ui/BannerSlider";
 import CategorySlider from "../../components/ui/CategorySlider";
@@ -39,7 +39,7 @@ export default function HomePage() {
   }, [searchParams]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
-  const { data: configData   } = useQuery({ queryKey: ["homepage-config"], queryFn: getHomepageConfig });
+  const { data: homepageSections = [] } = useQuery({ queryKey: ["homepage-sections"], queryFn: getHomepageSections });
   const { data: cartData     } = useQuery({ queryKey: ["cart"],            queryFn: getCart,          enabled: isAuthenticated });
   const { data: categoriesData} = useQuery({ queryKey: ["categories"],     queryFn: getCategories });
   const { data: bannersData  } = useQuery({ queryKey: ["banners"],         queryFn: getBanners });
@@ -62,15 +62,14 @@ export default function HomePage() {
   const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
 
   const sections: HomepageSection[] = useMemo(() => {
-    if (!configData?.sections?.length) return [];
-    return [...configData.sections].sort((a, b) => a.order - b.order).filter((s) => s.enabled);
-  }, [configData]);
+    return [...homepageSections].sort((a, b) => a.order - b.order).filter((s) => s.isEnabled);
+  }, [homepageSections]);
 
   // Featured manual products
-  const featuredSection   = useMemo(() => configData?.sections?.find((s) => s.type === "featuredProducts"), [configData]);
+  const featuredSection   = useMemo(() => homepageSections.find((s) => s.bookFilter === "featured"), [homepageSections]);
   const manualProductIds: string[] = useMemo(() => {
     if (!featuredSection?.config?.useManual) return [];
-    return featuredSection.config.selectedProductIds ?? [];
+    return featuredSection?.config?.selectedProductIds ?? [];
   }, [featuredSection]);
   const manualFeaturedQueries = useQueries({
     queries: manualProductIds.map((id) => ({
@@ -86,28 +85,9 @@ export default function HomePage() {
 
   // ── Section-specific helpers ──────────────────────────────────────────────────
   // books array is already sorted newest-first from the API (orderBy createdAt desc)
-  const getNewArrivals = (section: HomepageSection) => {
-    const limit                = section.config.limit ?? 6;
-    const categoryId           = section.categoryId ?? section.config.categoryId;
-    const selectedSubcatIds    = section.config.selectedSubcategoryIds ?? [];
-    let filtered = categoryId
-      ? books.filter((b) => b.category?.id === categoryId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === categoryId))
-      : books;
-    if (selectedSubcatIds.length > 0) {
-      filtered = filtered.filter((b) =>
-        selectedSubcatIds.includes(b.subcategoryId ?? "") ||
-        b.bookSubcategories?.some((bs: any) => selectedSubcatIds.includes(bs.subcategory?.id ?? ""))
-      );
-    }
-    return filtered.slice(0, limit);
-  };
 
-  const getFeatured = (cfg: HomepageSection["config"]) => {
-    if (cfg.useManual) return manualFeaturedBooks;
-    const apiFeatured = (featuredData?.data ?? []) as Book[];
-    if (apiFeatured.length > 0) return apiFeatured.slice(0, cfg.limit ?? 4);
-    return [...books].sort((a, b) => b.stock - a.stock).slice(0, cfg.limit ?? 4);
-  };
+
+
 
   const getVisibleCategories = (cfg: HomepageSection["config"]) => {
     const limit = cfg.limit ?? 8;
@@ -156,6 +136,29 @@ export default function HomePage() {
     return () => cancelAnimationFrame(frame);
   }, [isPageLoading]);
 
+  // ── Dynamic books helper (new HomepageSection format) ───────────────────────────
+  const getBooksForSection = (section: HomepageSection) => {
+    const limit  = section.config?.limit ?? 8;
+    const catId  = section.categoryId ?? null;
+    const subId  = section.subcategoryId ?? null;
+    const filter = section.bookFilter ?? 'newArrivals';
+
+    let pool = books;
+    if (catId)  pool = pool.filter((b) => b.category?.id === catId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === catId));
+    if (subId)  pool = pool.filter((b) => b.subcategoryId === subId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.id === subId));
+
+    if (filter === 'featured' || filter === 'bestSellers') {
+      const apiFeatured = (featuredData?.data ?? []) as Book[];
+      const ids = section.config?.selectedProductIds ?? [];
+      if (ids.length && section.config?.useManual) {
+        return manualFeaturedBooks.slice(0, limit);
+      }
+      if (apiFeatured.length) return apiFeatured.slice(0, limit);
+      return [...pool].sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0)).slice(0, limit);
+    }
+    return pool.slice(0, limit);
+  };
+
   // ── Section renderers ─────────────────────────────────────────────────────────
   const renderSection = (section: HomepageSection) => {
     const { type, config, id } = section;
@@ -177,75 +180,8 @@ export default function HomePage() {
         );
       }
 
-      // ── New Arrivals ──────────────────────────────────────────────────────────
-      case "newArrivals": {
-        const arrivals = getNewArrivals(section);
-        if (!arrivals.length || deferredSearch) return null;
-        const naTitle      = section.config?.title?.trim() || section.title?.trim() || "New Arrivals";
-        const naCategoryId = section.categoryId ?? section.config?.categoryId;
-        const naCat        = naCategoryId ? categories.find((c) => c.id === naCategoryId) : null;
-        const naCatName    = naCat?.name ?? null;
-        const viewAllHref  = naCat ? `/category/${naCat.slug}` : null;
-        return (
-          <section key={id} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-serif text-xl text-text-primary sm:text-2xl">{naTitle}</h2>
-                <p className="mt-0.5 text-sm text-text-muted">
-                  {naCatName ? `From ${naCatName}` : "Recently added to our collection"}
-                </p>
-              </div>
-              {viewAllHref ? (
-                <Link to={viewAllHref}
-                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                  View all <ArrowRight size={13} />
-                </Link>
-              ) : (
-                <button type="button"
-                  onClick={() => booksSectionRef.current?.scrollIntoView({ behavior: "smooth" })}
-                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                  View all <ArrowRight size={13} />
-                </button>
-              )}
-            </div>
-            <BookSlider
-              books={arrivals}
-              onAddToCart={(book) => handleAddToCart(book.id)}
-              cartBookIds={cartBookIds}
-              addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
-            />
-          </section>
-        );
-      }
-
-      // ── Featured Products ─────────────────────────────────────────────────────
-      case "featuredProducts": {
-        const featured = getFeatured(config);
-        if (!featured.length || deferredSearch) return null;
-        return (
-          <section key={id} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Featured Books</h2>
-                <p className="mt-0.5 text-sm text-text-muted">Our top picks for you</p>
-              </div>
-              <Link to="/featured"
-                className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                View all <ArrowRight size={13} />
-              </Link>
-            </div>
-            <BookSlider
-              books={featured}
-              onAddToCart={(book) => handleAddToCart(book.id)}
-              cartBookIds={cartBookIds}
-              addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
-            />
-          </section>
-        );
-      }
-
       // ── Print CTA ─────────────────────────────────────────────────────────────
-      case "printSection":
+      case "printCta":
         if (deferredSearch) return null;
         return (
           <section key={id} className="overflow-hidden rounded-2xl bg-[#1d1a17] sm:rounded-3xl">
@@ -345,20 +281,45 @@ export default function HomePage() {
           </section>
         );
 
+      // ── Dynamic Book Section (new HomepageSection) ──────────────────────────
+      case "books": {
+        const sectionBooks = getBooksForSection(section);
+        if (!sectionBooks.length || deferredSearch) return null;
+        const cat = section.categoryId ? categories.find((c) => c.id === section.categoryId) : null;
+        const sub = section.subcategoryId ? cat?.subcategories?.find((s) => s.id === section.subcategoryId) : null;
+        const subtitle = section.subtitle ?? (sub ? sub.name : cat ? cat.name : null);
+        const viewHref = sub ? `/category/${cat?.slug}/${sub.slug}` : cat ? `/category/${cat.slug}` : null;
+        return (
+          <section key={id} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-serif text-xl text-text-primary sm:text-2xl">{section.title}</h2>
+                {subtitle && <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>}
+              </div>
+              {viewHref ? (
+                <Link to={viewHref} className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                  View all <ArrowRight size={13} />
+                </Link>
+              ) : (
+                <button type="button" onClick={() => booksSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                  View all <ArrowRight size={13} />
+                </button>
+              )}
+            </div>
+            <BookSlider books={sectionBooks} onAddToCart={(book) => handleAddToCart(book.id)}
+              cartBookIds={cartBookIds}
+              addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null} />
+          </section>
+        );
+      }
+
       default:
         return null;
     }
   };
 
-  const fallbackSections: HomepageSection[] = [
-    { id: "banner",           type: "banner",           enabled: true, order: 1, config: {} },
-    { id: "categories",       type: "categories",       enabled: true, order: 2, config: { showAll: true, limit: 8 } },
-    { id: "newArrivals",      type: "newArrivals",      enabled: true, order: 3, config: { limit: 6 } },
-    { id: "featuredProducts", type: "featuredProducts", enabled: true, order: 4, config: { useManual: false, limit: 4 } },
-    { id: "printSection",     type: "printSection",     enabled: true, order: 5, config: {} },
-    { id: "allBooks",         type: "allBooks",         enabled: true, order: 6, config: {} },
-  ];
-  const activeSections = sections.length ? sections : fallbackSections;
+  const activeSections = sections;
 
   return (
     <div className="space-y-8 pb-8">
