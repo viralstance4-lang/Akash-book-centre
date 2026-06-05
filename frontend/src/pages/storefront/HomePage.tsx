@@ -144,7 +144,7 @@ export default function HomePage() {
     const filter = section.bookFilter ?? 'newArrivals';
 
     let pool = books;
-    if (catId)  pool = pool.filter((b) => b.category?.id === catId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === catId));
+    if (catId)  pool = pool.filter((b) => b.categoryId === catId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === catId));
     if (subId)  pool = pool.filter((b) => b.subcategoryId === subId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.id === subId));
 
     if (filter === 'featured' || filter === 'bestSellers') {
