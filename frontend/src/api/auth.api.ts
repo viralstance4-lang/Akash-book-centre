@@ -4,7 +4,7 @@ import type { ApiSuccessResponse, User } from "../types";
 type AuthPayload      = { user: User; accessToken: string };
 type RefreshPayload   = { accessToken: string };
 type OtpPayload       = { expiresInMinutes: number };
-type RegisterPayload  = { needsVerification: true; email: string };
+type RegisterPayload  = { user: User; accessToken: string };
 type AdminOtpPending  = { requiresAdminOtp: true; otpSessionToken: string; maskedEmail: string };
 
 export const login = async (email: string, password: string) => {

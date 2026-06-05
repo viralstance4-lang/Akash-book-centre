@@ -6,7 +6,7 @@ import env from "../config/env";
 import AppError from "../lib/AppError";
 import logger from "../config/logger";
 import prisma from "../lib/prisma";
-import { isEmailConfigured, sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
+import { sendAdminLoginOtp, sendVerificationEmail } from "../lib/email";
 import { verifyOtp } from "./otp/otp.service";
 
 type RegisterUserInput = { name: string; email: string; password: string };
@@ -75,22 +75,19 @@ const generateOtp = (): string => String(crypto.randomInt(100000, 999999));
 export const registerUser = async (data: RegisterUserInput) => {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) {
-    // If already registered but not verified, resend OTP instead of erroring
-    if (!existing.isVerified) {
-      await sendRegistrationOtp(existing.id, existing.email, existing.name);
-      return { needsVerification: true as const, email: existing.email };
-    }
     throw new AppError("Email already exists", 409, "EMAIL_ALREADY_EXISTS");
   }
 
   const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
   const user = await prisma.user.create({
-    data: { name: data.name, email: data.email, passwordHash, isVerified: false },
+    data: { name: data.name, email: data.email, passwordHash, isVerified: true },
   });
 
-  await sendRegistrationOtp(user.id, user.email, user.name);
+  const accessToken  = generateAccessToken(user);
+  const refreshToken = generateRefreshToken();
+  await storeRefreshToken(user.id, refreshToken);
 
-  return { needsVerification: true as const, email: user.email };
+  return { user: getSafeUser(user), accessToken, refreshToken };
 };
 
 /** Generate OTP, persist it, and email it to the user. */
@@ -210,24 +207,20 @@ export const loginUser = async (data: LoginUserInput) => {
   const valid = await bcrypt.compare(data.password, user.passwordHash);
   if (!valid) throw new AppError("Invalid credentials", 401, "INVALID_CREDENTIALS");
 
-  if (!user.isVerified) {
-    throw new AppError(
-      "Please verify your email before signing in. Check your inbox for the verification code.",
-      403,
-      "EMAIL_NOT_VERIFIED",
-    );
-  }
-
-  // ── Admin 2FA: requires Resend + ADMIN_OTP_EMAIL ─────────────────────────
+  // ── Admin 2FA: triggered whenever ADMIN_OTP_EMAIL is set ─────────────────
+  // isEmailConfigured is intentionally NOT checked here — the OTP screen must
+  // always appear when ADMIN_OTP_EMAIL is configured.  If Resend is not set up
+  // (local dev), sendAdminLoginOtp logs the code to the console so the developer
+  // can still complete the verification flow without email delivery.
   if (user.role === "ADMIN") {
-    if (isEmailConfigured && env.ADMIN_OTP_EMAIL) {
+    if (env.ADMIN_OTP_EMAIL) {
       const otpSessionToken = await initiateAdminOtp(user.id);
       const maskedEmail     = maskEmail(env.ADMIN_OTP_EMAIL);
       return { requiresAdminOtp: true as const, otpSessionToken, maskedEmail };
     }
 
     logger.warn(
-      "[AUTH] Admin 2FA bypassed — RESEND_API_KEY or ADMIN_OTP_EMAIL not set in environment.",
+      "[AUTH] Admin 2FA bypassed — ADMIN_OTP_EMAIL not set in environment.",
     );
   }
 

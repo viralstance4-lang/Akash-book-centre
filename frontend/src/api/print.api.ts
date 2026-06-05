@@ -3,15 +3,24 @@ import type { ApiSuccessResponse } from "../types";
 
 export type PrintSettings = {
   id: string;
+  // ── New independent B&W / Color pricing fields ────────────────────────────
+  bwSingleSide:         number;
+  bwBothSideUnder20:    number;
+  bwBothSideAbove20:    number;
+  colorSingleSide:      number;
+  colorBothSideUnder20: number;
+  colorBothSideAbove20: number;
+  colorAbove99:         number;
+  // ── Shared ────────────────────────────────────────────────────────────────
+  spiralExtra:    number;
+  staplerExtra:   number;
+  maxPdfsPerOrder: number;
+  // ── Legacy (still returned by API for old-data backward compat) ───────────
   singleSideBasePrice: number;
   singleSideBulkPrice: number;
   doubleSidePrice: number;
   bulkThreshold: number;
   colorSurcharge: number;
-  spiralExtra: number;
-  staplerExtra: number;
-  maxPdfsPerOrder: number;
-  // legacy
   colorPrice: number;
   bwPrice: number;
   singleSideExtra: number;
@@ -72,9 +81,7 @@ export const getPrintSettings = async () => {
 
 /** Phase 1: upload PDFs, create pending order, get Razorpay order ID back */
 export const createPrintOrder = async (formData: FormData) => {
-  const response = await api.post<ApiSuccessResponse<PrintOrderInitiated>>("/print", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const response = await api.post<ApiSuccessResponse<PrintOrderInitiated>>("/print", formData);
   return response.data;
 };
 

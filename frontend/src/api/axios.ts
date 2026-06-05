@@ -11,7 +11,7 @@ type RetryableRequestConfig = InternalAxiosRequestConfig & {
 };
 
 const api: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "https://akash-book-centre-3.onrender.com/api/v1",
+  baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1",
   withCredentials: true,
 });
 
@@ -74,10 +74,14 @@ api.interceptors.response.use(
 
       return api(originalRequest);
     } catch (refreshError) {
-      // Clear auth state — React Router / ProtectedRoute will handle the redirect
-      // naturally via isAuthenticated becoming false. Do NOT use window.location.href
-      // here: calling it before React re-renders causes a blank screen flash.
-      useAuthStore.getState().logout();
+      // If the backend explicitly signals session expiry, use setSessionExpired so
+      // the login page can show "Your session has expired." Otherwise plain logout.
+      const code = (refreshError as AxiosError<{ code?: string }>).response?.data?.code;
+      if (code === "SESSION_EXPIRED") {
+        useAuthStore.getState().setSessionExpired();
+      } else {
+        useAuthStore.getState().logout();
+      }
       return Promise.reject(refreshError);
     }
   },

@@ -11,8 +11,12 @@ type AuthState = {
   isAuthenticated: boolean;
   /** Unix timestamp (ms) when this session was created — used for auto-logout */
   sessionStartedAt: number | null;
+  /** Set to "session_expired" when auto-logged-out due to timeout; null otherwise */
+  logoutReason: "session_expired" | null;
   setAuth: (user: User, accessToken: string) => void;
   logout: () => void;
+  /** Clears auth state and marks the reason as session_expired so the login page shows a message */
+  setSessionExpired: () => void;
   /** Returns true if the 10-hour session window has expired */
   isSessionExpired: () => boolean;
 };
@@ -24,6 +28,7 @@ export const useAuthStore = create<AuthState>()(
       accessToken:      null,
       isAuthenticated:  false,
       sessionStartedAt: null,
+      logoutReason:     null,
 
       setAuth: (user, accessToken) =>
         set({
@@ -31,6 +36,7 @@ export const useAuthStore = create<AuthState>()(
           accessToken,
           isAuthenticated:  true,
           sessionStartedAt: Date.now(),
+          logoutReason:     null,
         }),
 
       logout: () =>
@@ -39,6 +45,16 @@ export const useAuthStore = create<AuthState>()(
           accessToken:      null,
           isAuthenticated:  false,
           sessionStartedAt: null,
+          logoutReason:     null,
+        }),
+
+      setSessionExpired: () =>
+        set({
+          user:             null,
+          accessToken:      null,
+          isAuthenticated:  false,
+          sessionStartedAt: null,
+          logoutReason:     "session_expired",
         }),
 
       isSessionExpired: () => {

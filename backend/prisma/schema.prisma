@@ -115,10 +115,34 @@ model Book {
   updatedAt     DateTime                 @updatedAt
   category      Category?                @relation(fields: [categoryId],    references: [id], onDelete: SetNull)
   subcategory   Subcategory?             @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  bookCategories    BookCategory[]
+  bookSubcategories BookSubcategory[]
   cartItems     CartItem[]
   orderItems    OrderItem[]
   reviews       Review[]
   @@index([categoryId])
+  @@index([subcategoryId])
+}
+
+/// Many-to-many: one book ↔ multiple categories
+model BookCategory {
+  bookId     String   @db.Uuid
+  categoryId String   @db.Uuid
+  book       Book     @relation(fields: [bookId],     references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  @@id([bookId, categoryId])
+  @@index([bookId])
+  @@index([categoryId])
+}
+
+/// Many-to-many: one book ↔ multiple subcategories
+model BookSubcategory {
+  bookId        String      @db.Uuid
+  subcategoryId String      @db.Uuid
+  book          Book        @relation(fields: [bookId],        references: [id], onDelete: Cascade)
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  @@id([bookId, subcategoryId])
+  @@index([bookId])
   @@index([subcategoryId])
 }
 
@@ -196,6 +220,8 @@ model Order {
   invoiceNumber    String?       @unique
   invoiceSent      Boolean       @default(false)
   invoiceSentAt    DateTime?
+  /// Shipping zone, weight, and rate breakdown — populated at order time
+  shippingDetails  Json?
   createdAt        DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   user            User          @relation(fields: [userId], references: [id])
@@ -310,7 +336,7 @@ model PrintSettings {
   /// Page count threshold above which bulk pricing kicks in
   bulkThreshold           Int     @default(20)
 
-  /// Additional per-page charge for color printing
+  /// Additional per-page charge for color printing (legacy)
   colorSurcharge          Decimal @default(3.00) @db.Decimal(10, 2)
 
   /// Fixed charges for binding options
@@ -319,6 +345,17 @@ model PrintSettings {
 
   /// Maximum number of PDF files allowed per order (admin-configurable)
   maxPdfsPerOrder         Int     @default(20)
+
+  /// ── Independent B&W pricing ──────────────────────────────────────────────
+  bwSingleSide            Decimal @default(1.00)  @db.Decimal(10, 2)
+  bwBothSideUnder20       Decimal @default(2.00)  @db.Decimal(10, 2)
+  bwBothSideAbove20       Decimal @default(1.00)  @db.Decimal(10, 2)
+
+  /// ── Independent Color pricing ────────────────────────────────────────────
+  colorSingleSide         Decimal @default(8.00)  @db.Decimal(10, 2)
+  colorBothSideUnder20    Decimal @default(10.00) @db.Decimal(10, 2)
+  colorBothSideAbove20    Decimal @default(8.00)  @db.Decimal(10, 2)
+  colorAbove99            Decimal @default(6.00)  @db.Decimal(10, 2)
 
   // Legacy fields kept for backward compat (unused in new pricing)
   colorPrice              Decimal @default(5.00) @db.Decimal(10, 2)
@@ -431,6 +468,7 @@ model Category {
   updatedAt     DateTime      @updatedAt
   subcategories Subcategory[]
   books         Book[]
+  bookCategories BookCategory[]
 }
 
 /// Sub-category belonging to a Category
@@ -447,6 +485,7 @@ model Subcategory {
   updatedAt     DateTime @updatedAt
   category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   books         Book[]
+  bookSubcategories BookSubcategory[]
   @@unique([categoryId, name])
   @@index([categoryId])
 }
@@ -469,10 +508,15 @@ model ShippingSettings {
   perKmRate             Decimal  @default(8)   @db.Decimal(10, 2)
   /// Order value at or above which local delivery is free
   freeDeliveryThreshold Decimal  @default(199) @db.Decimal(10, 2)
-  /// Fallback weight-based rate (₹/kg) used when state is not found
-  defaultKgRate         Decimal  @default(50)  @db.Decimal(10, 2)
-  /// JSON array: [{ "state": "Delhi", "rate": 50 }, ...]
+  /// All-India fallback weight-based rate (₹/kg) — used when no zone or state match
+  defaultKgRate         Decimal  @default(70)  @db.Decimal(10, 2)
+  /// JSON array: [{ "state": "Delhi", "rate": 50 }, ...] — custom per-state overrides
   stateRates            Json     @default("[]")
+  /// ── Regional shipping zone rates ──────────────────────────────────────────
+  /// Delhi + NCR (Delhi, Noida, Gurugram, Faridabad, Ghaziabad, Greater Noida)
+  localZoneRate         Decimal  @default(50)  @db.Decimal(10, 2)
+  /// North East (Arunachal Pradesh, Assam, Manipur, Meghalaya, Mizoram, Nagaland, Tripura, Sikkim)
+  northEastRate         Decimal  @default(80)  @db.Decimal(10, 2)
   // ── Legacy fields (kept for backward compatibility) ──────────────────
   freeRadius            Float    @default(5.0)
   baseCharge            Decimal  @default(50) @db.Decimal(10, 2)

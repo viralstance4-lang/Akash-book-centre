@@ -43,8 +43,11 @@ function OtpDigitInput({
 }
 
 export default function LoginPage() {
-  const navigate = useNavigate();
-  const setAuth  = useAuthStore((s) => s.setAuth);
+  const navigate     = useNavigate();
+  const setAuth      = useAuthStore((s) => s.setAuth);
+  const logoutReason = useAuthStore((s) => s.logoutReason);
+
+  const showSessionExpiredBanner = logoutReason === "session_expired";
 
   // ── Shared ────────────────────────────────────────────────────────────────
   const [mode,     setMode]     = useState<LoginMode>("password");
@@ -118,10 +121,6 @@ export default function LoginPage() {
       navigate("/");
     },
     onError: (e: any) => {
-      if (e.response?.data?.code === "EMAIL_NOT_VERIFIED") {
-        navigate(`/verify-email?email=${encodeURIComponent(email)}`);
-        return;
-      }
       setErrorMsg(e.response?.data?.message ?? "Failed to sign in.");
     },
   });
@@ -251,6 +250,16 @@ export default function LoginPage() {
         <section className="flex items-center justify-center px-6 py-12 sm:px-10 lg:px-14 lg:py-16">
           <div className="w-full max-w-md">
             <div className="mb-6"><SiteLogo size="lg" /></div>
+
+            {/* ── Session expired banner ──────────────────────────────────── */}
+            {showSessionExpiredBanner && (
+              <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <span className="mt-0.5 shrink-0 text-base text-amber-500">⚠</span>
+                <p className="text-sm leading-5 text-amber-800">
+                  Your session has expired. Please login again.
+                </p>
+              </div>
+            )}
 
             {/* ── ADMIN 2FA SCREEN ────────────────────────────────────────── */}
             {mode === "admin-otp" ? (

@@ -8,7 +8,8 @@ import type { getBooksQuerySchema } from "./books.schema";
 type CreateBookInput = {
   title: string; author: string; isbn: string; description?: string;
   price: number; comparePrice?: number;
-  categoryId?: string; subcategoryId?: string;
+  categoryIds?: string[];
+  subcategoryIds?: string[];
   stock: number; language?: string; publication?: string;
   isPrintBook?: boolean;
   allowStapleBinding?: boolean;
@@ -18,19 +19,30 @@ type CreateBookInput = {
   breadth?: number;
   weight?: number;
 };
-type UpdateBookInput = Partial<CreateBookInput> & {
-  categoryId?: string | null;
-  subcategoryId?: string | null;
+type UpdateBookInput = Partial<Omit<CreateBookInput, "categoryIds" | "subcategoryIds">> & {
+  categoryIds?: string[] | null;
+  subcategoryIds?: string[] | null;
 };
 type UpdateStockInput = { quantity: number; type: "absolute" | "delta" };
 type GetBooksQueryInput = ZodInfer<typeof getBooksQuerySchema>;
 type FileLike = { buffer: Buffer };
 
+// Lean include for list queries — skips images (not needed for cards/lists) and
+// skips the redundant legacy FK relations (data is already in bookCategories/bookSubcategories).
+// Dramatically reduces JOIN cost on paginated and high-limit list queries.
+const bookListInclude = {
+  bookCategories:    { include: { category: true }, orderBy: { category: { name: "asc" as const } } },
+  bookSubcategories: { include: { subcategory: true }, orderBy: { subcategory: { name: "asc" as const } } },
+} as const;
+
+// Full include for single-book detail, create, update, stock, and image operations.
 const bookInclude = {
-  images:      { orderBy: { order: "asc" as const } },
-  category:    true,
-  subcategory: true,
-};
+  images:            { orderBy: { order: "asc" as const } },
+  category:          true,
+  subcategory:       true,
+  bookCategories:    { include: { category: true }, orderBy: { category: { name: "asc" as const } } },
+  bookSubcategories: { include: { subcategory: true }, orderBy: { subcategory: { name: "asc" as const } } },
+} as const;
 
 const getBookOrThrow = async (id: string) => {
   const book = await prisma.book.findUnique({ where: { id }, include: bookInclude });
@@ -38,17 +50,18 @@ const getBookOrThrow = async (id: string) => {
   return book;
 };
 
-const validateCategorySubcategory = async (categoryId?: string | null, subcategoryId?: string | null) => {
-  if (categoryId) {
-    const cat = await prisma.category.findUnique({ where: { id: categoryId } });
-    if (!cat) throw new AppError("Category not found", 404, "CATEGORY_NOT_FOUND");
-  }
-  if (subcategoryId) {
-    const sub = await prisma.subcategory.findUnique({ where: { id: subcategoryId } });
-    if (!sub) throw new AppError("Subcategory not found", 404, "SUBCATEGORY_NOT_FOUND");
-    if (categoryId && sub.categoryId !== categoryId)
-      throw new AppError("Subcategory does not belong to the selected category", 400, "SUBCATEGORY_MISMATCH");
-  }
+const validateCategoryIds = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) return;
+  const found = await prisma.category.count({ where: { id: { in: ids } } });
+  if (found !== ids.length)
+    throw new AppError("One or more categories not found", 404, "CATEGORY_NOT_FOUND");
+};
+
+const validateSubcategoryIds = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) return;
+  const found = await prisma.subcategory.count({ where: { id: { in: ids } } });
+  if (found !== ids.length)
+    throw new AppError("One or more subcategories not found", 404, "SUBCATEGORY_NOT_FOUND");
 };
 
 export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
@@ -63,9 +76,12 @@ export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
       { description: { contains: q.trim(), mode: "insensitive" } },
     ];
   }
-  if (category)    where.category    = { slug: category };
-  if (subcategory) where.subcategory = { slug: subcategory };
-  if (author)      where.author = { contains: author, mode: "insensitive" };
+
+  // Filter via M2M join tables so products appear in ALL their assigned categories/subcategories
+  if (category)    where.bookCategories    = { some: { category:    { slug: category    } } };
+  if (subcategory) where.bookSubcategories = { some: { subcategory: { slug: subcategory } } };
+
+  if (author) where.author = { contains: author, mode: "insensitive" };
   if (minPrice !== undefined || maxPrice !== undefined) {
     where.price = {};
     if (minPrice !== undefined) (where.price as Prisma.DecimalFilter).gte = minPrice;
@@ -73,7 +89,7 @@ export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
   }
 
   const [books, total] = await Promise.all([
-    prisma.book.findMany({ where, include: bookInclude, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.book.findMany({ where, include: bookListInclude, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.book.count({ where }),
   ]);
   return { books, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -83,7 +99,12 @@ export const getBookById = async (id: string) => getBookOrThrow(id);
 
 export const createBook = async (data: CreateBookInput, files?: FileLike[], coverIndex = 0) => {
   if (!files || files.length === 0) throw new AppError("At least one image is required", 400, "COVER_IMAGE_REQUIRED");
-  await validateCategorySubcategory(data.categoryId, data.subcategoryId);
+
+  const categoryIds    = data.categoryIds    ?? [];
+  const subcategoryIds = data.subcategoryIds ?? [];
+
+  await validateCategoryIds(categoryIds);
+  await validateSubcategoryIds(subcategoryIds);
 
   const existingBook = await prisma.book.findFirst({ where: { isbn: data.isbn } });
   if (existingBook) throw new AppError("Book already exists", 409, "BOOK_ALREADY_EXISTS");
@@ -91,7 +112,6 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
   const safeIndex = Math.min(Math.max(coverIndex, 0), files.length - 1);
   const uploadedImages = await Promise.all(files.map((f) => uploadImage(f)));
 
-  // Reorder so cover is first (order 0)
   const reordered = [
     uploadedImages[safeIndex],
     ...uploadedImages.filter((_, i) => i !== safeIndex),
@@ -102,8 +122,9 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
       data: {
         title: data.title, author: data.author, isbn: data.isbn, description: data.description,
         price: data.price, comparePrice: data.comparePrice ?? null,
-        categoryId:    data.categoryId    ?? null,
-        subcategoryId: data.subcategoryId ?? null,
+        // Keep legacy FK synced to first selected category for backward compat
+        categoryId:    categoryIds[0]    ?? null,
+        subcategoryId: subcategoryIds[0] ?? null,
         stock: data.stock,
         language: data.language ?? "English", publication: data.publication ?? null,
         isPrintBook:        data.isPrintBook        ?? false,
@@ -119,6 +140,12 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
             imageUrl: img.url, publicId: img.publicId, order: i,
           })),
         },
+        bookCategories: {
+          create: categoryIds.map((categoryId) => ({ categoryId })),
+        },
+        bookSubcategories: {
+          create: subcategoryIds.map((subcategoryId) => ({ subcategoryId })),
+        },
       },
       include: bookInclude,
     });
@@ -131,11 +158,11 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
 export const updateBook = async (id: string, data: UpdateBookInput, file?: FileLike) => {
   const existingBook = await getBookOrThrow(id);
 
-  if (data.categoryId !== undefined || data.subcategoryId !== undefined) {
-    const catId = data.categoryId !== undefined ? data.categoryId : existingBook.categoryId;
-    const subId = data.subcategoryId !== undefined ? data.subcategoryId : existingBook.subcategoryId;
-    await validateCategorySubcategory(catId, subId);
-  }
+  const categoryIds    = data.categoryIds    !== undefined ? (data.categoryIds    ?? []) : undefined;
+  const subcategoryIds = data.subcategoryIds !== undefined ? (data.subcategoryIds ?? []) : undefined;
+
+  if (categoryIds    !== undefined) await validateCategoryIds(categoryIds);
+  if (subcategoryIds !== undefined) await validateSubcategoryIds(subcategoryIds);
 
   if (data.isbn && data.isbn !== existingBook.isbn) {
     const dup = await prisma.book.findFirst({ where: { isbn: data.isbn, NOT: { id } } });
@@ -146,6 +173,26 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
   if (file) uploadedImage = await uploadImage(file);
 
   try {
+    // Replace M2M category records if new selection was provided
+    if (categoryIds !== undefined) {
+      await prisma.bookCategory.deleteMany({ where: { bookId: id } });
+      if (categoryIds.length > 0) {
+        await prisma.bookCategory.createMany({
+          data: categoryIds.map((categoryId) => ({ bookId: id, categoryId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+    if (subcategoryIds !== undefined) {
+      await prisma.bookSubcategory.deleteMany({ where: { bookId: id } });
+      if (subcategoryIds.length > 0) {
+        await prisma.bookSubcategory.createMany({
+          data: subcategoryIds.map((subcategoryId) => ({ bookId: id, subcategoryId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
     const updated = await prisma.book.update({
       where: { id },
       data: {
@@ -155,8 +202,9 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
         ...(data.description  !== undefined && { description:  data.description }),
         ...(data.price        !== undefined && { price:        data.price }),
         ...(data.comparePrice !== undefined && { comparePrice: data.comparePrice }),
-        ...(data.categoryId   !== undefined && { categoryId:   data.categoryId }),
-        ...(data.subcategoryId!== undefined && { subcategoryId:data.subcategoryId }),
+        // Keep legacy FK in sync with first selected category
+        ...(categoryIds    !== undefined && { categoryId:    categoryIds[0]    ?? null }),
+        ...(subcategoryIds !== undefined && { subcategoryId: subcategoryIds[0] ?? null }),
         ...(data.stock        !== undefined && { stock:        data.stock }),
         ...(data.language     !== undefined && { language:     data.language }),
         ...(data.publication  !== undefined && { publication:  data.publication }),

@@ -2,7 +2,7 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-ARG VITE_API_URL=https://akash-book-centre-3.onrender.com/api/v1
+ARG VITE_API_URL=http://localhost:3000/api/v1
 ARG VITE_RAZORPAY_KEY_ID=
 
 ENV VITE_API_URL=${VITE_API_URL}

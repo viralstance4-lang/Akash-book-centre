@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { register } from "../../api/auth.api";
 import authBackground from "../../assets/bg-loginpage.jpg";
+import { useAuthStore } from "../../store/auth.store";
 
 export default function RegisterPage() {
   const [name,     setName]     = useState("");
@@ -13,12 +14,13 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
+  const setAuth  = useAuthStore((s) => s.setAuth);
 
   const mutation = useMutation({
     mutationFn: () => register(name, email, password),
     onSuccess: (data) => {
-      // Backend always returns needsVerification: true — redirect to verify page
-      navigate(`/verify-email?email=${encodeURIComponent(data.data.email)}`);
+      setAuth(data.data.user, data.data.accessToken);
+      navigate("/");
     },
     onError: (error: any) => {
       setErrorMsg(

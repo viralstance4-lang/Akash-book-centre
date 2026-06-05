@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import env from "../config/env";
 import logger from "../config/logger";
@@ -5,18 +6,35 @@ import logger from "../config/logger";
 const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
 const FROM_ADDRESS  = env.RESEND_FROM ?? "Akash Book Centre <onboarding@resend.dev>";
 
-// ── Resend client ─────────────────────────────────────────────────────────────
+// ── Resend client (primary — production / Render) ─────────────────────────────
 const resendClient = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
 export const isEmailConfigured = Boolean(resendClient);
 
+// ── Gmail SMTP transporter (fallback — local dev when Resend not configured) ──
+// Gmail App Passwords are 16 chars; Google displays them with spaces for readability.
+const gmailPass = env.GMAIL_PASS?.replace(/\s/g, "");
+const gmailTransport =
+  env.GMAIL_USER && gmailPass
+    ? nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: env.GMAIL_USER, pass: gmailPass },
+      })
+    : null;
+
+export const isGmailConfigured = Boolean(gmailTransport);
+
 // ── Startup verification ──────────────────────────────────────────────────────
 export async function verifyTransporter(): Promise<void> {
-  if (!resendClient) {
-    logger.warn("[EMAIL] RESEND_API_KEY not set — emails will be skipped");
+  if (resendClient) {
+    logger.info({ from: FROM_ADDRESS }, "[EMAIL] Resend API configured — ready");
     return;
   }
-  logger.info({ from: FROM_ADDRESS }, "[EMAIL] Resend API configured — ready");
+  if (gmailTransport && env.GMAIL_USER) {
+    logger.info({ from: env.GMAIL_USER }, "[EMAIL] Gmail SMTP configured — ready (dev fallback)");
+    return;
+  }
+  logger.warn("[EMAIL] No email provider configured — RESEND_API_KEY and GMAIL_USER both missing");
 }
 
 // ── Retry helper ──────────────────────────────────────────────────────────────
@@ -473,11 +491,7 @@ export const sendOtpEmail = async (to: string, code: string, expiryMinutes: numb
 // ─── Admin Login OTP ─────────────────────────────────────────────────────────
 
 export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes: number) => {
-  if (!isEmailConfigured) {
-    logger.warn({ code }, "[EMAIL] Resend not configured — admin OTP not sent");
-    return;
-  }
-  logger.info({ to }, "[EMAIL] Sending admin login OTP");
+  const subject = `${code} — Admin Login Verification Code (${expiryMinutes} min)`;
   const html = `
     <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e0dbd3;border-radius:16px;overflow:hidden;">
       <div style="background:#051d40;padding:28px 36px;">
@@ -504,11 +518,41 @@ export const sendAdminLoginOtp = async (to: string, code: string, expiryMinutes:
       </div>
     </div>
   `;
-  await sendMailSafe({
-    to,
-    subject: `${code} — Admin Login Verification Code (${expiryMinutes} min)`,
-    html,
-  });
+  // ── Provider cascade: Resend → Gmail SMTP → console log ─────────────────
+  if (isEmailConfigured) {
+    // Primary: Resend (production / Render)
+    logger.info({ to }, "[EMAIL] Sending admin login OTP via Resend");
+    await sendMailSafe({ to, subject, html });
+    return;
+  }
+
+  if (gmailTransport && env.GMAIL_USER) {
+    // Fallback: Gmail SMTP (local dev — Gmail is blocked on Render)
+    logger.info({ to }, "[EMAIL] Sending admin login OTP via Gmail SMTP (dev fallback)");
+    try {
+      await gmailTransport.sendMail({
+        from:    `"Akash Book Centre Admin" <${env.GMAIL_USER}>`,
+        to,
+        subject,
+        html,
+      });
+      logger.info({ to }, "[EMAIL] Admin OTP sent via Gmail SMTP");
+    } catch (err) {
+      logger.error(
+        { err: (err as Error).message, to },
+        "[EMAIL] Gmail SMTP failed — check GMAIL_USER / GMAIL_PASS in .env",
+      );
+    }
+    return;
+  }
+
+  // Last resort: no email provider at all — log OTP so dev can still log in
+  logger.warn(
+    { adminOtpCode: code, to, expiryMinutes },
+    "[EMAIL] No email provider configured. " +
+    "DEV: copy 'adminOtpCode' from this log into the 2FA screen to log in. " +
+    "Add RESEND_API_KEY (or GMAIL_USER + GMAIL_PASS) to .env to enable email.",
+  );
 };
 
 // ─── Return / Refund Emails ───────────────────────────────────────────────────

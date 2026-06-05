@@ -11,10 +11,14 @@ export interface ShippingSettings {
   prepaidDiscountValue: number;
   isShippingEnabled: boolean;
   freeDeliveryThreshold: number;
+  // Regional zone rates (added for checkout estimate)
+  localZoneRate: number;
+  northEastRate: number;
+  defaultKgRate: number;
   updatedAt: string;
 }
 
-/** Maps new public config → old ShippingSettings shape so existing pages keep working. */
+/** Maps new public config → legacy ShippingSettings shape so existing checkout keeps working. */
 export const getShippingSettings = async (): Promise<ShippingSettings> => {
   const r = await api.get<any>("/shipping/config");
   const c = r.data;
@@ -28,6 +32,9 @@ export const getShippingSettings = async (): Promise<ShippingSettings> => {
     prepaidDiscountValue:  c.prepaidDiscountValue ?? 0,
     isShippingEnabled:     c.isShippingEnabled,
     freeDeliveryThreshold: c.freeDeliveryThreshold,
+    localZoneRate:         c.localZoneRate  ?? 50,
+    northEastRate:         c.northEastRate  ?? 80,
+    defaultKgRate:         c.defaultKgRate  ?? 70,
     updatedAt:             c.updatedAt ?? "",
   };
 };
@@ -51,6 +58,8 @@ export interface ShippingConfig {
   perKmRate:             number;
   freeDeliveryThreshold: number;
   defaultKgRate:         number;
+  localZoneRate:         number;
+  northEastRate:         number;
   stateRates:            StateRate[];
   updatedAt:             string;
 }
@@ -58,6 +67,7 @@ export interface ShippingConfig {
 export interface ShippingResult {
   charge:    number;
   type:      "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
+  zone?:     string;
   breakdown: {
     distance?:     number;
     orderValue?:   number;
@@ -65,6 +75,7 @@ export interface ShippingResult {
     weight?:       number;
     usedFallback?: boolean;
     matchedState?: string;
+    zone?:         string;
   };
 }
 
@@ -85,6 +96,7 @@ export const testShippingCalculation = async (input: {
   orderValue:   number;
   weightInKg:   number;
   state?:       string;
+  city?:        string;
 }): Promise<ShippingResult> => {
   const r = await api.post<ShippingResult>("/admin/shipping/calculate", input);
   return r.data;

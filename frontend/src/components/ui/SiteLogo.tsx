@@ -27,7 +27,17 @@ export default function SiteLogo({ size = "md", className = "", onClick }: Props
       ) : (
         <>
           <BookOpen size={iconSize} className="text-accent" />
-          <span>{settings?.storeName ?? "Akash"} <span className="text-accent">Book Centre</span></span>
+          {(() => {
+            const name = settings?.storeName ?? "Akash Book Centre";
+            const spaceIdx = name.indexOf(" ");
+            if (spaceIdx === -1) return <span>{name}</span>;
+            return (
+              <span className="whitespace-nowrap">
+                {name.slice(0, spaceIdx)}{" "}
+                <span className="text-accent">{name.slice(spaceIdx + 1)}</span>
+              </span>
+            );
+          })()}
         </>
       )}
     </Link>

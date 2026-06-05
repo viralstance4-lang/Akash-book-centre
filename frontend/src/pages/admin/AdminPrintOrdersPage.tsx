@@ -43,7 +43,7 @@ const formatDate = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
 // ─── PDF helpers (use backend proxy — sets Content-Type: application/pdf) ────
-const API_BASE = import.meta.env.VITE_API_URL ?? "https://akash-book-centre-3.onrender.com/api/v1";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
 
 /** Open a PrintFile in a new browser tab as a real PDF */
 async function openPdfInBrowser(fileId: string): Promise<void> {
@@ -143,10 +143,16 @@ export default function AdminPrintOrdersPage() {
   const [viewingId,     setViewingId]     = useState<string | null>(null);
 
   const [settingsForm, setSettingsForm] = useState({
-    singleSideBasePrice: "1",   singleSideBulkPrice: "0.5",
-    doubleSidePrice:     "1",   bulkThreshold:       "20",
-    colorSurcharge:      "3",   spiralExtra:         "30",
-    staplerExtra:        "10",  maxPdfsPerOrder:     "20",
+    bwSingleSide:         "1",
+    bwBothSideUnder20:    "2",
+    bwBothSideAbove20:    "1",
+    colorSingleSide:      "8",
+    colorBothSideUnder20: "10",
+    colorBothSideAbove20: "8",
+    colorAbove99:         "6",
+    spiralExtra:          "30",
+    staplerExtra:         "10",
+    maxPdfsPerOrder:      "20",
   });
 
   const { data: ordersData, isLoading } = useQuery({
@@ -162,14 +168,16 @@ export default function AdminPrintOrdersPage() {
     const s = printSettingsData?.data;
     if (!s) return;
     setSettingsForm({
-      singleSideBasePrice: String(s.singleSideBasePrice ?? 1),
-      singleSideBulkPrice: String(s.singleSideBulkPrice ?? 0.5),
-      doubleSidePrice:     String(s.doubleSidePrice     ?? 1),
-      bulkThreshold:       String(s.bulkThreshold       ?? 20),
-      colorSurcharge:      String(s.colorSurcharge      ?? 3),
-      spiralExtra:         String(s.spiralExtra          ?? 30),
-      staplerExtra:        String(s.staplerExtra         ?? 10),
-      maxPdfsPerOrder:     String(s.maxPdfsPerOrder      ?? 20),
+      bwSingleSide:         String(s.bwSingleSide         ?? 1),
+      bwBothSideUnder20:    String(s.bwBothSideUnder20    ?? 2),
+      bwBothSideAbove20:    String(s.bwBothSideAbove20    ?? 1),
+      colorSingleSide:      String(s.colorSingleSide      ?? 8),
+      colorBothSideUnder20: String(s.colorBothSideUnder20 ?? 10),
+      colorBothSideAbove20: String(s.colorBothSideAbove20 ?? 8),
+      colorAbove99:         String(s.colorAbove99         ?? 6),
+      spiralExtra:          String(s.spiralExtra          ?? 30),
+      staplerExtra:         String(s.staplerExtra         ?? 10),
+      maxPdfsPerOrder:      String(s.maxPdfsPerOrder      ?? 20),
     });
   }, [printSettingsData]);
 
@@ -242,55 +250,98 @@ export default function AdminPrintOrdersPage() {
 
         {/* ── Pricing Settings Panel ───────────────────────────────────── */}
         {showSettings && (
-          <div className="rounded-2xl border border-black/10 bg-white p-5">
-            <h3 className="font-serif text-xl text-text-primary mb-4">Print Pricing Settings</h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {([
-                ["singleSideBasePrice", "Single Side Base (₹/page)"],
-                ["singleSideBulkPrice", "Single Side Bulk (₹/page)"],
-                ["doubleSidePrice",     "Double Side (₹/page)"],
-                ["bulkThreshold",       "Bulk Threshold (pages)"],
-                ["colorSurcharge",      "Color Surcharge (₹/page)"],
-                ["spiralExtra",         "Spiral Binding (₹)"],
-                ["staplerExtra",        "Staple Binding (₹)"],
-                ["maxPdfsPerOrder",     "Max PDFs per Order"],
-              ] as const).map(([key, label]) => (
-                <div key={key}>
-                  <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">
-                    {label}
-                  </label>
-                  <input
-                    type="number" step="0.5"
-                    value={settingsForm[key]}
-                    onChange={(e) => setSettingsForm((f) => ({ ...f, [key]: e.target.value }))}
-                    className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white"
-                  />
-                </div>
-              ))}
+          <div className="rounded-2xl border border-black/10 bg-white p-5 space-y-6">
+            <h3 className="font-serif text-xl text-text-primary">Print Pricing Settings</h3>
+
+            {/* B&W section */}
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted border-b border-black/8 pb-2">
+                ⬛ Black &amp; White Printing
+              </p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                {([
+                  ["bwSingleSide",      "Single Side (₹/page)"],
+                  ["bwBothSideUnder20", "Both Side — Under 20 Sheets (₹/page)"],
+                  ["bwBothSideAbove20", "Both Side — 20+ Sheets (₹/page)"],
+                ] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">{label}</label>
+                    <input type="number" step="0.5" min="0"
+                      value={settingsForm[key]}
+                      onChange={(e) => setSettingsForm((f) => ({ ...f, [key]: e.target.value }))}
+                      className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted"
-              >
+
+            {/* Color section */}
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted border-b border-black/8 pb-2">
+                🎨 Color Printing
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {([
+                  ["colorSingleSide",      "Single Side (₹/page)"],
+                  ["colorBothSideUnder20", "Both Side — Under 20 Sheets (₹/page)"],
+                  ["colorBothSideAbove20", "Both Side — 20–99 Sheets (₹/page)"],
+                  ["colorAbove99",         "Above 99 Sheets — Any Side (₹/page)"],
+                ] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">{label}</label>
+                    <input type="number" step="0.5" min="0"
+                      value={settingsForm[key]}
+                      onChange={(e) => setSettingsForm((f) => ({ ...f, [key]: e.target.value }))}
+                      className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Binding + limits */}
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-muted border-b border-black/8 pb-2">
+                📎 Binding &amp; Limits
+              </p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                {([
+                  ["spiralExtra",    "Spiral Binding (₹ flat)"],
+                  ["staplerExtra",   "Staple Binding (₹ flat)"],
+                  ["maxPdfsPerOrder","Max PDFs per Order"],
+                ] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">{label}</label>
+                    <input type="number" step="1" min="0"
+                      value={settingsForm[key]}
+                      onChange={(e) => setSettingsForm((f) => ({ ...f, [key]: e.target.value }))}
+                      className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-black/8 pt-4">
+              <button type="button" onClick={() => setShowSettings(false)}
+                className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:text-text-primary">
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={updateSettingsMut.isPending}
+              <button type="button" disabled={updateSettingsMut.isPending}
                 onClick={() => updateSettingsMut.mutate({
-                  singleSideBasePrice: Number(settingsForm.singleSideBasePrice),
-                  singleSideBulkPrice: Number(settingsForm.singleSideBulkPrice),
-                  doubleSidePrice:     Number(settingsForm.doubleSidePrice),
-                  bulkThreshold:       Number(settingsForm.bulkThreshold),
-                  colorSurcharge:      Number(settingsForm.colorSurcharge),
-                  spiralExtra:         Number(settingsForm.spiralExtra),
-                  staplerExtra:        Number(settingsForm.staplerExtra),
-                  maxPdfsPerOrder:     Number(settingsForm.maxPdfsPerOrder),
+                  bwSingleSide:         Number(settingsForm.bwSingleSide),
+                  bwBothSideUnder20:    Number(settingsForm.bwBothSideUnder20),
+                  bwBothSideAbove20:    Number(settingsForm.bwBothSideAbove20),
+                  colorSingleSide:      Number(settingsForm.colorSingleSide),
+                  colorBothSideUnder20: Number(settingsForm.colorBothSideUnder20),
+                  colorBothSideAbove20: Number(settingsForm.colorBothSideAbove20),
+                  colorAbove99:         Number(settingsForm.colorAbove99),
+                  spiralExtra:          Number(settingsForm.spiralExtra),
+                  staplerExtra:         Number(settingsForm.staplerExtra),
+                  maxPdfsPerOrder:      Number(settingsForm.maxPdfsPerOrder),
                 })}
-                className="rounded-full bg-[#1d1a17] px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-60"
-              >
+                className="rounded-full bg-[#1d1a17] px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-60">
                 {updateSettingsMut.isPending ? "Saving…" : "Save Settings"}
               </button>
             </div>

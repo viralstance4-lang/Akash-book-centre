@@ -147,21 +147,60 @@ export default function CheckoutPage() {
   const totalAmount = subtotal + bindingTotal;
   const discount = appliedCoupon?.discount ?? 0;
 
-  // Calculate delivery charge using new business logic
+  // ── Shipping zone detection (mirrors backend logic) ────────────────────────
+  const DELHI_NCR_AREAS = new Set([
+    "delhi", "new delhi", "noida", "greater noida",
+    "gurugram", "gurgaon", "faridabad", "ghaziabad",
+  ]);
+  const NORTH_EAST_STATES = new Set([
+    "arunachal pradesh", "assam", "manipur",
+    "meghalaya", "mizoram", "nagaland", "tripura", "sikkim",
+  ]);
+
+  const shippingZone = useMemo(() => {
+    const c = form.city.toLowerCase().trim();
+    const s = form.state.toLowerCase().trim();
+    if (DELHI_NCR_AREAS.has(c) || s === "delhi" || s === "new delhi") return "LOCAL_DELHI_NCR";
+    if (NORTH_EAST_STATES.has(s)) return "NORTH_EAST";
+    return "ALL_INDIA";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.city, form.state]);
+
+  const zoneLabel = shippingZone === "LOCAL_DELHI_NCR" ? "Delhi NCR"
+    : shippingZone === "NORTH_EAST" ? "North East"
+    : "All India";
+
+  // Total weight from cart (minimum 1 kg for billing)
+  const totalWeightKg = useMemo(
+    () => Math.max(1, items.reduce((sum, item) => sum + (Number((item.book as any).weight) || 0) * item.quantity, 0)),
+    [items],
+  );
+
+  // Zone rate from public config
+  const zoneRate = useMemo(() => {
+    if (!shippingSettings) return 0;
+    if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneRate ?? 50;
+    if (shippingZone === "NORTH_EAST")      return shippingSettings.northEastRate  ?? 80;
+    return shippingSettings.defaultKgRate ?? 70;
+  }, [shippingZone, shippingSettings]);
+
+  // Calculate delivery charge
+  // Step 1: if within local delivery radius → use distance-based (existing logic, UNCHANGED)
+  // Step 2: otherwise → weight × zone rate
   const deliveryCharge = useMemo(() => {
-    if (!delivery?.distanceKm || !shippingSettings) return 0;
-    if (!shippingSettings.isShippingEnabled) return 0;
-    const distance   = delivery.distanceKm;
-    const threshold  = shippingSettings.freeRadius; // mapped from distanceThreshold
-    if (distance <= threshold) {
-      // Local delivery: free if order meets minimum, else per-km rate
+    if (!shippingSettings || !shippingSettings.isShippingEnabled) return 0;
+
+    const distance  = delivery?.distanceKm ?? null;
+    const threshold = shippingSettings.freeRadius;
+
+    if (distance !== null && distance <= threshold) {
       if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
       return Math.round(distance * Number(shippingSettings.perKmCharge));
     }
-    // Beyond threshold: weight-based on server; show distance estimate for display only
-    const extraDistance = distance - threshold;
-    return Math.round(extraDistance * Number(shippingSettings.perKmCharge));
-  }, [delivery?.distanceKm, shippingSettings, totalAmount]);
+
+    // Beyond threshold or no distance info → zone-based weight pricing
+    return Math.round(totalWeightKg * zoneRate);
+  }, [delivery?.distanceKm, shippingSettings, totalAmount, totalWeightKg, zoneRate]);
 
   // Calculate prepaid discount
   const prepaidDiscount = useMemo(() => {
@@ -479,6 +518,25 @@ export default function CheckoutPage() {
 
           {/* Price Breakdown */}
           <div className="mt-4 space-y-2 border-t border-black/8 pt-4">
+            {/* Shipping zone summary — shown when city/state entered */}
+            {(form.city || form.state) && shippingSettings?.isShippingEnabled && (
+              <div className="mb-1 rounded-xl border border-black/8 bg-[#f8f4ee] px-3 py-2 text-xs text-text-muted space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Shipping Zone</span>
+                  <span className="font-medium text-text-primary">{zoneLabel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Weight</span>
+                  <span className="font-medium text-text-primary">{totalWeightKg} kg</span>
+                </div>
+                {deliveryCharge > 0 && (
+                  <div className="flex justify-between">
+                    <span>Rate</span>
+                    <span className="font-medium text-text-primary">₹{zoneRate}/kg</span>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex justify-between text-sm text-text-muted"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
             {bindingTotal > 0 && (
               <div className="flex justify-between text-sm text-amber-600">

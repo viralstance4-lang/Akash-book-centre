@@ -13,6 +13,10 @@ export async function getPublicShippingConfig(_req: Request, res: Response, next
       distanceThreshold:     Number(row.distanceThreshold),
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
+      // Regional zone rates — used by checkout page for zone-based estimate
+      localZoneRate:         Number(row.localZoneRate),
+      northEastRate:         Number(row.northEastRate),
+      defaultKgRate:         Number(row.defaultKgRate),
       // Legacy fields — still used by checkout page for prepaid discount
       prepaidDiscountType:   row.prepaidDiscountType,
       prepaidDiscountValue:  Number(row.prepaidDiscountValue),
@@ -23,7 +27,7 @@ export async function getPublicShippingConfig(_req: Request, res: Response, next
 }
 
 /** POST /api/v1/shipping/calculate
- *  Body: { distanceInKm, orderValue, weightInKg, state? }
+ *  Body: { distanceInKm, orderValue, weightInKg, state?, city? }
  */
 export async function calculateShipping(req: Request, res: Response, next: NextFunction) {
   try {
@@ -48,6 +52,8 @@ export async function getAdminShippingConfig(_req: Request, res: Response, next:
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
       defaultKgRate:         Number(row.defaultKgRate),
+      localZoneRate:         Number(row.localZoneRate),
+      northEastRate:         Number(row.northEastRate),
       stateRates:            row.stateRates,
       updatedAt:             row.updatedAt,
     });
@@ -70,6 +76,8 @@ export async function updateAdminShippingConfig(req: Request, res: Response, nex
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
       defaultKgRate:         Number(row.defaultKgRate),
+      localZoneRate:         Number(row.localZoneRate),
+      northEastRate:         Number(row.northEastRate),
       stateRates:            row.stateRates,
       updatedAt:             row.updatedAt,
     });
@@ -80,7 +88,7 @@ export async function updateAdminShippingConfig(req: Request, res: Response, nex
 
 /** POST /api/v1/admin/shipping/calculate
  *  Admin test endpoint — calculate shipping without placing an order.
- *  Body: { distanceInKm, orderValue, weightInKg, state? }
+ *  Body: { distanceInKm, orderValue, weightInKg, state?, city? }
  */
 export async function adminTestCalculation(req: Request, res: Response, next: NextFunction) {
   try {

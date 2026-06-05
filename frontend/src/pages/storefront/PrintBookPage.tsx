@@ -30,6 +30,18 @@ type PdfFile = {
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(v);
 
+function generateId(): string {
+  if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
+    try { return (crypto as any).randomUUID(); } catch { /* fall through */ }
+  }
+  const arr = new Uint8Array(16);
+  (crypto as any).getRandomValues(arr);
+  arr[6] = (arr[6] & 0x0f) | 0x40;
+  arr[8] = (arr[8] & 0x3f) | 0x80;
+  const h = Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
 async function autoDetectPageCount(file: File): Promise<number> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -43,6 +55,24 @@ async function autoDetectPageCount(file: File): Promise<number> {
   });
 }
 
+// ─── Pricing engine (mirrors backend getPricePerPage) ────────────────────────
+
+type PricingSettings = {
+  bwSingleSide: number; bwBothSideUnder20: number; bwBothSideAbove20: number;
+  colorSingleSide: number; colorBothSideUnder20: number; colorBothSideAbove20: number;
+  colorAbove99: number; spiralExtra: number; staplerExtra: number; maxPdfsPerOrder: number;
+};
+
+function getPricePerPage(totalRawPages: number, side: PrintSide, color: ColorType, s: PricingSettings): number {
+  if (color === "bw") {
+    if (side === "single") return s.bwSingleSide;
+    return totalRawPages < 20 ? s.bwBothSideUnder20 : s.bwBothSideAbove20;
+  }
+  if (totalRawPages > 99) return s.colorAbove99;
+  if (side === "single") return s.colorSingleSide;
+  return totalRawPages < 20 ? s.colorBothSideUnder20 : s.colorBothSideAbove20;
+}
+
 function calcPrice(
   totalRawPages: number,
   filePageCounts: number[],
@@ -50,17 +80,11 @@ function calcPrice(
   side: PrintSide,
   color: ColorType,
   binding: BindingType,
-  s: {
-    singleSideBasePrice: number; singleSideBulkPrice: number;
-    doubleSidePrice: number; bulkThreshold: number;
-    colorSurcharge: number; spiralExtra: number; staplerExtra: number;
-  },
+  s: PricingSettings,
 ) {
-  const isBulk        = totalRawPages > s.bulkThreshold;
-  const basePPP       = side === "single" ? (isBulk ? s.singleSideBulkPrice : s.singleSideBasePrice) : s.doubleSidePrice;
-  const ppp           = basePPP + (color === "color" ? s.colorSurcharge : 0);
+  const ppp           = getPricePerPage(totalRawPages, side, color, s);
   const weightedPages = filePageCounts.reduce((sum, pc, i) => sum + pc * (fileCopies[i] ?? 1), 0);
-  const totalCopies   = fileCopies.reduce((s, c) => s + c, 0);
+  const totalCopies   = fileCopies.reduce((acc, c) => acc + c, 0);
   const printCost     = ppp * weightedPages;
   const bindingCost   = (binding === "spiral" ? s.spiralExtra : s.staplerExtra) * totalCopies;
   return { ppp, printCost, bindingCost, weightedPages, totalCopies, total: Math.max(0, Math.round((printCost + bindingCost) * 100) / 100) };
@@ -81,18 +105,21 @@ export default function PrintBookPage() {
   const { data: settingsData } = useQuery({ queryKey: ["print-settings"], queryFn: getPrintSettings });
   const rawS = settingsData?.data;
   const S = {
-    singleSideBasePrice: rawS ? Number(rawS.singleSideBasePrice ?? (rawS as any).bwPrice ?? 1) : 1,
-    singleSideBulkPrice: rawS ? Number(rawS.singleSideBulkPrice ?? 0.5) : 0.5,
-    doubleSidePrice:     rawS ? Number(rawS.doubleSidePrice ?? 1) : 1,
-    bulkThreshold:       rawS ? Number((rawS as any).bulkThreshold ?? 20) : 20,
-    colorSurcharge:      rawS ? Number(rawS.colorSurcharge ?? (rawS as any).colorPrice ?? 3) : 3,
-    spiralExtra:         rawS ? Number(rawS.spiralExtra ?? 30) : 30,
-    staplerExtra:        rawS ? Number(rawS.staplerExtra ?? 10) : 10,
-    maxPdfsPerOrder:     rawS ? Number((rawS as any).maxPdfsPerOrder ?? 20) : 20,
+    bwSingleSide:         rawS ? Number(rawS.bwSingleSide         ?? 1)  : 1,
+    bwBothSideUnder20:    rawS ? Number(rawS.bwBothSideUnder20    ?? 2)  : 2,
+    bwBothSideAbove20:    rawS ? Number(rawS.bwBothSideAbove20    ?? 1)  : 1,
+    colorSingleSide:      rawS ? Number(rawS.colorSingleSide      ?? 8)  : 8,
+    colorBothSideUnder20: rawS ? Number(rawS.colorBothSideUnder20 ?? 10) : 10,
+    colorBothSideAbove20: rawS ? Number(rawS.colorBothSideAbove20 ?? 8)  : 8,
+    colorAbove99:         rawS ? Number(rawS.colorAbove99         ?? 6)  : 6,
+    spiralExtra:          rawS ? Number(rawS.spiralExtra          ?? 30) : 30,
+    staplerExtra:         rawS ? Number(rawS.staplerExtra         ?? 10) : 10,
+    maxPdfsPerOrder:      rawS ? Number(rawS.maxPdfsPerOrder      ?? 20) : 20,
   };
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [pdfs,        setPdfs]        = useState<PdfFile[]>([]);
+  const [dragOver,    setDragOver]    = useState(false);
   const [colorType,   setColorType]   = useState<ColorType>("bw");
   const [printSide,   setPrintSide]   = useState<PrintSide>("both");
   const [orientation, setOrientation] = useState<Orientation>("portrait");
@@ -123,15 +150,19 @@ export default function PrintBookPage() {
 
   // ── File handling ──────────────────────────────────────────────────────────
   const handleFileAdd = (incoming: FileList | null) => {
-    if (!incoming) return;
+    if (!incoming || incoming.length === 0) return;
     setFileError("");
+    const pdfsOnly = Array.from(incoming).filter(
+      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+    );
+    if (pdfsOnly.length === 0) { setFileError("Please select PDF files only."); return; }
     const remaining = S.maxPdfsPerOrder - pdfs.length;
-    const toAdd     = Array.from(incoming).slice(0, remaining);
-    if (incoming.length > remaining) {
+    const toAdd     = pdfsOnly.slice(0, remaining);
+    if (pdfsOnly.length > remaining) {
       setFileError(`Maximum ${S.maxPdfsPerOrder} PDFs allowed. Only the first ${remaining} were added.`);
     }
     const entries: PdfFile[] = toAdd.map((f) => ({
-      id: crypto.randomUUID(), file: f, pageCount: 10, detecting: true, copies: 1,
+      id: generateId(), file: f, pageCount: 10, detecting: true, copies: 1,
       previewUrl: URL.createObjectURL(f),
     }));
     setPdfs((prev) => [...prev, ...entries]);
@@ -140,6 +171,22 @@ export default function PrintBookPage() {
         setPdfs((prev) => prev.map((p) => p.id === entry.id ? { ...p, pageCount: count, detecting: false } : p));
       });
     });
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation();
+    setDragOver(false);
+    handleFileAdd(e.dataTransfer.files);
+  };
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation(); setDragOver(true);
+  };
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation(); setDragOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
   };
 
   const removeFile = (idx: number) => {
@@ -338,6 +385,39 @@ export default function PrintBookPage() {
         <p className="mt-1 text-sm text-text-muted">Upload PDFs, set copies per file, choose options and pay securely online.</p>
       </div>
 
+      {/* ── Pricing Table ──────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-black/8 bg-white p-5 space-y-4">
+        <h2 className="font-serif text-lg text-text-primary">Printing Rates</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-black/8 bg-[#f8f4ee] p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Black &amp; White</p>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-black/5">
+                <tr><td className="py-1.5 text-text-muted">Single side</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.bwSingleSide}/page</td></tr>
+                <tr><td className="py-1.5 text-text-muted">Double side (under 20 pages)</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.bwBothSideUnder20}/page</td></tr>
+                <tr><td className="py-1.5 text-text-muted">Double side (20+ pages)</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.bwBothSideAbove20}/page</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="rounded-xl border border-black/8 bg-[#f8f4ee] p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Color</p>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-black/5">
+                <tr><td className="py-1.5 text-text-muted">Single side (up to 99 pages)</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.colorSingleSide}/page</td></tr>
+                <tr><td className="py-1.5 text-text-muted">Double side (under 20 pages)</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.colorBothSideUnder20}/page</td></tr>
+                <tr><td className="py-1.5 text-text-muted">Double side (20–99 pages)</td><td className="py-1.5 text-right font-semibold text-text-primary">₹{S.colorBothSideAbove20}/page</td></tr>
+                <tr><td className="py-1.5 text-text-muted">Any side (100+ pages)</td><td className="py-1.5 text-right font-semibold text-amber-700">₹{S.colorAbove99}/page</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="flex gap-4 text-xs text-text-muted">
+          <span>Spiral binding: <strong>₹{S.spiralExtra}</strong> flat</span>
+          <span>·</span>
+          <span>Staple binding: <strong>₹{S.staplerExtra}</strong> flat</span>
+        </div>
+      </section>
+
       {/* ── 1. Upload PDFs ─────────────────────────────────────────────────── */}
       <section className="rounded-2xl border border-black/8 bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
@@ -351,15 +431,28 @@ export default function PrintBookPage() {
           </div>
         )}
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          multiple
+          className="hidden"
+          onChange={(e) => { handleFileAdd(e.target.files); e.target.value = ""; }}
+        />
+
         {pdfs.length < S.maxPdfsPerOrder && (
-          <div onClick={() => fileInputRef.current?.click()}
-            className="flex h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-black/15 bg-[#f8f4ee] transition-colors hover:border-black/30">
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            className={`flex h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-colors ${dragOver ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/15 bg-[#f8f4ee] hover:border-black/30"}`}>
             <Upload size={28} className="text-text-muted" />
-            <p className="mt-2 text-sm font-medium text-text-muted">Click to add PDFs</p>
+            <p className="mt-2 text-sm font-medium text-text-muted">{dragOver ? "Drop PDF files here" : "Click or drag PDF files here"}</p>
             <p className="mt-0.5 text-xs text-text-muted/70">Up to {S.maxPdfsPerOrder} files · max 50 MB each</p>
           </div>
         )}
-        <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileAdd(e.target.files)} />
 
         {pdfs.length > 0 && (
           <div className="space-y-2">
@@ -405,7 +498,10 @@ export default function PrintBookPage() {
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Print Type</p>
           <div className="grid grid-cols-2 gap-3">
-            {([["bw","⬛","Black & White",`₹${S.singleSideBasePrice}/page`],["color","🎨","Color",`+₹${S.colorSurcharge}/page extra`]] as const).map(([v,icon,label,desc]) => (
+            {([
+              ["bw",    "⬛", "Black & White", `₹${S.bwSingleSide}/page`],
+              ["color", "🎨", "Color",         `₹${S.colorSingleSide}/page`],
+            ] as const).map(([v, icon, label, desc]) => (
               <button key={v} type="button" onClick={() => setColorType(v as ColorType)}
                 className={`flex items-center gap-3 rounded-xl border-2 p-3.5 text-left transition-all ${colorType === v ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
                 <span className="text-2xl">{icon}</span>
@@ -422,19 +518,19 @@ export default function PrintBookPage() {
             <button type="button" onClick={() => setPrintSide("single")}
               className={`flex items-center gap-3 rounded-xl border-2 p-3.5 text-left transition-all ${printSide === "single" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
               <span className="text-2xl">📄</span>
-              <div><p className="text-sm font-medium text-text-primary">Single Side</p><p className="text-xs text-text-muted">{totalRawPages > S.bulkThreshold ? `₹${S.singleSideBulkPrice}/page (bulk)` : `₹${S.singleSideBasePrice}/page`}</p></div>
+              <div><p className="text-sm font-medium text-text-primary">Single Side</p><p className="text-xs text-text-muted">₹{getPricePerPage(totalRawPages, "single", colorType, S)}/page</p></div>
               {printSide === "single" && <Check size={14} className="ml-auto text-[#1d1a17]" />}
             </button>
             <button type="button" onClick={() => setPrintSide("both")}
               className={`flex items-center gap-3 rounded-xl border-2 p-3.5 text-left transition-all ${printSide === "both" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
               <span className="text-2xl">📋</span>
-              <div><p className="text-sm font-medium text-text-primary">Both Sides</p><p className="text-xs text-text-muted">₹{S.doubleSidePrice}/page · saves paper</p></div>
+              <div><p className="text-sm font-medium text-text-primary">Both Sides</p><p className="text-xs text-text-muted">₹{getPricePerPage(totalRawPages, "both", colorType, S)}/page · saves paper</p></div>
               {printSide === "both" && <Check size={14} className="ml-auto text-[#1d1a17]" />}
             </button>
           </div>
-          {totalRawPages > S.bulkThreshold && printSide === "single" && (
+          {colorType === "color" && totalRawPages > 99 && (
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
-              Bulk discount applied: {totalRawPages} pages &gt; {S.bulkThreshold} threshold → ₹{S.singleSideBulkPrice}/page
+              Above-99 rate applied: ₹{S.colorAbove99}/page for {totalRawPages} pages
             </p>
           )}
         </div>

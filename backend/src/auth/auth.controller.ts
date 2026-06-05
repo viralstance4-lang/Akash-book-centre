@@ -21,19 +21,20 @@ const REFRESH_TOKEN_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const setRefreshCookie = (res: Parameters<RequestHandler>[1], token: string) => {
   res.cookie("refreshToken", token, {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: false,
+    sameSite: "lax",
     maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
   });
 };
 
 export const register: RequestHandler = async (req, res, next) => {
   try {
-    const result = await registerUser(req.body);
+    const { refreshToken, ...data } = await registerUser(req.body);
+    setRefreshCookie(res, refreshToken);
     res.status(201).json({
       success: true,
-      message: "Verification code sent to your email",
-      data: result,
+      message: "Account created successfully",
+      data,
     });
   } catch (error) {
     next(error);
@@ -136,8 +137,8 @@ export const logout: RequestHandler = async (req, res, next) => {
 
     res.clearCookie("refreshToken", {
       httpOnly: true,
-      secure: env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: false,
+      sameSite: "lax",
     });
 
     res.status(200).json({ success: true, message: "Logout successful", data: null });

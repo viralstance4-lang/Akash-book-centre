@@ -54,10 +54,11 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
 }
 
 export default function AppRouter() {
-  const isAuthenticated  = useAuthStore((s) => s.isAuthenticated);
-  const setAuth          = useAuthStore((s) => s.setAuth);
-  const logout           = useAuthStore((s) => s.logout);
-  const isSessionExpired = useAuthStore((s) => s.isSessionExpired);
+  const isAuthenticated   = useAuthStore((s) => s.isAuthenticated);
+  const setAuth           = useAuthStore((s) => s.setAuth);
+  const logout            = useAuthStore((s) => s.logout);
+  const setSessionExpired = useAuthStore((s) => s.setSessionExpired);
+  const isSessionExpired  = useAuthStore((s) => s.isSessionExpired);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isRouterVisible, setIsRouterVisible] = useState(false);
 
@@ -69,7 +70,7 @@ export default function AppRouter() {
       // If already authenticated, check session age before proceeding
       if (isAuthenticated) {
         if (isSessionExpired()) {
-          logout();
+          setSessionExpired();
         }
         if (isMounted) setIsAuthReady(true);
         return;
@@ -78,8 +79,15 @@ export default function AppRouter() {
         const refreshResponse = await refreshToken();
         const meResponse      = await getMe();
         if (isMounted) setAuth(meResponse.data, refreshResponse.data.accessToken);
-      } catch {
-        if (isMounted) logout();
+      } catch (err) {
+        if (isMounted) {
+          const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;
+          if (code === "SESSION_EXPIRED") {
+            setSessionExpired();
+          } else {
+            logout();
+          }
+        }
       } finally {
         if (isMounted) setIsAuthReady(true);
       }
@@ -96,15 +104,15 @@ export default function AppRouter() {
 
     const interval = setInterval(() => {
       if (isSessionExpired()) {
-        // logout() sets isAuthenticated = false → ProtectedRoute redirects to /login.
-        // Never use window.location.href here — it fires before React re-renders
-        // and causes blank screen flashes on any page currently displayed.
-        logout();
+        // setSessionExpired() clears auth and sets logoutReason so the login page
+        // shows "Your session has expired." Never use window.location.href here —
+        // it fires before React re-renders and causes blank screen flashes.
+        setSessionExpired();
       }
     }, SESSION_CHECK_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, isSessionExpired, logout]);
+  }, [isAuthenticated, isSessionExpired, setSessionExpired]);
 
   useEffect(() => {
     if (!isAuthReady) {

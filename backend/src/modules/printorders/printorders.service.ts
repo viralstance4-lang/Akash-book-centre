@@ -12,7 +12,9 @@ import {
 import { generateInvoiceNumber, generateInvoicePdf } from "../../lib/invoice";
 import {
   calculateEstimatedMinutes,
+  getPricePerPage,
   type CreatePrintOrderInput,
+  type PricingSettings,
 } from "./printorders.schema";
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -26,32 +28,34 @@ export const upsertPrintSettings = async (data: any) => {
 };
 
 const DEFAULT_SETTINGS = {
-  singleSideBasePrice: 1.00,
-  singleSideBulkPrice: 0.50,
-  doubleSidePrice:     1.00,
-  bulkThreshold:       20,
-  colorSurcharge:      3.00,
-  spiralExtra:         30,
-  staplerExtra:        10,
-  maxPdfsPerOrder:     20,
+  bwSingleSide:         1.00,
+  bwBothSideUnder20:    2.00,
+  bwBothSideAbove20:    1.00,
+  colorSingleSide:      8.00,
+  colorBothSideUnder20: 10.00,
+  colorBothSideAbove20: 8.00,
+  colorAbove99:         6.00,
+  spiralExtra:     30,
+  staplerExtra:    10,
+  maxPdfsPerOrder: 20,
 };
 
-const getSettings = async () => {
+const getSettings = async (): Promise<PricingSettings & { maxPdfsPerOrder: number }> => {
   const row = await prisma.printSettings.findFirst();
   if (!row) return DEFAULT_SETTINGS;
   return {
-    singleSideBasePrice: Number(row.singleSideBasePrice),
-    singleSideBulkPrice: Number(row.singleSideBulkPrice),
-    doubleSidePrice:     Number(row.doubleSidePrice),
-    bulkThreshold:       row.bulkThreshold,
-    colorSurcharge:      Number(row.colorSurcharge),
-    spiralExtra:         Number(row.spiralExtra),
-    staplerExtra:        Number(row.staplerExtra),
-    maxPdfsPerOrder:     row.maxPdfsPerOrder,
+    bwSingleSide:         Number((row as any).bwSingleSide         ?? DEFAULT_SETTINGS.bwSingleSide),
+    bwBothSideUnder20:    Number((row as any).bwBothSideUnder20    ?? DEFAULT_SETTINGS.bwBothSideUnder20),
+    bwBothSideAbove20:    Number((row as any).bwBothSideAbove20    ?? DEFAULT_SETTINGS.bwBothSideAbove20),
+    colorSingleSide:      Number((row as any).colorSingleSide      ?? DEFAULT_SETTINGS.colorSingleSide),
+    colorBothSideUnder20: Number((row as any).colorBothSideUnder20 ?? DEFAULT_SETTINGS.colorBothSideUnder20),
+    colorBothSideAbove20: Number((row as any).colorBothSideAbove20 ?? DEFAULT_SETTINGS.colorBothSideAbove20),
+    colorAbove99:         Number((row as any).colorAbove99         ?? DEFAULT_SETTINGS.colorAbove99),
+    spiralExtra:          Number(row.spiralExtra),
+    staplerExtra:         Number(row.staplerExtra),
+    maxPdfsPerOrder:      row.maxPdfsPerOrder,
   };
 };
-
-// ─── Per-file pricing helpers ─────────────────────────────────────────────────
 
 function calcPerFilePricing(params: {
   filePageCounts: number[];
@@ -59,7 +63,7 @@ function calcPerFilePricing(params: {
   printSide:      "single" | "both";
   colorType:      "color" | "bw";
   bindingType:    "spiral" | "stapler";
-  settings:       typeof DEFAULT_SETTINGS;
+  settings:       PricingSettings & { maxPdfsPerOrder: number };
 }) {
   const { filePageCounts, fileCopies, printSide, colorType, bindingType, settings } = params;
 
@@ -67,13 +71,7 @@ function calcPerFilePricing(params: {
   const totalWeightedPages = filePageCounts.reduce((s, n, i) => s + n * (fileCopies[i] ?? 1), 0);
   const totalCopies        = fileCopies.reduce((s, c) => s + c, 0);
 
-  const isBulk = totalRawPages > settings.bulkThreshold;
-  const basePPP =
-    printSide === "single"
-      ? isBulk ? settings.singleSideBulkPrice : settings.singleSideBasePrice
-      : settings.doubleSidePrice;
-
-  const pricePerPage = basePPP + (colorType === "color" ? settings.colorSurcharge : 0);
+  const pricePerPage = getPricePerPage(totalRawPages, printSide, colorType, settings);
   const printCost    = pricePerPage * totalWeightedPages;
   const bindingCost  = (bindingType === "spiral" ? settings.spiralExtra : settings.staplerExtra) * totalCopies;
   const totalPrice   = Math.round((printCost + bindingCost) * 100) / 100;

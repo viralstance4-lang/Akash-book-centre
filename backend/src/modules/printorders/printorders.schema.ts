@@ -1,16 +1,24 @@
 import { z } from "zod";
 
 export const createPrintSettingsSchema = z.object({
-  singleSideBasePrice:  z.number().nonnegative().default(1.00),
-  singleSideBulkPrice:  z.number().nonnegative().default(0.50),
-  doubleSidePrice:      z.number().nonnegative().default(1.00),
-  bulkThreshold:        z.number().int().positive().default(20),
-  colorSurcharge:       z.number().nonnegative().default(3.00),
+  // ── New independent B&W / Color pricing ───────────────────────────────────
+  bwSingleSide:         z.number().nonnegative().optional(),
+  bwBothSideUnder20:    z.number().nonnegative().optional(),
+  bwBothSideAbove20:    z.number().nonnegative().optional(),
+  colorSingleSide:      z.number().nonnegative().optional(),
+  colorBothSideUnder20: z.number().nonnegative().optional(),
+  colorBothSideAbove20: z.number().nonnegative().optional(),
+  colorAbove99:         z.number().nonnegative().optional(),
+  // ── Shared settings ───────────────────────────────────────────────────────
   spiralExtra:          z.number().nonnegative().default(30),
   staplerExtra:         z.number().nonnegative().default(10),
   maxPdfsPerOrder:      z.number().int().positive().default(20),
-
-  // Legacy fields kept for backward compat
+  // ── Legacy fields (backward compat — still accepted but not used in pricing)
+  singleSideBasePrice:  z.number().nonnegative().optional(),
+  singleSideBulkPrice:  z.number().nonnegative().optional(),
+  doubleSidePrice:      z.number().nonnegative().optional(),
+  bulkThreshold:        z.number().int().positive().optional(),
+  colorSurcharge:       z.number().nonnegative().optional(),
   colorPrice:           z.number().nonnegative().optional(),
   bwPrice:              z.number().nonnegative().optional(),
   singleSideExtra:      z.number().nonnegative().optional(),
@@ -50,45 +58,47 @@ export const createPrintOrderSchema = z.object({
 
 export type CreatePrintOrderInput = z.infer<typeof createPrintOrderSchema>;
 
-/**
- * Server-side pricing calculation so frontend and backend always agree.
- * Rule:
- *   - per-page rate for single-side: singleSideBasePrice (≤ threshold) or singleSideBulkPrice (> threshold)
- *   - per-page rate for double-side: doubleSidePrice (flat)
- *   - color adds colorSurcharge per page
- *   - binding is a flat fee
- *   - multiply by copies
- */
+export type PricingSettings = {
+  bwSingleSide:         number;
+  bwBothSideUnder20:    number;
+  bwBothSideAbove20:    number;
+  colorSingleSide:      number;
+  colorBothSideUnder20: number;
+  colorBothSideAbove20: number;
+  colorAbove99:         number;
+  spiralExtra:  number;
+  staplerExtra: number;
+};
+
+export function getPricePerPage(
+  totalRawPages: number,
+  printSide: "single" | "both",
+  colorType: "color" | "bw",
+  settings: PricingSettings,
+): number {
+  if (colorType === "bw") {
+    if (printSide === "single") return settings.bwSingleSide;
+    return totalRawPages < 20 ? settings.bwBothSideUnder20 : settings.bwBothSideAbove20;
+  }
+  if (totalRawPages > 99) return settings.colorAbove99;
+  if (printSide === "single") return settings.colorSingleSide;
+  return totalRawPages < 20 ? settings.colorBothSideUnder20 : settings.colorBothSideAbove20;
+}
+
 export function calculatePrintPrice(params: {
   pageCount: number;
   copies: number;
   printSide: "single" | "both";
   colorType: "color" | "bw";
   bindingType: "spiral" | "stapler";
-  settings: {
-    singleSideBasePrice: number;
-    singleSideBulkPrice: number;
-    doubleSidePrice: number;
-    bulkThreshold: number;
-    colorSurcharge: number;
-    spiralExtra: number;
-    staplerExtra: number;
-  };
+  settings: PricingSettings;
 }): { pricePerPage: number; printCost: number; bindingCost: number; totalPrice: number } {
   const { pageCount, copies, printSide, colorType, bindingType, settings } = params;
 
-  const isBulk = pageCount > settings.bulkThreshold;
-  const basePricePerPage =
-    printSide === "single"
-      ? isBulk ? settings.singleSideBulkPrice : settings.singleSideBasePrice
-      : settings.doubleSidePrice;
-
-  const colorAdd = colorType === "color" ? settings.colorSurcharge : 0;
-  const pricePerPage = basePricePerPage + colorAdd;
-
-  const printCost  = pricePerPage * pageCount * copies;
-  const bindingCost = (bindingType === "spiral" ? settings.spiralExtra : settings.staplerExtra) * copies;
-  const totalPrice  = Math.round((printCost + bindingCost) * 100) / 100;
+  const pricePerPage = getPricePerPage(pageCount, printSide, colorType, settings);
+  const printCost    = pricePerPage * pageCount * copies;
+  const bindingCost  = (bindingType === "spiral" ? settings.spiralExtra : settings.staplerExtra) * copies;
+  const totalPrice   = Math.round((printCost + bindingCost) * 100) / 100;
 
   return { pricePerPage, printCost, bindingCost, totalPrice };
 }

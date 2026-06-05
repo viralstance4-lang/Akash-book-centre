@@ -54,18 +54,34 @@ export const placeOrder = async (
     new Prisma.Decimal(0),
   );
 
-  // Calculate delivery charge
-  let deliveryCharge = new Prisma.Decimal(0);
-  let calculatedDeliveryType: "FREE" | "PAID" = "FREE";
-  if (deliveryDistance) {
-    const deliveryResult = await ShippingService.calculateDeliveryCharge({
-      distanceInKm: deliveryDistance,
-      orderValue: totalAmount.toNumber(),
-      weightInKg: 1,
-    });
-    deliveryCharge = new Prisma.Decimal(deliveryResult.charge);
-    calculatedDeliveryType = deliveryResult.type === "FREE" ? "FREE" : "PAID";
-  }
+  // Sum actual book weights from cart items (minimum 1 kg enforced inside ShippingService)
+  const totalWeightKg = cart.items.reduce((sum, item) => {
+    const w = Number((item.book as any).weight ?? 0);
+    return sum + w * item.quantity;
+  }, 0);
+
+  // Calculate delivery charge — always runs so zone-based pricing is applied even when
+  // the customer didn't provide a geolocation distance.
+  // distanceInKm: use actual distance if known, otherwise 99_999 → forces beyond-threshold
+  // path and lets zone detection (city/state) determine the rate.
+  const deliveryResult = await ShippingService.calculateDeliveryCharge({
+    distanceInKm: deliveryDistance ?? 99_999,
+    orderValue:   totalAmount.toNumber(),
+    weightInKg:   totalWeightKg,
+    city:         shippingAddress.city,
+    state:        shippingAddress.state,
+  });
+  const deliveryCharge         = new Prisma.Decimal(deliveryResult.charge);
+  const calculatedDeliveryType = deliveryResult.type === "FREE" ? "FREE" : "PAID";
+
+  // Structured shipping details stored with the order for audit / display purposes
+  const shippingDetails = {
+    zone:        deliveryResult.zone     ?? "Unknown",
+    weightKg:    totalWeightKg,
+    ratePerKg:   deliveryResult.breakdown.rate ?? 0,
+    totalCharge: deliveryResult.charge,
+    type:        deliveryResult.type,
+  };
 
   // Calculate prepaid discount
   let discountAmount = new Prisma.Decimal(0);
@@ -107,6 +123,7 @@ export const placeOrder = async (
         customerEmail,
         deliveryType: calculatedDeliveryType,
         deliveryDistance,
+        shippingDetails,
         invoiceNumber: invNum,
       },
     });

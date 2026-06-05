@@ -35,6 +35,9 @@ export type SubcategoryRef = {
   slug: string;
 };
 
+export type BookCategoryRef = { category: CategoryRef };
+export type BookSubcategoryRef = { subcategory: SubcategoryRef };
+
 export type Book = {
   id: string;
   title: string;
@@ -60,8 +63,12 @@ export type Book = {
   isFeatured?: boolean;
   createdAt: string;
   updatedAt: string;
+  // Legacy single-FK relations (kept for backward compat)
   category?: CategoryRef | null;
   subcategory?: SubcategoryRef | null;
+  // Many-to-many relations
+  bookCategories?: BookCategoryRef[];
+  bookSubcategories?: BookSubcategoryRef[];
   images?: Array<{ id: string; imageUrl: string; publicId: string; order: number }>;
 };
 

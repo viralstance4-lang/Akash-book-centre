@@ -81,7 +81,9 @@ export default function AdminShippingPage() {
   const [distThreshold,     setDistThreshold]     = useState("3");
   const [perKmRate,         setPerKmRate]          = useState("8");
   const [freeThreshold,     setFreeThreshold]     = useState("199");
-  const [defaultKgRate,     setDefaultKgRate]     = useState("50");
+  const [defaultKgRate,     setDefaultKgRate]     = useState("70");
+  const [localZoneRate,     setLocalZoneRate]     = useState("50");
+  const [northEastRate,     setNorthEastRate]     = useState("80");
   const [stateRates,        setStateRates]        = useState<StateRate[]>([]);
   const [newState,          setNewState]          = useState("");
   const [newRate,           setNewRate]           = useState("");
@@ -91,6 +93,7 @@ export default function AdminShippingPage() {
   const [testDist,   setTestDist]   = useState("2");
   const [testValue,  setTestValue]  = useState("150");
   const [testWeight, setTestWeight] = useState("1");
+  const [testCity,   setTestCity]   = useState("");
   const [testState,  setTestState]  = useState("");
   const [testResult, setTestResult] = useState<ShippingResult | null>(null);
 
@@ -102,6 +105,8 @@ export default function AdminShippingPage() {
     setPerKmRate(String(config.perKmRate));
     setFreeThreshold(String(config.freeDeliveryThreshold));
     setDefaultKgRate(String(config.defaultKgRate));
+    setLocalZoneRate(String(config.localZoneRate));
+    setNorthEastRate(String(config.northEastRate));
     setStateRates(config.stateRates ?? []);
   }, [config]);
 
@@ -122,6 +127,8 @@ export default function AdminShippingPage() {
       perKmRate:             Number(perKmRate),
       freeDeliveryThreshold: Number(freeThreshold),
       defaultKgRate:         Number(defaultKgRate),
+      localZoneRate:         Number(localZoneRate),
+      northEastRate:         Number(northEastRate),
       stateRates,
     });
   };
@@ -160,6 +167,7 @@ export default function AdminShippingPage() {
       distanceInKm: Number(testDist),
       orderValue:   Number(testValue),
       weightInKg:   Number(testWeight),
+      city:         testCity  || undefined,
       state:        testState || undefined,
     });
   };
@@ -259,22 +267,48 @@ export default function AdminShippingPage() {
         </div>
       </SectionCard>
 
-      {/* ── Long-distance ── */}
+      {/* ── Regional shipping zones ── */}
       <SectionCard
-        title="Long Distance Delivery (Beyond Threshold)"
-        subtitle="Weight-based pricing kicks in when order is beyond the distance threshold"
+        title="Regional Shipping Rates (₹/kg)"
+        subtitle="Weight-based rates applied automatically based on the customer's delivery city and state"
       >
-        <div className="max-w-xs">
-          <Field label="Default Rate Per KG (₹)">
-            <NumInput value={defaultKgRate} onChange={setDefaultKgRate} prefix="₹" suffix="/kg" placeholder="50" />
+        {/* Zone map reference */}
+        <div className="mb-5 grid gap-2 rounded-xl border border-black/8 bg-[#f8f4ee] p-4 text-xs text-text-muted sm:grid-cols-3">
+          <div>
+            <p className="mb-1 font-semibold text-text-primary">Delhi NCR</p>
+            <p>Delhi · Noida · Greater Noida<br />Gurugram · Faridabad · Ghaziabad</p>
+          </div>
+          <div>
+            <p className="mb-1 font-semibold text-text-primary">North East</p>
+            <p>Arunachal Pradesh · Assam · Manipur<br />Meghalaya · Mizoram · Nagaland<br />Tripura · Sikkim</p>
+          </div>
+          <div>
+            <p className="mb-1 font-semibold text-text-primary">All Over India</p>
+            <p>All remaining states and union territories not covered by the above two zones.</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Delhi NCR (₹/kg)">
+            <NumInput value={localZoneRate} onChange={setLocalZoneRate} prefix="₹" suffix="/kg" placeholder="50" />
+          </Field>
+          <Field label="North East (₹/kg)">
+            <NumInput value={northEastRate} onChange={setNorthEastRate} prefix="₹" suffix="/kg" placeholder="80" />
+          </Field>
+          <Field label="All Over India (₹/kg)">
+            <NumInput value={defaultKgRate} onChange={setDefaultKgRate} prefix="₹" suffix="/kg" placeholder="70" />
           </Field>
         </div>
-        <p className="mt-3 text-xs text-text-muted">
-          Used when the customer's state is not found in the state-wise list below.
-        </p>
+
+        <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 space-y-1">
+          <p><span className="font-semibold">Example (2 kg order):</span></p>
+          <p>Delhi NCR → 2 × ₹{localZoneRate || "50"} = <span className="font-semibold">₹{Math.round(2 * Number(localZoneRate || 50))}</span></p>
+          <p>North East → 2 × ₹{northEastRate || "80"} = <span className="font-semibold">₹{Math.round(2 * Number(northEastRate || 80))}</span></p>
+          <p>Maharashtra → 2 × ₹{defaultKgRate || "70"} = <span className="font-semibold">₹{Math.round(2 * Number(defaultKgRate || 70))}</span></p>
+        </div>
       </SectionCard>
 
-      {/* ── State rates ── */}
+      {/* ── State rates (custom overrides) ── */}
       <SectionCard
         title="State-wise Rates (₹/kg)"
         subtitle="Override the default rate for specific delivery states"
@@ -359,7 +393,7 @@ export default function AdminShippingPage() {
         title="Live Test Calculator"
         subtitle="Test how the current config will calculate a shipping charge"
       >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Distance (KM)">
             <NumInput value={testDist} onChange={setTestDist} suffix="km" />
           </Field>
@@ -369,12 +403,21 @@ export default function AdminShippingPage() {
           <Field label="Weight (KG)">
             <NumInput value={testWeight} onChange={setTestWeight} suffix="kg" />
           </Field>
-          <Field label="State (optional)">
+          <Field label="City (for zone detection)">
+            <input
+              type="text"
+              value={testCity}
+              onChange={(e) => setTestCity(e.target.value)}
+              placeholder="e.g. Noida"
+              className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:border-black/25 focus:bg-white"
+            />
+          </Field>
+          <Field label="State (for zone detection)">
             <input
               type="text"
               value={testState}
               onChange={(e) => setTestState(e.target.value)}
-              placeholder="e.g. Delhi"
+              placeholder="e.g. Assam"
               className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:border-black/25 focus:bg-white"
             />
           </Field>
@@ -401,7 +444,7 @@ export default function AdminShippingPage() {
               </span>
               <span className="text-xs text-text-muted">
                 {testResult.type === "DISTANCE_BASED" && `${testResult.breakdown.distance} km × ₹${testResult.breakdown.rate}/km`}
-                {testResult.type === "WEIGHT_BASED"   && `${testResult.breakdown.weight} kg × ₹${testResult.breakdown.rate}/kg${testResult.breakdown.usedFallback ? " (fallback)" : ` (${testResult.breakdown.matchedState})`}`}
+                {testResult.type === "WEIGHT_BASED"   && `${testResult.breakdown.weight} kg × ₹${testResult.breakdown.rate}/kg · Zone: ${testResult.zone ?? testResult.breakdown.zone ?? "All India"}`}
                 {testResult.type === "FREE"            && "Order value above free delivery threshold"}
                 {testResult.type === "DISABLED"        && "Shipping is currently disabled"}
               </span>
@@ -416,7 +459,7 @@ export default function AdminShippingPage() {
           <Truck size={16} className="text-white/60" />
           <h3 className="font-serif text-base">Current Config Summary</h3>
         </div>
-        <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <p className="text-[10px] uppercase tracking-widest text-white/50">Status</p>
             <p className={`mt-0.5 font-medium ${enabled ? "text-emerald-400" : "text-red-400"}`}>
@@ -428,12 +471,16 @@ export default function AdminShippingPage() {
             <p className="mt-0.5 font-medium">₹{perKmRate}/km · Free ≥₹{freeThreshold}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-white/50">Long Distance</p>
-            <p className="mt-0.5 font-medium">₹{defaultKgRate}/kg (default)</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/50">Delhi NCR</p>
+            <p className="mt-0.5 font-medium">₹{localZoneRate}/kg</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-white/50">State Rules</p>
-            <p className="mt-0.5 font-medium">{stateRates.length} state{stateRates.length !== 1 ? "s" : ""} configured</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/50">North East</p>
+            <p className="mt-0.5 font-medium">₹{northEastRate}/kg</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-white/50">All India</p>
+            <p className="mt-0.5 font-medium">₹{defaultKgRate}/kg</p>
           </div>
         </div>
       </div>

@@ -22,7 +22,7 @@ import {
   reorderBookImages,
   updateBook,
 } from "../../api/books.api";
-import { getCategories, getSubcategories, type Category, type Subcategory } from "../../api/categories.api";
+import { getCategories, type Category } from "../../api/categories.api";
 import type { ApiErrorResponse, Book } from "../../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,7 +30,8 @@ import type { ApiErrorResponse, Book } from "../../types";
 type BookFormState = {
   title: string; author: string; isbn: string; description: string;
   price: string; comparePrice: string;
-  categoryId: string; subcategoryId: string;
+  categoryIds: string[];
+  subcategoryIds: string[];
   stock: string; language: string; publication: string;
   allowStapleBinding: boolean;
   allowSpiralBinding: boolean;
@@ -48,7 +49,8 @@ type BookFormState = {
 const initialForm: BookFormState = {
   title: "", author: "", isbn: "", description: "",
   price: "", comparePrice: "",
-  categoryId: "", subcategoryId: "",
+  categoryIds: [],
+  subcategoryIds: [],
   stock: "", language: "English", publication: "",
   allowStapleBinding: false,
   allowSpiralBinding: false,
@@ -84,8 +86,9 @@ const buildBookFormData = (form: BookFormState, isNew: boolean) => {
   fd.append("description", form.description);
   fd.append("price",  form.price);
   if (form.comparePrice) fd.append("comparePrice", form.comparePrice);
-  if (form.categoryId)    fd.append("categoryId",    form.categoryId);
-  if (form.subcategoryId) fd.append("subcategoryId", form.subcategoryId);
+  // Send each selected ID as a repeated FormData field — Express/Multer parses as array
+  form.categoryIds.forEach((id)    => fd.append("categoryIds",    id));
+  form.subcategoryIds.forEach((id) => fd.append("subcategoryIds", id));
   fd.append("stock",    form.stock);
   fd.append("language", form.language);
   if (form.publication) fd.append("publication", form.publication);
@@ -96,11 +99,9 @@ const buildBookFormData = (form: BookFormState, isNew: boolean) => {
   if (form.breadth !== "") fd.append("breadth", form.breadth);
   if (form.weight !== "") fd.append("weight", form.weight);
   if (isNew) {
-    // Create: send all images + cover index
     form.images.forEach((f) => fd.append("images", f));
     fd.append("coverIndex", String(form.coverIndex));
   } else {
-    // Edit: optional single cover replacement
     if (form.coverImage) fd.append("coverImage", form.coverImage);
   }
   return fd;
@@ -263,61 +264,120 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
   );
 }
 
-// ── Dependent category/subcategory selects ────────────────────────────────────
+// ── Searchable multi-select ───────────────────────────────────────────────────
 
-function CategorySubcategorySelects({
-  categories,
-  categoryId,
-  subcategoryId,
-  onCategoryChange,
-  onSubcategoryChange,
+type SelectItem = { id: string; name: string; meta?: string };
+
+function MultiSelect({
+  label,
+  items,
+  selectedIds,
+  onChange,
+  placeholder,
 }: {
-  categories: Category[];
-  categoryId: string;
-  subcategoryId: string;
-  onCategoryChange: (id: string) => void;
-  onSubcategoryChange: (id: string) => void;
+  label: string;
+  items: SelectItem[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  placeholder?: string;
 }) {
-  const { data: subsData } = useQuery({
-    queryKey: ["subcategories", categoryId],
-    queryFn:  () => getSubcategories(categoryId),
-    enabled:  !!categoryId,
-  });
-  const subcategories: Subcategory[] = subsData?.data ?? [];
+  const [open, setOpen]       = useState(false);
+  const [search, setSearch]   = useState("");
+  const containerRef           = useRef<HTMLDivElement>(null);
 
-  // Reset subcategory when category changes
   useEffect(() => {
-    onSubcategoryChange("");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId]);
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
-  const sel = "h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/20 appearance-none";
+  const filtered = search.trim()
+    ? items.filter(
+        (i) =>
+          i.name.toLowerCase().includes(search.toLowerCase()) ||
+          (i.meta?.toLowerCase().includes(search.toLowerCase()) ?? false),
+      )
+    : items;
+
+  const toggle = (id: string) =>
+    onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
+
+  const selected = items.filter((i) => selectedIds.includes(i.id));
 
   return (
-    <div className="space-y-3">
-      {/* Category */}
-      <div className="relative">
-        <label className="mb-1 block text-xs text-text-muted">Category</label>
-        <select value={categoryId} onChange={(e) => onCategoryChange(e.target.value)} className={sel}>
-          <option value="">— Select category —</option>
-          {categories.map((c: Category) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <ChevronDown size={14} className="pointer-events-none absolute right-3 bottom-3.5 text-text-muted" />
-      </div>
+    <div ref={containerRef} className="relative">
+      <label className="mb-1 block text-xs text-text-muted">{label}</label>
 
-      {/* Subcategory — only shown once a category is selected */}
-      {categoryId && (
-        <div className="relative">
-          <label className="mb-1 block text-xs text-text-muted">Subcategory</label>
-          <select value={subcategoryId} onChange={(e) => onSubcategoryChange(e.target.value)} className={sel}>
-            <option value="">— Select subcategory —</option>
-            {subcategories.map((s: Subcategory) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="pointer-events-none absolute right-3 bottom-3.5 text-text-muted" />
+      {/* Selected tags */}
+      {selected.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {selected.map((item) => (
+            <span
+              key={item.id}
+              className="inline-flex items-center gap-1 rounded-full bg-[#1d1a17] px-2.5 py-0.5 text-[11px] font-medium text-white"
+            >
+              {item.name}
+              <button type="button" onClick={() => toggle(item.id)} className="text-white/60 hover:text-white transition-colors">
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-10 w-full items-center justify-between rounded-2xl border border-black/10 bg-white px-3 text-sm text-text-muted hover:border-black/20 transition-colors"
+      >
+        <span className={selected.length > 0 ? "text-text-primary" : ""}>
+          {selected.length > 0 ? `${selected.length} selected` : (placeholder ?? `Select ${label.toLowerCase()}…`)}
+        </span>
+        <ChevronDown size={13} className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-2xl border border-black/10 bg-white shadow-lg">
+          <div className="border-b border-black/8 px-3 py-2">
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-text-muted/60"
+            />
+          </div>
+          <div className="max-h-44 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-3 text-xs text-text-muted">No results</p>
+            ) : (
+              filtered.map((item) => (
+                <label
+                  key={item.id}
+                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-[#f8f4ee] transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.id)}
+                    onChange={() => toggle(item.id)}
+                    className="h-3.5 w-3.5 accent-[#1d1a17] shrink-0"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-sm text-text-primary">{item.name}</span>
+                    {item.meta && <span className="ml-1.5 text-[11px] text-text-muted">{item.meta}</span>}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -391,8 +451,11 @@ export default function AdminBooksPage() {
       description:  book.description ?? "",
       price:        String(book.price),
       comparePrice: book.comparePrice ? String(book.comparePrice) : "",
-      categoryId:   book.categoryId    ?? "",
-      subcategoryId:book.subcategoryId ?? "",
+      // Prefer M2M relations; fall back to legacy FK for old books not yet migrated
+      categoryIds:    book.bookCategories?.map((bc) => bc.category.id)
+                       ?? (book.categoryId ? [book.categoryId] : []),
+      subcategoryIds: book.bookSubcategories?.map((bs) => bs.subcategory.id)
+                       ?? (book.subcategoryId ? [book.subcategoryId] : []),
       stock:        String(book.stock),
       language:     (book as any).language    ?? "English",
       publication:  (book as any).publication ?? "",
@@ -480,16 +543,22 @@ export default function AdminBooksPage() {
                             <p className="font-serif text-lg text-text-primary truncate">{book.title}</p>
                             <p className="mt-0.5 text-sm text-text-muted">{book.author}</p>
                             <div className="mt-1 flex flex-wrap gap-1.5">
-                              {book.category && (
-                                <span className="rounded-full bg-[#1d1a17]/8 px-2 py-0.5 text-[10px] font-medium text-text-primary">
-                                  {book.category.name}
+                              {(book.bookCategories && book.bookCategories.length > 0
+                                ? book.bookCategories
+                                : book.category ? [{ category: book.category }] : []
+                              ).map((bc) => (
+                                <span key={bc.category.id} className="rounded-full bg-[#1d1a17]/8 px-2 py-0.5 text-[10px] font-medium text-text-primary">
+                                  {bc.category.name}
                                 </span>
-                              )}
-                              {book.subcategory && (
-                                <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700">
-                                  {book.subcategory.name}
+                              ))}
+                              {(book.bookSubcategories && book.bookSubcategories.length > 0
+                                ? book.bookSubcategories
+                                : book.subcategory ? [{ subcategory: book.subcategory }] : []
+                              ).map((bs) => (
+                                <span key={bs.subcategory.id} className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700">
+                                  {bs.subcategory.name}
                                 </span>
-                              )}
+                              ))}
                             </div>
                             <div className="mt-1.5 flex flex-wrap gap-2 text-sm">
                               <span className="font-medium text-[#8f2d22]">{fmt(Number(book.price))}</span>
@@ -570,13 +639,24 @@ export default function AdminBooksPage() {
 
             <input value={form.stock} onChange={(e) => setForm((c) => ({ ...c, stock: e.target.value }))} placeholder="Stock *" className={inp} />
 
-            {/* ── Category → Subcategory dependent dropdowns ──────────────── */}
-            <CategorySubcategorySelects
-              categories={categories}
-              categoryId={form.categoryId}
-              subcategoryId={form.subcategoryId}
-              onCategoryChange={(id) => setForm((f) => ({ ...f, categoryId: id, subcategoryId: "" }))}
-              onSubcategoryChange={(id) => setForm((f) => ({ ...f, subcategoryId: id }))}
+            {/* ── Categories multi-select ──────────────────────────────── */}
+            <MultiSelect
+              label="Categories"
+              items={categories.map((c) => ({ id: c.id, name: c.name }))}
+              selectedIds={form.categoryIds}
+              onChange={(ids) => setForm((f) => ({ ...f, categoryIds: ids }))}
+              placeholder="Select categories…"
+            />
+
+            {/* ── Subcategories multi-select ───────────────────────────── */}
+            <MultiSelect
+              label="Subcategories"
+              items={categories.flatMap((c) =>
+                c.subcategories.map((s) => ({ id: s.id, name: s.name, meta: c.name }))
+              )}
+              selectedIds={form.subcategoryIds}
+              onChange={(ids) => setForm((f) => ({ ...f, subcategoryIds: ids }))}
+              placeholder="Select subcategories…"
             />
 
             <div className="grid grid-cols-2 gap-3">

@@ -38,7 +38,7 @@ const schema = z.object({
   /** Optional secret token appended to webhook URL for basic security */
   SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
 
-  // ── Email — Resend ───────────────────────────────────────────────────────────
+  // ── Email — Resend (production / Render) ─────────────────────────────────────
   /** Resend API key — get free at resend.com (3000 emails/month) */
   RESEND_API_KEY: z.string().optional(),
   /**
@@ -46,6 +46,15 @@ const schema = z.object({
    * Requires a verified domain: "Akash Book Centre <noreply@yourdomain.com>"
    */
   RESEND_FROM: z.string().optional(),
+
+  // ── Email — Gmail SMTP (local dev fallback when Resend not configured) ────────
+  /** Gmail address used as SMTP sender — e.g. sanamaryam089@gmail.com */
+  GMAIL_USER: z.string().optional(),
+  /**
+   * Gmail App Password (16 chars, spaces optional).
+   * Generate at: myaccount.google.com → Security → App Passwords
+   */
+  GMAIL_PASS: z.string().optional(),
 
   // ── Diagnostics (optional — remove after initial setup) ─────────────────────
   /** Secret key to access /api/v1/diag/email without login (remove after debugging) */

@@ -7,6 +7,8 @@ import logger from "../config/logger";
 import AppError from "../lib/AppError";
 
 const errorMiddleware: ErrorRequestHandler = (err, req, res, _next) => {
+  if (res.headersSent) return;
+
   // ── AppError (our own controlled errors) ─────────────────────────────────────
   if (err instanceof AppError) {
     if (err.statusCode >= 500) {
@@ -46,11 +48,20 @@ const errorMiddleware: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof multer.MulterError) {
     res.status(400).json({
       success: false,
-      message:
-        err.code === "LIMIT_UNEXPECTED_FILE"
-          ? `Unexpected file field: "${err.field}". Allowed fields: desktopImage, mobileImage.`
-          : err.message,
+      message: err.code === "LIMIT_FILE_SIZE"
+        ? "File too large. Maximum 50 MB per file."
+        : err.message,
       code: err.code,
+    });
+    return;
+  }
+
+  // ── Invalid file type (from multer fileFilter) ────────────────────────────────
+  if (err instanceof Error && (err as any).code === "INVALID_FILE_TYPE") {
+    res.status(400).json({
+      success: false,
+      message: err.message,
+      code: "INVALID_FILE_TYPE",
     });
     return;
   }

@@ -47,10 +47,12 @@ const authMiddleware: RequestHandler = (req, res, next) => {
 
     next();
   } catch (error) {
-    if (
-      error instanceof JsonWebTokenError ||
-      error instanceof TokenExpiredError
-    ) {
+    if (error instanceof TokenExpiredError) {
+      next(new AppError("Token expired", 401, "TOKEN_EXPIRED"));
+      return;
+    }
+
+    if (error instanceof JsonWebTokenError) {
       next(new AppError("Invalid token", 401, "INVALID_TOKEN"));
       return;
     }

@@ -36,6 +36,17 @@ const optionalStringToNumber = (fieldName: string) =>
     return parsed;
   });
 
+// Accepts a single UUID string or an array of UUID strings from FormData,
+// and always produces string[]. Handles: undefined → [], "id" → ["id"], ["id1","id2"] → ["id1","id2"]
+const uuidArrayField = z
+  .union([z.string().uuid(), z.array(z.string().uuid())])
+  .optional()
+  .transform((val): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    return [val];
+  });
+
 export const createBookSchema = z.object({
   title:        z.string().min(1, "Title is required"),
   author:       z.string().min(1, "Author is required"),
@@ -43,8 +54,8 @@ export const createBookSchema = z.object({
   description:  z.string().optional(),
   price:        stringToNumber("Price"),
   comparePrice: optionalStringToNumber("Compare Price"),
-  categoryId:   z.string().uuid("Category is required").optional(),
-  subcategoryId:z.string().uuid("Subcategory must be a valid UUID").optional(),
+  categoryIds:   uuidArrayField,
+  subcategoryIds: uuidArrayField,
   stock:        stringToNumber("Stock"),
   language:     z.string().optional().default("English"),
   publication:  z.string().optional(),
@@ -64,8 +75,8 @@ export const updateBookSchema = z.object({
   description:  z.string().optional(),
   price:        stringToNumber("Price").optional(),
   comparePrice: optionalStringToNumber("Compare Price"),
-  categoryId:   z.string().uuid().optional().nullable(),
-  subcategoryId:z.string().uuid().optional().nullable(),
+  categoryIds:   uuidArrayField,
+  subcategoryIds: uuidArrayField,
   stock:        stringToNumber("Stock").optional(),
   language:     z.string().optional(),
   publication:  z.string().optional(),
