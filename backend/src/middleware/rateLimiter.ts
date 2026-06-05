@@ -10,7 +10,7 @@ export const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => isDevelopment,
-  keyGenerator: (req) => ipKeyGenerator(req.ip) ?? "unknown",
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "unknown"),
   message: {
     success: false,
     message: "Too many attempts, please try again later",
@@ -24,7 +24,7 @@ export const globalRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => isDevelopment,
-  keyGenerator: (req) => ipKeyGenerator(req.ip) ?? "unknown",
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "unknown"),
   message: {
     success: false,
     message: "Too many requests, please try again later",
