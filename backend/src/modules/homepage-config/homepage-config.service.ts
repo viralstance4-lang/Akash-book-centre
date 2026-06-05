@@ -28,7 +28,8 @@ export const getHomepageConfig = async (): Promise<{ sections: HomepageSection[]
     return { sections: DEFAULT_SECTIONS };
   }
 
-  const sections = record ? (record.sections as HomepageSection[]) : DEFAULT_SECTIONS;
+  const rawSections = record ? (record.sections as HomepageSection[]) : [];
+  const sections = rawSections.length > 0 ? rawSections : DEFAULT_SECTIONS;
   cache = { sections, cachedAt: Date.now() };
   return { sections };
 };
