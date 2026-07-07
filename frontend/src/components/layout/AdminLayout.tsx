@@ -1,7 +1,9 @@
-import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Truck, Users, X } from "lucide-react";
-import { useState } from "react";
+import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LayoutGrid, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Truck, Users, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { logout as logoutApi } from "../../api/auth.api";
+import { getNotificationCounts } from "../../api/admin.api";
 import { useAuthStore } from "../../store/auth.store";
 import SiteLogo from "../ui/SiteLogo";
 
@@ -11,6 +13,7 @@ const navItems = [
   { label: "Orders", path: "/admin/orders", icon: Receipt, title: "Orders", exact: false },
   { label: "Users", path: "/admin/users", icon: Users, title: "Users", exact: false },
   { label: "Categories", path: "/admin/categories", icon: Layers3, title: "Categories", exact: false },
+  { label: "Category Control", path: "/admin/category-sections", icon: LayoutGrid, title: "Category Control", exact: false },
   { label: "Banners", path: "/admin/banners", icon: Image, title: "Banners", exact: false },
   { label: "Coupons", path: "/admin/coupons", icon: Tag, title: "Coupons", exact: false },
   { label: "Reviews", path: "/admin/reviews", icon: Star, title: "Reviews", exact: false },
@@ -26,10 +29,34 @@ const navItems = [
 export default function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const logoutStore = useAuthStore((s) => s.logout);
+  const user         = useAuthStore((s) => s.user);
+  const logoutStore  = useAuthStore((s) => s.logout);
+  const touchActivity = useAuthStore((s) => s.touchActivity);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Reset the 10-hour inactivity timer whenever the admin interacts with the page.
+  // Throttled to once per minute to avoid excessive store updates.
+  useEffect(() => {
+    let lastTouch = 0;
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastTouch < 60_000) return;
+      lastTouch = now;
+      touchActivity();
+    };
+    const events = ["mousemove", "click", "keydown", "scroll", "touchstart"] as const;
+    events.forEach((e) => window.addEventListener(e, handleActivity, { passive: true }));
+    return () => events.forEach((e) => window.removeEventListener(e, handleActivity));
+  }, [touchActivity]);
+
+  const { data: countsData } = useQuery({
+    queryKey: ["admin-notification-counts"],
+    queryFn: getNotificationCounts,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+  });
+  const counts = countsData?.data;
 
   const currentNavItem = navItems.find((item) =>
     item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path),
@@ -55,11 +82,19 @@ export default function AdminLayout() {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path);
+          const badge =
+            item.path === "/admin/orders"       ? (counts?.newOrders      ?? 0) :
+            item.path === "/admin/print-orders" ? (counts?.newPrintOrders ?? 0) : 0;
           return (
             <Link key={item.path} to={item.path} onClick={() => setIsMobileMenuOpen(false)}
               className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all ${isActive ? "bg-[#1d1a17] text-white shadow-md" : "text-text-muted hover:bg-white hover:text-text-primary"}`}>
               <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
-              <span className="font-medium">{item.label}</span>
+              <span className="font-medium flex-1">{item.label}</span>
+              {badge > 0 && (
+                <span className={`flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${isActive ? "bg-white/20 text-white" : "bg-accent text-white"}`}>
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </Link>
           );
         })}

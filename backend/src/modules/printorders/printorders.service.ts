@@ -4,6 +4,7 @@ import { uploadImage, deleteImage } from "../../lib/cloudinary";
 import AppError from "../../lib/AppError";
 import razorpay from "../../config/razorpay";
 import env from "../../config/env";
+import { ShippingService, PACKAGING_WEIGHT_KG } from "../shipping/shipping.service";
 import {
   sendAdminPrintOrderNotification,
   sendInvoiceNotification,
@@ -12,6 +13,7 @@ import {
 import { generateInvoiceNumber, generateInvoicePdf } from "../../lib/invoice";
 import {
   calculateEstimatedMinutes,
+  countPdfPagesFromBuffer,
   getPricePerPage,
   type CreatePrintOrderInput,
   type PricingSettings,
@@ -110,13 +112,27 @@ export const createPrintOrder = async (
     try { return JSON.parse(raw) as T[]; } catch { return fallback; }
   };
 
-  const rawPageCount = Number(data.pageCount) || 0;
-  const perFile      = Math.max(1, Math.ceil(rawPageCount / files.length));
+  // ── Authoritative server-side page counting ──────────────────────────────
+  // Count pages from actual uploaded buffers — do not trust the frontend count.
+  // Falls back to the frontend-reported count only when server detection yields 0
+  // (e.g. heavily compressed or encrypted PDF that the regex cannot parse).
+  const serverPageCounts: number[] = files.map((f) =>
+    countPdfPagesFromBuffer(f.buffer),
+  );
 
-  let filePageCounts: number[] = parseSafeJson<number>(data.filePageCounts, []);
-  if (filePageCounts.length !== files.length) {
-    filePageCounts = files.map(() => perFile);
-  }
+  const frontendPageCounts: number[] = (() => {
+    const parsed = parseSafeJson<number>(data.filePageCounts, []);
+    if (parsed.length === files.length) return parsed.map((n) => Math.max(1, Number(n) || 1));
+    // Legacy fallback: distribute total evenly — avoid Math.ceil to prevent inflation
+    const rawTotal = Math.max(1, Number(data.pageCount) || 1);
+    const perFile  = Math.round(rawTotal / files.length);
+    return files.map(() => Math.max(1, perFile));
+  })();
+
+  // Prefer server count; use frontend count only when server returns 0
+  const filePageCounts: number[] = serverPageCounts.map((srv, i) =>
+    srv > 0 ? srv : Math.max(1, frontendPageCounts[i] ?? 1),
+  );
 
   const globalCopies = Math.max(1, Number(data.copies) || 1);
   let fileCopies: number[] = parseSafeJson<number>(data.fileCopies, []);
@@ -124,6 +140,10 @@ export const createPrintOrder = async (
     fileCopies = files.map(() => globalCopies);
   }
   fileCopies = fileCopies.map((c) => Math.max(1, c));
+
+  console.log("[PRINT PRICING] Server-side page counts :", serverPageCounts.join(", "));
+  console.log("[PRINT PRICING] Frontend page counts    :", frontendPageCounts.join(", "));
+  console.log("[PRINT PRICING] Final page counts used  :", filePageCounts.join(", "));
 
   let fileNames: string[] = files.map((f) => f.originalname);
   if (data.fileNames) {
@@ -138,7 +158,7 @@ export const createPrintOrder = async (
   }
 
   // ── Server-side pricing (authoritative) ────────────────────────────────
-  const { totalPrice, pricePerPage, totalRawPages, totalWeightedPages, totalCopies } =
+  const { totalPrice, pricePerPage, printCost, bindingCost, totalRawPages, totalWeightedPages, totalCopies } =
     calcPerFilePricing({
       filePageCounts,
       fileCopies,
@@ -149,6 +169,18 @@ export const createPrintOrder = async (
     });
 
   const estimatedMinutes = calculateEstimatedMinutes(totalWeightedPages);
+
+  console.log("[PRINT PRICING] ─────────────────────────────────────────");
+  console.log(`[PRINT PRICING] Color type     : ${data.colorType}`);
+  console.log(`[PRINT PRICING] Print side     : ${data.printSide}`);
+  console.log(`[PRINT PRICING] Binding        : ${data.bindingType}`);
+  console.log(`[PRINT PRICING] Total raw pages: ${totalRawPages}`);
+  console.log(`[PRINT PRICING] Price per page : ₹${pricePerPage}`);
+  console.log(`[PRINT PRICING] Weighted pages : ${totalWeightedPages} (copies applied)`);
+  console.log(`[PRINT PRICING] Print cost     : ₹${printCost}`);
+  console.log(`[PRINT PRICING] Binding cost   : ₹${bindingCost} (${totalCopies} copies)`);
+  console.log(`[PRINT PRICING] Grand total    : ₹${totalPrice}`);
+  console.log("[PRINT PRICING] ─────────────────────────────────────────");
 
   // ── Upload all PDFs to Cloudinary ────────────────────────────────────────
   const uploadedFiles = await Promise.all(
@@ -165,11 +197,25 @@ export const createPrintOrder = async (
     ),
   );
 
+  // ── Delivery charge (same rules as regular orders) ───────────────────
+  // Estimate weight: ~5 g per page + packaging; minimum 1 kg billable
+  const estimatedWeightKg = Math.max(1, (totalWeightedPages * 0.005) + PACKAGING_WEIGHT_KG);
+  const deliveryResult    = await ShippingService.calculateDeliveryCharge({
+    distanceInKm: data.deliveryDistance ?? 99_999,
+    orderValue:   totalPrice,
+    weightInKg:   estimatedWeightKg,
+  });
+  const deliveryCharge = deliveryResult.charge;
+  const deliveryType   = deliveryResult.type === "FREE" ? "FREE" : "PAID";
+  const grandTotal     = totalPrice + deliveryCharge;
+
+  console.log(`[PRINT ORDER] Delivery: ₹${deliveryCharge} (${deliveryResult.type}) | Grand total: ₹${grandTotal}`);
+
   // ── Create Razorpay order ──────────────────────────────────────────────
   let razorpayOrder: any;
   try {
     razorpayOrder = await razorpay.orders.create({
-      amount:   Math.round(totalPrice * 100),   // paise
+      amount:   Math.round(grandTotal * 100),   // paise — print cost + delivery
       currency: "INR",
       receipt:  `print_${Date.now()}`,
     });
@@ -196,6 +242,9 @@ export const createPrintOrder = async (
       pageCount:        totalRawPages,
       copies:           totalCopies,
       totalPrice,
+      deliveryCharge,
+      deliveryType,
+      deliveryDistance: data.deliveryDistance ?? null,
       estimatedMinutes,
       status:           "AWAITING_PAYMENT",
       paymentMethod:    "ONLINE",
@@ -210,12 +259,13 @@ export const createPrintOrder = async (
     include: { files: { orderBy: { order: "asc" } } },
   });
 
-  console.log(`[PRINT ORDER] Pending #${order.id.slice(0, 8).toUpperCase()} | ₹${totalPrice} | Razorpay: ${razorpayOrder.id}`);
+  console.log(`[PRINT ORDER] Pending #${order.id.slice(0, 8).toUpperCase()} | Print: ₹${totalPrice} | Delivery: ₹${deliveryCharge} | Total: ₹${grandTotal} | Razorpay: ${razorpayOrder.id}`);
 
   return {
     printOrderId:    order.id,
     razorpayOrderId: razorpayOrder.id,
-    amount:          totalPrice,
+    amount:          grandTotal,
+    deliveryCharge,
     customerName:    data.customerName,
     customerEmail:   data.customerEmail,
   };
@@ -472,4 +522,9 @@ export const resendPrintInvoice = async (printOrderId: string) => {
     where: { id: printOrderId },
     data:  { invoiceNumber: invNum, invoiceSent: true, invoiceSentAt: new Date() },
   });
+};
+
+
+export const markPrintOrderSeen = async (id: string) => {
+  await prisma.printOrder.update({ where: { id }, data: { adminSeen: true } });
 };

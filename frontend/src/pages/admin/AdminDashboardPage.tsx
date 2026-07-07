@@ -74,7 +74,7 @@ export default function AdminDashboardPage() {
                   <p className="truncate text-sm font-medium text-text-primary">{book.title}</p>
                   <p className="text-xs text-red-600">Out of stock</p>
                 </div>
-                <Link to="/admin/books" className="shrink-0 rounded-full bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 transition-colors">
+                <Link to={`/admin/books?edit=${book.id}`} className="shrink-0 rounded-full bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 transition-colors">
                   Restock
                 </Link>
               </div>
@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
                   <p className="truncate text-sm font-medium text-text-primary">{book.title}</p>
                   <p className="text-xs text-amber-600">Only {book.stock} left</p>
                 </div>
-                <Link to="/admin/books" className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-xs text-white hover:bg-amber-600 transition-colors">
+                <Link to={`/admin/books?edit=${book.id}`} className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-xs text-white hover:bg-amber-600 transition-colors">
                   Restock
                 </Link>
               </div>

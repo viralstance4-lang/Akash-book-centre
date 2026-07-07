@@ -43,8 +43,10 @@ export default function CheckoutPage() {
   const [appliedCoupon, setAppliedCoupon] = useState<CouponValidation | null>(null);
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
-  const [codSuccess, setCodSuccess] = useState(false);
-  const [codOrderId, setCodOrderId] = useState("");
+  const [codSuccess, setCodSuccess]       = useState(false);
+  const [codOrderId, setCodOrderId]       = useState("");
+  const [onlineSuccess, setOnlineSuccess] = useState(false);
+  const [onlineOrderId, setOnlineOrderId] = useState("");
   const [delivery, setDelivery] = useState<DeliveryResult | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState("");
@@ -97,7 +99,8 @@ export default function CheckoutPage() {
     onSuccess: (response) => {
       void queryClient.invalidateQueries({ queryKey: ["cart"] });
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
-      navigate(`/orders/${response.data.id}`);
+      setOnlineOrderId(response.data.id);
+      setOnlineSuccess(true);
     },
     onError: (error: any) => setSubmitError(error.response?.data?.message ?? "Payment verification failed."),
   });
@@ -170,9 +173,11 @@ export default function CheckoutPage() {
     : shippingZone === "NORTH_EAST" ? "North East"
     : "All India";
 
-  // Total weight from cart (minimum 1 kg for billing)
+  // Billing weight = book weights + 0.15 kg packaging (mirrors backend PACKAGING_WEIGHT_KG)
+  // Minimum 1 kg enforced by ShippingService.sanitize
+  const PACKAGING_KG = 0.15;
   const totalWeightKg = useMemo(
-    () => Math.max(1, items.reduce((sum, item) => sum + (Number((item.book as any).weight) || 0) * item.quantity, 0)),
+    () => Math.max(1, items.reduce((sum, item) => sum + (Number((item.book as any).weight) || 0) * item.quantity, 0) + PACKAGING_KG),
     [items],
   );
 
@@ -184,23 +189,40 @@ export default function CheckoutPage() {
     return shippingSettings.defaultKgRate ?? 70;
   }, [shippingZone, shippingSettings]);
 
-  // Calculate delivery charge
-  // Step 1: if within local delivery radius → use distance-based (existing logic, UNCHANGED)
-  // Step 2: otherwise → weight × zone rate
-  const deliveryCharge = useMemo(() => {
+  // Whether the customer is in the local distance-based zone
+  const isLocalDelivery = delivery?.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3);
+
+  // Flat area charge per zone (only for weight-based, beyond threshold)
+  const areaCharge = useMemo(() => {
+    if (!shippingSettings || !shippingSettings.isShippingEnabled || isLocalDelivery) return 0;
+    if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneAreaCharge ?? 0;
+    if (shippingZone === "NORTH_EAST")      return shippingSettings.northEastAreaCharge ?? 0;
+    return shippingSettings.defaultAreaCharge ?? 0;
+  }, [isLocalDelivery, shippingSettings, shippingZone]);
+
+  // Weight-based charge component (weight × zone rate, or distance × perKmRate for local)
+  const weightCharge = useMemo(() => {
     if (!shippingSettings || !shippingSettings.isShippingEnabled) return 0;
-
-    const distance  = delivery?.distanceKm ?? null;
-    const threshold = shippingSettings.freeRadius;
-
-    if (distance !== null && distance <= threshold) {
+    const distance = delivery?.distanceKm ?? null;
+    if (distance !== null && distance <= (shippingSettings.freeRadius ?? 3)) {
       if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
       return Math.round(distance * Number(shippingSettings.perKmCharge));
     }
-
-    // Beyond threshold or no distance info → zone-based weight pricing
     return Math.round(totalWeightKg * zoneRate);
   }, [delivery?.distanceKm, shippingSettings, totalAmount, totalWeightKg, zoneRate]);
+
+  // Total delivery = area charge (flat zone fee) + weight charge
+  const deliveryCharge = areaCharge + weightCharge;
+
+  // Derive actual delivery type for the status card — accounts for order value, not just distance
+  const displayDeliveryType = useMemo(() => {
+    if (!delivery) return null;
+    if (delivery.type === "UNKNOWN") return "UNKNOWN" as const;
+    if (!shippingSettings?.isShippingEnabled) return delivery.type;
+    // Within the local radius: FREE only when the order meets the minimum; otherwise PAID
+    if (delivery.type === "FREE") return deliveryCharge === 0 ? "FREE" : ("PAID" as const);
+    return delivery.type;
+  }, [delivery, deliveryCharge, shippingSettings]);
 
   // Calculate prepaid discount
   const prepaidDiscount = useMemo(() => {
@@ -251,6 +273,23 @@ export default function CheckoutPage() {
     setSubmitError("");
     placeOrderMutation.mutate({ address: form, method: paymentMethod, customerEmail: email });
   };
+
+  if (onlineSuccess) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-8 py-12 text-center max-w-md w-full">
+          <CheckCircle size={52} className="mx-auto text-emerald-500" />
+          <h2 className="mt-5 font-serif text-2xl text-text-primary">Order Placed!</h2>
+          <p className="mt-2 text-sm text-text-muted">Payment successful. Your order has been confirmed.</p>
+          {email && <p className="mt-1 text-xs text-text-muted">Invoice sent to: <strong>{email}</strong></p>}
+          <button onClick={() => navigate(`/orders/${onlineOrderId}`)}
+            className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[#1d1a17] py-3 text-sm text-white hover:bg-black transition-all">
+            View Order Details
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (codSuccess) {
     return (
@@ -425,24 +464,36 @@ export default function CheckoutPage() {
                 {/* Delivery status card */}
                 {delivery && (
                   <div className={`mt-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
-                    delivery.type === "FREE"
+                    displayDeliveryType === "FREE"
                       ? "border-emerald-200 bg-emerald-50"
-                      : delivery.type === "PAID"
+                      : displayDeliveryType === "PAID"
                       ? "border-amber-200 bg-amber-50"
                       : "border-black/10 bg-[#f8f4ee]"
                   }`}>
                     <Truck size={15} className={
-                      delivery.type === "FREE" ? "text-emerald-600 shrink-0" :
-                      delivery.type === "PAID" ? "text-amber-600 shrink-0" :
+                      displayDeliveryType === "FREE" ? "text-emerald-600 shrink-0" :
+                      displayDeliveryType === "PAID" ? "text-amber-600 shrink-0" :
                       "text-text-muted shrink-0"
                     } />
                     <div>
                       <p className={`text-xs font-semibold ${
-                        delivery.type === "FREE" ? "text-emerald-700" :
-                        delivery.type === "PAID" ? "text-amber-700" :
+                        displayDeliveryType === "FREE" ? "text-emerald-700" :
+                        displayDeliveryType === "PAID" ? "text-amber-700" :
                         "text-text-muted"
-                      }`}>{delivery.label}</p>
-                      <p className="text-[11px] text-text-muted">{delivery.sublabel}</p>
+                      }`}>
+                        {displayDeliveryType === "FREE"
+                          ? "Free Delivery"
+                          : deliveryCharge > 0
+                            ? `Delivery Charge: ${fmt(deliveryCharge)}`
+                            : delivery.label}
+                      </p>
+                      <p className="text-[11px] text-text-muted">
+                        {displayDeliveryType === "PAID" && deliveryCharge > 0
+                          ? (delivery.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3))
+                            ? `${delivery.distanceKm} km × ₹${shippingSettings?.perKmCharge}/km`
+                            : `${totalWeightKg} kg × ₹${zoneRate}/kg · ${delivery.sublabel}`
+                          : delivery.sublabel}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -518,35 +569,29 @@ export default function CheckoutPage() {
 
           {/* Price Breakdown */}
           <div className="mt-4 space-y-2 border-t border-black/8 pt-4">
-            {/* Shipping zone summary — shown when city/state entered */}
-            {(form.city || form.state) && shippingSettings?.isShippingEnabled && (
-              <div className="mb-1 rounded-xl border border-black/8 bg-[#f8f4ee] px-3 py-2 text-xs text-text-muted space-y-0.5">
-                <div className="flex justify-between">
-                  <span>Shipping Zone</span>
-                  <span className="font-medium text-text-primary">{zoneLabel}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Weight</span>
-                  <span className="font-medium text-text-primary">{totalWeightKg} kg</span>
-                </div>
-                {deliveryCharge > 0 && (
-                  <div className="flex justify-between">
-                    <span>Rate</span>
-                    <span className="font-medium text-text-primary">₹{zoneRate}/kg</span>
-                  </div>
-                )}
-              </div>
-            )}
             <div className="flex justify-between text-sm text-text-muted"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
             {bindingTotal > 0 && (
               <div className="flex justify-between text-sm text-amber-600">
                 <span>Binding Charges</span><span>+{fmt(bindingTotal)}</span>
               </div>
             )}
-            {deliveryCharge > 0 && (
-              <div className="flex justify-between text-sm text-amber-600">
-                <span>Delivery Charges</span><span>+{fmt(deliveryCharge)}</span>
-              </div>
+            {shippingSettings?.isShippingEnabled && (
+              deliveryCharge === 0
+                ? <div className="flex justify-between text-sm text-emerald-600"><span>Delivery</span><span>Free Delivery</span></div>
+                : !isLocalDelivery
+                  ? <>
+                      {areaCharge > 0 && (
+                        <div className="flex justify-between text-sm text-amber-600">
+                          <span>Area Charge <span className="text-xs font-normal text-text-muted">({zoneLabel})</span></span>
+                          <span>+{fmt(areaCharge)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm text-amber-600">
+                        <span>Weight Charge <span className="text-xs font-normal text-text-muted">({totalWeightKg} kg × ₹{zoneRate}/kg)</span></span>
+                        <span>+{fmt(weightCharge)}</span>
+                      </div>
+                    </>
+                  : <div className="flex justify-between text-sm text-amber-600"><span>Delivery Charges</span><span>+{fmt(deliveryCharge)}</span></div>
             )}
             {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Coupon Discount</span><span>-{fmt(discount)}</span></div>}
             {prepaidDiscount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Prepaid Discount</span><span>-{fmt(prepaidDiscount)}</span></div>}

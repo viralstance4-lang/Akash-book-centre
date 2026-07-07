@@ -59,15 +59,8 @@ export const resendPrintInvoice = async (id: string) => {
   return response.data;
 };
 
-export const testShiprocketAuth = async (): Promise<{ success: boolean; message: string }> => {
-  const response = await api.post<{ success: boolean; message: string }>("/admin/shiprocket/test-auth");
-  return response.data;
-};
-
-export type PickupLocation = { id: number; name: string; city: string; state: string; pincode: string };
-
-export const getShiprocketPickupLocations = async (): Promise<{ success: boolean; data: PickupLocation[] }> => {
-  const response = await api.get<{ success: boolean; data: PickupLocation[] }>("/admin/shiprocket/pickup-locations");
+export const testShipmozoConnection = async (): Promise<{ success: boolean; message: string }> => {
+  const response = await api.post<{ success: boolean; message: string }>("/admin/shipmozo/test-connection");
   return response.data;
 };
 
@@ -110,5 +103,18 @@ export const updateUserRole = async (id: string, role: "USER" | "ADMIN") => {
   );
 
   return response.data;
+};
+
+export type NotificationCounts = { newOrders: number; newPrintOrders: number };
+
+export const getNotificationCounts = async () => {
+  const response = await api.get<ApiSuccessResponse<NotificationCounts>>(
+    "/admin/notification-counts",
+  );
+  return response.data;
+};
+
+export const markPrintOrderSeen = async (id: string) => {
+  await api.patch(`/admin/print/${id}/seen`);
 };
 

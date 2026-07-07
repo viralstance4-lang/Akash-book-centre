@@ -1,10 +1,11 @@
 import { Prisma } from "@prisma/client";
 import razorpay from "../../config/razorpay";
 import AppError from "../../lib/AppError";
+import logger from "../../config/logger";
 import prisma from "../../lib/prisma";
-import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
+import { sendAdminOrderNotification, sendInvoiceNotification, sendOrderInvoice } from "../../lib/email";
 import { generateInvoiceNumber, generateInvoicePdf } from "../../lib/invoice";
-import { ShippingService } from "../shipping/shipping.service";
+import { ShippingService, PACKAGING_WEIGHT_KG } from "../shipping/shipping.service";
 
 type ShippingAddress = { name: string; phone: string; line1: string; line2?: string; city: string; state: string; pincode: string };
 
@@ -60,6 +61,9 @@ export const placeOrder = async (
     return sum + w * item.quantity;
   }, 0);
 
+  // Add fixed packaging weight so every order includes 150 g of packaging material
+  const shippingWeightKg = totalWeightKg + PACKAGING_WEIGHT_KG;
+
   // Calculate delivery charge — always runs so zone-based pricing is applied even when
   // the customer didn't provide a geolocation distance.
   // distanceInKm: use actual distance if known, otherwise 99_999 → forces beyond-threshold
@@ -67,7 +71,7 @@ export const placeOrder = async (
   const deliveryResult = await ShippingService.calculateDeliveryCharge({
     distanceInKm: deliveryDistance ?? 99_999,
     orderValue:   totalAmount.toNumber(),
-    weightInKg:   totalWeightKg,
+    weightInKg:   shippingWeightKg,
     city:         shippingAddress.city,
     state:        shippingAddress.state,
   });
@@ -77,7 +81,7 @@ export const placeOrder = async (
   // Structured shipping details stored with the order for audit / display purposes
   const shippingDetails = {
     zone:        deliveryResult.zone     ?? "Unknown",
-    weightKg:    totalWeightKg,
+    weightKg:    shippingWeightKg,
     ratePerKg:   deliveryResult.breakdown.rate ?? 0,
     totalCharge: deliveryResult.charge,
     type:        deliveryResult.type,
@@ -95,11 +99,15 @@ export const placeOrder = async (
   if (paymentMethod === "ONLINE") {
     try {
       razorpayOrder = await razorpay.orders.create({
-        amount: finalAmount.mul(100).toNumber(),
+        amount: Math.round(finalAmount.mul(100).toNumber()),
         currency: "INR",
         receipt: `receipt_${Date.now()}`,
       });
     } catch (err: any) {
+      logger.error(
+        { err: err?.message ?? err, statusCode: err?.statusCode, description: err?.error?.description },
+        "[RAZORPAY] Order creation failed",
+      );
       throw new AppError(
         "Online payment is not available right now. Please use Cash on Delivery.",
         400,
@@ -153,7 +161,12 @@ export const placeOrder = async (
       await tx.book.update({ where: { id: item.bookId }, data: { stock: { decrement: item.quantity } } });
     }
 
-    await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+    // For COD orders the payment is final at this point — clear cart immediately.
+    // For ONLINE orders the payment is still pending; cart is cleared only after
+    // Razorpay payment verification succeeds (see payments.service.ts).
+    if (paymentMethod === "COD") {
+      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+    }
 
     const createdOrder = await tx.order.findUniqueOrThrow({
       where: { id: order.id },
@@ -183,6 +196,14 @@ export const placeOrder = async (
       invoiceNumber: invNum,
     };
     sendAdminOrderNotification(orderData).catch(() => {});
+    sendInvoiceNotification({
+      orderId:       result.id,
+      orderType:     "BOOK",
+      customerName:  shippingAddress.name,
+      customerEmail,
+      total:         Number(finalAmount),
+      paymentMethod: "COD",
+    }).catch(() => {});
     if (customerEmail) {
       const sendWithPdf = async () => {
         try {
@@ -212,7 +233,7 @@ export const placeOrder = async (
             data:  { invoiceSent: true, invoiceSentAt: new Date() },
           });
         } catch (err) {
-          console.error("[INVOICE] COD invoice failed:", (err as Error).message);
+          logger.error({ err: (err as Error).message, orderId: result.id }, "[INVOICE] COD invoice failed");
         }
       };
       sendWithPdf().catch(() => {});
@@ -286,6 +307,9 @@ export const getAdminOrderById = async (orderId: string) => {
     },
   });
   if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
+  if (!order.adminSeen) {
+    prisma.order.update({ where: { id: orderId }, data: { adminSeen: true } }).catch(() => {});
+  }
   return order;
 };
 

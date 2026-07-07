@@ -2,11 +2,11 @@ import { Grid2x2, Home, Printer, Receipt, ShoppingCart } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
 const NAV_ITEMS = [
-  { icon: Home,        label: "Home",       path: "/" },
-  { icon: Receipt,     label: "Orders",     path: "/orders" },
-  { icon: Printer,     label: "Print",      path: "/print-book" },
-  { icon: Grid2x2,     label: "Categories", path: "/categories" },
-  { icon: ShoppingCart,label: "Cart",       path: "/cart" },
+  { icon: Home,         label: "Home",       path: "/" },
+  { icon: Receipt,      label: "Orders",     path: "/orders" },
+  { icon: Printer,      label: "Print",      path: "/print-book" },
+  { icon: Grid2x2,      label: "Categories", path: "/categories" },
+  { icon: ShoppingCart, label: "Cart",       path: "/cart" },
 ];
 
 export default function BottomNav({ cartCount = 0 }: { cartCount?: number }) {

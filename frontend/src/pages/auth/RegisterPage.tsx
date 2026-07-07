@@ -1,7 +1,7 @@
 import { useState } from "react";
 import SiteLogo from "../../components/ui/SiteLogo";
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import { register } from "../../api/auth.api";
@@ -13,14 +13,16 @@ export default function RegisterPage() {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
-  const navigate = useNavigate();
-  const setAuth  = useAuthStore((s) => s.setAuth);
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const from      = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+  const setAuth   = useAuthStore((s) => s.setAuth);
 
   const mutation = useMutation({
     mutationFn: () => register(name, email, password),
     onSuccess: (data) => {
       setAuth(data.data.user, data.data.accessToken);
-      navigate("/");
+      navigate(from, { replace: true });
     },
     onError: (error: any) => {
       setErrorMsg(
@@ -35,6 +37,10 @@ export default function RegisterPage() {
     setErrorMsg("");
     if (!name || !email || !password) {
       setErrorMsg("Please enter your name, email, and password.");
+      return;
+    }
+    if (password.length < 8) {
+      setErrorMsg("Password must be at least 8 characters long.");
       return;
     }
     mutation.mutate();

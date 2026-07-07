@@ -4,6 +4,7 @@ import authMiddleware, { requireAdmin } from "../../middleware/auth.middleware";
 import { verifyTransporter } from "../../lib/email";
 import env from "../../config/env";
 import logger from "../../config/logger";
+import prisma from "../../lib/prisma";
 
 const adminRouter = Router();
 adminRouter.use(authMiddleware, requireAdmin);
@@ -72,5 +73,25 @@ const testEmail: RequestHandler = async (_req, res) => {
 };
 
 adminRouter.post("/test-email", testEmail);
+
+// GET /api/v1/admin/notification-counts
+// Returns count of pending book orders and confirmed print orders needing attention.
+const getNotificationCounts: RequestHandler = async (_req, res, next) => {
+  try {
+    const [newOrders, newPrintOrders] = await Promise.all([
+      prisma.order.count({
+        where: { status: { in: ["PENDING", "CONFIRMED"] }, adminSeen: false },
+      }),
+      prisma.printOrder.count({
+        where: { status: "CONFIRMED", adminSeen: false },
+      }),
+    ]);
+    res.json({ success: true, data: { newOrders, newPrintOrders } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+adminRouter.get("/notification-counts", getNotificationCounts);
 
 export default adminRouter;

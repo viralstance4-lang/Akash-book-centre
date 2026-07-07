@@ -13,6 +13,7 @@ const cartInclude = {
           coverImageUrl: true,
           stock: true,
           isPrintBook: true,
+          weight: true,
         },
       },
     },

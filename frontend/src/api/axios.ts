@@ -25,11 +25,9 @@ const refreshAccessToken = async () => {
   }>("/auth/refresh");
 
   const { accessToken } = response.data.data;
-  const currentUser = useAuthStore.getState().user;
-
-  if (currentUser) {
-    useAuthStore.getState().setAuth(currentUser, accessToken);
-  }
+  // updateAccessToken also updates lastActivityAt, so a successful token
+  // refresh resets the 10-hour inactivity timer.
+  useAuthStore.getState().updateAccessToken(accessToken);
 
   return accessToken;
 };

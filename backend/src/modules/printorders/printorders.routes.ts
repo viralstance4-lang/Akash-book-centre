@@ -10,7 +10,7 @@ const adminRouter = Router();
 // Multer: accept up to 50 files in memory; the service enforces the DB limit
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 50 * 1024 * 1024 },  // 50 MB per file
+  limits:  { fileSize: 70 * 1024 * 1024 },  // 70 MB per file
   fileFilter: (_req, file, cb) => {
     const isPdf = file.mimetype === "application/pdf"
       || file.mimetype === "application/x-pdf"
@@ -51,6 +51,7 @@ router.get("/my-orders", authMiddleware, printController.getUserPrintOrders);
 adminRouter.use(authMiddleware, requireAdmin);
 adminRouter.get("/",                    printController.getAllPrintOrders);
 adminRouter.patch("/:id/status",        printController.updatePrintOrderStatus);
+adminRouter.patch("/:id/seen",          printController.markPrintOrderSeen);
 adminRouter.post("/:id/resend-invoice", printController.resendPrintInvoice);
 adminRouter.delete("/:id",              printController.deletePrintOrder);
 adminRouter.put("/settings",            printController.upsertPrintSettings);

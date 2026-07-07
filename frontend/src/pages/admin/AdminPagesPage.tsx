@@ -131,6 +131,7 @@ export default function AdminPagesPage() {
           <div>
             <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Content *</label>
             <RichEditor
+              key={isAdding ? "new" : editingPage?.id ?? "edit"}
               value={isAdding ? form.content : editingPage?.content ?? ""}
               onChange={(v) => isAdding ? setForm((f) => ({ ...f, content: v })) : setEditingPage((p) => p ? { ...p, content: v } : p)}
             />

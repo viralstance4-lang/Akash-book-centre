@@ -269,7 +269,7 @@ export const refreshAccessToken = async (token: string) => {
       userId: stored.userId,
       tokenHash: hashRefreshToken(newRefreshToken),
       expiresAt: getRefreshTokenExpiry(),
-      sessionExpiresAt: stored.sessionExpiresAt,
+      sessionExpiresAt: getSessionExpiry(),
     },
   });
 

@@ -13,6 +13,7 @@ import {
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   addBookImages,
   createBook,
@@ -388,6 +389,7 @@ function MultiSelect({
 
 export default function AdminBooksPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search,       setSearch]       = useState("");
   const [filterCatId,  setFilterCatId]  = useState("");
   const [editingBook,  setEditingBook]  = useState<Book | null>(null);
@@ -407,6 +409,18 @@ export default function AdminBooksPage() {
 
   const books:      Book[]     = booksData?.data.books ?? [];
   const categories: Category[] = categoriesData?.data ?? [];
+
+  // Auto-open edit form when arriving from a Restock link (?edit=<id>)
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId || books.length === 0) return;
+    const target = books.find((b) => b.id === editId);
+    if (target) {
+      handleEdit(target);
+      setSearchParams({}, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books, searchParams]);
 
   const resetForm = () => { setEditingBook(null); setForm(initialForm); setFormError(""); };
 
@@ -560,12 +574,17 @@ export default function AdminBooksPage() {
                                 </span>
                               ))}
                             </div>
-                            <div className="mt-1.5 flex flex-wrap gap-2 text-sm">
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
                               <span className="font-medium text-[#8f2d22]">{fmt(Number(book.price))}</span>
                               {book.comparePrice && (
                                 <span className="text-text-muted line-through text-xs">{fmt(Number(book.comparePrice))}</span>
                               )}
                               <span className="text-text-muted text-xs">Stock: {book.stock}</span>
+                              {book.stock < 1 && (
+                                <span className="rounded-full bg-red-100 border border-red-200 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                                  Out of Stock
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -741,7 +760,7 @@ export default function AdminBooksPage() {
               <label className="flex items-center justify-between gap-3 rounded-xl border border-black/8 bg-[#fbf8f2] px-3 py-2">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Enable Staple Binding</p>
-                  <p className="text-[11px] text-text-muted">Show “Staple Binding” option on product page</p>
+                  <p className="text-[11px] text-text-muted">Show "Staple Binding" option on product page</p>
                 </div>
                 <input
                   type="checkbox"
@@ -753,7 +772,7 @@ export default function AdminBooksPage() {
               <label className="flex items-center justify-between gap-3 rounded-xl border border-black/8 bg-[#fbf8f2] px-3 py-2">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Enable Spiral Binding</p>
-                  <p className="text-[11px] text-text-muted">Show “Spiral Binding” option on product page</p>
+                  <p className="text-[11px] text-text-muted">Show "Spiral Binding" option on product page</p>
                 </div>
                 <input
                   type="checkbox"

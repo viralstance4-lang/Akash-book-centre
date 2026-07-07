@@ -187,7 +187,7 @@ export default function OrderDetailPage() {
             </p>
           </div>
 
-          {/* ── Shiprocket tracking card (shown only when AWB exists) ── */}
+          {/* ── Shipmozo tracking card (shown only when AWB exists) ── */}
           {order.awbCode && (
             <div className="rounded-[1.75rem] border border-violet-200 bg-violet-50 p-6">
               <div className="flex items-center gap-2 mb-4">
@@ -210,11 +210,11 @@ export default function OrderDetailPage() {
                     {order.awbCode}
                   </span>
                 </div>
-                {order.shiprocketStatus && order.shiprocketStatus !== "NOT_CREATED" && (
+                {order.shipmozoStatus && order.shipmozoStatus !== "NOT_CREATED" && (
                   <div className="flex justify-between">
                     <span className="text-text-muted">Shipping Status</span>
                     <span className="text-xs font-semibold text-violet-700 uppercase">
-                      {order.shiprocketStatus.replace(/_/g, " ")}
+                      {order.shipmozoStatus.replace(/_/g, " ")}
                     </span>
                   </div>
                 )}

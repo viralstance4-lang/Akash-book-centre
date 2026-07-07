@@ -13,6 +13,9 @@ export const updateShippingConfigSchema = z.object({
   defaultKgRate:         z.number().positive().max(100_000).optional(),  // All India
   localZoneRate:         z.number().positive().max(100_000).optional(),  // Delhi NCR
   northEastRate:         z.number().positive().max(100_000).optional(),  // North East
+  localZoneAreaCharge:   z.number().min(0).max(100_000).optional(),      // flat area fee Delhi NCR
+  northEastAreaCharge:   z.number().min(0).max(100_000).optional(),      // flat area fee North East
+  defaultAreaCharge:     z.number().min(0).max(100_000).optional(),      // flat area fee All India
   stateRates:            z.array(stateRateSchema).max(100).optional(),
 });
 

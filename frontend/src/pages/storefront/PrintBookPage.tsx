@@ -1,12 +1,18 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, Check, CheckCircle, Clock, CreditCard, Eye,
-  FileText, Loader2, Minus, Plus, ShieldCheck, Trash2, Upload, X,
+  FileText, Loader2, Locate, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getPrintSettings, createPrintOrder, verifyPrintPayment } from "../../api/print.api";
 import type { PrintOrderInitiated } from "../../api/print.api";
+import { getShippingSettings } from "../../api/shipping.api";
+import {
+  getDeliveryFromGeolocation,
+  getDeliveryFromPincode,
+  type DeliveryResult,
+} from "../../utils/deliveryUtils";
 import { useAuthStore } from "../../store/auth.store";
 
 declare global { interface Window { Razorpay?: new (options: any) => { open: () => void }; } }
@@ -18,12 +24,13 @@ type Orientation = "portrait" | "landscape";
 type BindingType = "spiral" | "stapler";
 
 type PdfFile = {
-  id:         string;
-  file:       File;
-  pageCount:  number;
-  detecting:  boolean;
-  copies:     number;
-  previewUrl: string;
+  id:              string;
+  file:            File;
+  pageCount:       number;   // 0 = detection failed, requires manual entry
+  detecting:       boolean;
+  detectionFailed: boolean;
+  copies:          number;
+  previewUrl:      string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -42,16 +49,55 @@ function generateId(): string {
   return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
 }
 
+/**
+ * Count pages in a PDF by scanning the full file content.
+ *
+ * Method 1 — /Count N (Pages tree root):
+ *   The root /Pages dictionary stores total leaf pages as /Count N.
+ *   Taking the maximum across all /Count occurrences gives the root value.
+ *   Works for both compressed and uncompressed PDFs as long as the dictionary
+ *   itself is not inside a compressed object stream.
+ *
+ * Method 2 — /Type /Page entries:
+ *   Each page object in an uncompressed PDF contains /Type /Page.
+ *   Used as a fallback / cross-check.
+ *
+ * Returns 0 when neither method detects any pages (encrypted / corrupted PDF).
+ * IMPORTANT: reads the ENTIRE file — must not use file.slice().
+ */
 async function autoDetectPageCount(file: File): Promise<number> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const content = new TextDecoder("latin1").decode(e.target?.result as ArrayBuffer);
-      const hits = content.match(/\/Type[\s\0]*\/Page[^s]/g);
-      resolve(hits && hits.length > 0 ? hits.length : 10);
+      const bytes = e.target?.result as ArrayBuffer | null;
+      if (!bytes || bytes.byteLength === 0) { resolve(0); return; }
+
+      const content = new TextDecoder("latin1").decode(bytes);
+
+      // Method 1: /Count N — highest value is the root page tree count
+      const countMatches: number[] = [];
+      const countRe = /\/Count\s+(\d+)/g;
+      let m: RegExpExecArray | null;
+      // eslint-disable-next-line no-cond-assign
+      while ((m = countRe.exec(content)) !== null) {
+        const n = parseInt(m[1], 10);
+        if (Number.isFinite(n) && n > 0) countMatches.push(n);
+      }
+      const maxCount = countMatches.length > 0 ? Math.max(...countMatches) : 0;
+
+      // Method 2: explicit /Type /Page dictionary entries
+      const directPages = (content.match(/\/Type[\s\0]*\/Page[^s]/g) ?? []).length;
+
+      const detected = Math.max(maxCount, directPages);
+
+      console.log(
+        `[PDF DETECT] ${file.name} | /Count max=${maxCount} | /Type/Page count=${directPages} | final=${detected}`,
+      );
+
+      resolve(detected > 0 ? detected : 0);
     };
-    reader.onerror = () => resolve(10);
-    reader.readAsArrayBuffer(file.slice(0, 524_288));
+    reader.onerror = () => { console.warn(`[PDF DETECT] FileReader error for ${file.name}`); resolve(0); };
+    reader.readAsArrayBuffer(file); // Read full file — no slice
   });
 }
 
@@ -102,19 +148,31 @@ export default function PrintBookPage() {
   const user         = useAuthStore((s) => s.user);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: settingsData } = useQuery({ queryKey: ["print-settings"], queryFn: getPrintSettings });
+  const { data: settingsData, isLoading: settingsLoading } = useQuery({
+    queryKey: ["print-settings"],
+    queryFn: getPrintSettings,
+  });
+
+  const { data: shippingSettings } = useQuery({
+    queryKey: ["shipping-settings"],
+    queryFn: getShippingSettings,
+  });
   const rawS = settingsData?.data;
-  const S = {
-    bwSingleSide:         rawS ? Number(rawS.bwSingleSide         ?? 1)  : 1,
-    bwBothSideUnder20:    rawS ? Number(rawS.bwBothSideUnder20    ?? 2)  : 2,
-    bwBothSideAbove20:    rawS ? Number(rawS.bwBothSideAbove20    ?? 1)  : 1,
-    colorSingleSide:      rawS ? Number(rawS.colorSingleSide      ?? 8)  : 8,
-    colorBothSideUnder20: rawS ? Number(rawS.colorBothSideUnder20 ?? 10) : 10,
-    colorBothSideAbove20: rawS ? Number(rawS.colorBothSideAbove20 ?? 8)  : 8,
-    colorAbove99:         rawS ? Number(rawS.colorAbove99         ?? 6)  : 6,
-    spiralExtra:          rawS ? Number(rawS.spiralExtra          ?? 30) : 30,
-    staplerExtra:         rawS ? Number(rawS.staplerExtra         ?? 10) : 10,
-    maxPdfsPerOrder:      rawS ? Number(rawS.maxPdfsPerOrder      ?? 20) : 20,
+
+  // S is always a non-null PricingSettings object. When the API hasn't
+  // responded yet, the numeric fields default to 0 so nothing is displayed
+  // (the early-return below shows a spinner until rawS arrives).
+  const S: PricingSettings & { maxPdfsPerOrder: number } = {
+    bwSingleSide:         Number(rawS?.bwSingleSide         ?? 1),
+    bwBothSideUnder20:    Number(rawS?.bwBothSideUnder20    ?? 2),
+    bwBothSideAbove20:    Number(rawS?.bwBothSideAbove20    ?? 1),
+    colorSingleSide:      Number(rawS?.colorSingleSide      ?? 8),
+    colorBothSideUnder20: Number(rawS?.colorBothSideUnder20 ?? 10),
+    colorBothSideAbove20: Number(rawS?.colorBothSideAbove20 ?? 8),
+    colorAbove99:         Number(rawS?.colorAbove99         ?? 6),
+    spiralExtra:          Number(rawS?.spiralExtra          ?? 30),
+    staplerExtra:         Number(rawS?.staplerExtra         ?? 0),
+    maxPdfsPerOrder:      Number(rawS?.maxPdfsPerOrder      ?? 20),
   };
 
   // ── Form state ─────────────────────────────────────────────────────────────
@@ -128,8 +186,14 @@ export default function PrintBookPage() {
   const [name,        setName]        = useState(user?.name ?? "");
   const [phone,       setPhone]       = useState("");
   const [address,     setAddress]     = useState("");
+  const [pincode,     setPincode]     = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [fileError,   setFileError]   = useState("");
+
+  // ── Delivery state ─────────────────────────────────────────────────────────
+  const [delivery,    setDelivery]    = useState<DeliveryResult | null>(null);
+  const [geoLoading,  setGeoLoading]  = useState(false);
+  const [geoError,    setGeoError]    = useState("");
 
   // ── Payment state ──────────────────────────────────────────────────────────
   const [paymentError,  setPaymentError]  = useState("");
@@ -140,6 +204,67 @@ export default function PrintBookPage() {
     if (user?.email) setEmail(user.email);
     if (user?.name)  setName(user.name);
   }, [user]);
+
+  // Auto-detect delivery from pincode (6 digits)
+  useEffect(() => {
+    const pin = pincode.trim();
+    if (pin.length === 6) setDelivery(getDeliveryFromPincode(pin));
+  }, [pincode]);
+
+  const handleUseMyLocation = async () => {
+    setGeoLoading(true);
+    setGeoError("");
+    try {
+      const result = await getDeliveryFromGeolocation();
+      setDelivery(result);
+    } catch {
+      setGeoError("Unable to access your location. Please enter your pincode.");
+    } finally {
+      setGeoLoading(false);
+    }
+  };
+
+  // ── Delivery charge calculation (mirrors backend ShippingService logic) ──────
+  const deliveryCharge = (() => {
+    if (!shippingSettings || !shippingSettings.isShippingEnabled) return 0;
+    const distance  = delivery?.distanceKm ?? null;
+    const threshold = shippingSettings.freeRadius;
+    if (distance !== null && distance <= threshold) {
+      const printCostForThreshold = pdfs.length > 0
+        ? calcPrice(
+            pdfs.reduce((s, p) => s + p.pageCount, 0),
+            pdfs.map((p) => p.pageCount),
+            pdfs.map((p) => p.copies),
+            printSide, colorType, bindingType, S,
+          ).total
+        : 0;
+      if (printCostForThreshold >= shippingSettings.freeDeliveryThreshold) return 0;
+      return Math.round(distance * Number(shippingSettings.perKmCharge));
+    }
+    return null; // unknown / outside radius → backend decides
+  })();
+
+  // useMutation must be declared before any conditional return (Rules of Hooks)
+  const initiateMut = useMutation({
+    mutationFn: (fd: FormData) => createPrintOrder(fd),
+    onSuccess: (response) => {
+      const initiated = response.data as PrintOrderInitiated;
+      openRazorpay(initiated);
+    },
+    onError: (err: any) => {
+      setPaymentError(err?.response?.data?.message ?? "Failed to initiate payment. Please try again.");
+    },
+  });
+
+  // Show spinner only on the very first load (no cached data yet).
+  // On subsequent renders the cached value is used instantly.
+  if (settingsLoading && !rawS) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 size={28} className="animate-spin text-red-400" />
+      </div>
+    );
+  }
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const totalRawPages  = pdfs.reduce((s, p) => s + p.pageCount, 0);
@@ -157,18 +282,29 @@ export default function PrintBookPage() {
     );
     if (pdfsOnly.length === 0) { setFileError("Please select PDF files only."); return; }
     const remaining = S.maxPdfsPerOrder - pdfs.length;
-    const toAdd     = pdfsOnly.slice(0, remaining);
+    if (remaining <= 0) {
+      setFileError(`You've reached the limit of ${S.maxPdfsPerOrder} PDFs per order. Remove a file to add another.`);
+      return;
+    }
+    const toAdd = pdfsOnly.slice(0, remaining);
     if (pdfsOnly.length > remaining) {
-      setFileError(`Maximum ${S.maxPdfsPerOrder} PDFs allowed. Only the first ${remaining} were added.`);
+      setFileError(
+        `You can't upload more than ${S.maxPdfsPerOrder} PDFs at once. The first ${toAdd.length} have been added — you can upload the remaining ones in the next order.`,
+      );
     }
     const entries: PdfFile[] = toAdd.map((f) => ({
-      id: generateId(), file: f, pageCount: 10, detecting: true, copies: 1,
+      id: generateId(), file: f, pageCount: 0, detecting: true,
+      detectionFailed: false, copies: 1,
       previewUrl: URL.createObjectURL(f),
     }));
     setPdfs((prev) => [...prev, ...entries]);
     entries.forEach((entry) => {
       autoDetectPageCount(entry.file).then((count) => {
-        setPdfs((prev) => prev.map((p) => p.id === entry.id ? { ...p, pageCount: count, detecting: false } : p));
+        setPdfs((prev) => prev.map((p) =>
+          p.id === entry.id
+            ? { ...p, pageCount: count, detecting: false, detectionFailed: count === 0 }
+            : p,
+        ));
       });
     });
   };
@@ -196,17 +332,7 @@ export default function PrintBookPage() {
   const updateCopies = (idx: number, val: number) =>
     setPdfs((prev) => prev.map((p, i) => i === idx ? { ...p, copies: Math.max(1, val) } : p));
 
-  // ── Phase 1: submit form → get Razorpay order ──────────────────────────────
-  const initiateMut = useMutation({
-    mutationFn: (fd: FormData) => createPrintOrder(fd),
-    onSuccess: (response) => {
-      const initiated = response.data as PrintOrderInitiated;
-      openRazorpay(initiated);
-    },
-    onError: (err: any) => {
-      setPaymentError(err?.response?.data?.message ?? "Failed to initiate payment. Please try again.");
-    },
-  });
+  // ── Phase 1: submit form → get Razorpay order (initiateMut declared above early-return) ──
 
   // ── Phase 2: open Razorpay, handle result ──────────────────────────────────
   const openRazorpay = (initiated: PrintOrderInitiated) => {
@@ -268,6 +394,8 @@ export default function PrintBookPage() {
     setPaymentError("");
     const errs: Record<string, string> = {};
     if (pdfs.length === 0)                                                    { setFileError("Please upload at least one PDF."); return; }
+    if (pdfs.some((p) => p.detecting))                                        { setFileError("Please wait for all files to finish loading."); return; }
+    if (pdfs.some((p) => p.pageCount === 0))                                  { setFileError("Enter the page count manually for all highlighted files."); return; }
     if (!name.trim())                                                          errs.name    = "Full name is required";
     if (!email.trim())                                                         errs.email   = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))                       errs.email   = "Enter a valid email address";
@@ -296,11 +424,13 @@ export default function PrintBookPage() {
     fd.append("customerEmail",    email.trim());
     fd.append("customerPhone",    phone.trim());
     fd.append("customerAddress",  address.trim());
+    if (delivery?.distanceKm != null) fd.append("deliveryDistance", String(delivery.distanceKm));
     initiateMut.mutate(fd);
   };
 
   const resetForm = () => {
-    setPdfs([]); setPhone(""); setAddress(""); setFieldErrors({}); setFileError(""); setPaymentError("");
+    setPdfs([]); setPhone(""); setAddress(""); setPincode(""); setDelivery(null);
+    setGeoError(""); setFieldErrors({}); setFileError(""); setPaymentError("");
   };
 
   // ── Not logged in ──────────────────────────────────────────────────────────
@@ -331,8 +461,8 @@ export default function PrintBookPage() {
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
           <CheckCircle size={30} className="text-emerald-600" />
         </div>
-        <h2 className="mt-5 font-serif text-2xl text-text-primary">Payment Successful!</h2>
-        <p className="mt-2 text-sm text-text-muted">Your print order is confirmed and will be processed shortly.</p>
+        <h2 className="mt-5 font-serif text-2xl text-text-primary">Order Placed!</h2>
+        <p className="mt-2 text-sm text-text-muted">Payment successful. Your print order is confirmed and will be processed shortly.</p>
 
         <div className="mt-5 rounded-xl border border-emerald-200 bg-white px-4 py-4 text-left space-y-2.5">
           <div className="flex items-center gap-2">
@@ -450,7 +580,7 @@ export default function PrintBookPage() {
             className={`flex h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-colors ${dragOver ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/15 bg-[#f8f4ee] hover:border-black/30"}`}>
             <Upload size={28} className="text-text-muted" />
             <p className="mt-2 text-sm font-medium text-text-muted">{dragOver ? "Drop PDF files here" : "Click or drag PDF files here"}</p>
-            <p className="mt-0.5 text-xs text-text-muted/70">Up to {S.maxPdfsPerOrder} files · max 50 MB each</p>
+            <p className="mt-0.5 text-xs text-text-muted/70">Up to {S.maxPdfsPerOrder} files · max 70 MB each</p>
           </div>
         )}
 
@@ -463,8 +593,32 @@ export default function PrintBookPage() {
                   <p className="truncate text-sm font-medium text-text-primary">{p.file.name}</p>
                   <p className="text-xs text-text-muted">
                     {(p.file.size / 1024 / 1024).toFixed(1)} MB
-                    {p.detecting ? <span className="ml-1.5 italic opacity-60">· detecting pages…</span> : <span className="ml-1.5">· {p.pageCount} pages detected</span>}
+                    {p.detecting ? (
+                      <span className="ml-1.5 italic opacity-60">· detecting pages…</span>
+                    ) : p.detectionFailed ? (
+                      <span className="ml-1.5 text-amber-600">· page count unclear</span>
+                    ) : (
+                      <span className="ml-1.5">· {p.pageCount} pages</span>
+                    )}
                   </p>
+                  {!p.detecting && p.detectionFailed && (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="text-xs text-text-muted">Enter pages manually:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 25"
+                        value={p.pageCount > 0 ? p.pageCount : ""}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value, 10) || 0);
+                          setPdfs((prev) => prev.map((x) =>
+                            x.id === p.id ? { ...x, pageCount: val, detectionFailed: val === 0 } : x,
+                          ));
+                        }}
+                        className="h-7 w-20 rounded-lg border border-amber-300 bg-amber-50 px-2 text-xs text-text-primary outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="hidden text-xs text-text-muted sm:inline mr-1">Copies</span>
@@ -591,7 +745,7 @@ export default function PrintBookPage() {
             {pdfs.map((p) => (
               <div key={p.id} className="flex items-center justify-between text-xs">
                 <span className="truncate max-w-[55%] text-text-muted">• {p.file.name}</span>
-                <span className="text-text-muted shrink-0">{p.detecting ? "…" : p.pageCount} pages &nbsp;·&nbsp;<span className="font-medium text-text-primary">{p.copies} {p.copies === 1 ? "copy" : "copies"}</span></span>
+                <span className="text-text-muted shrink-0">{p.detecting ? "…" : p.detectionFailed && p.pageCount === 0 ? <span className="text-amber-600">?</span> : p.pageCount} pages &nbsp;·&nbsp;<span className="font-medium text-text-primary">{p.copies} {p.copies === 1 ? "copy" : "copies"}</span></span>
               </div>
             ))}
           </div>
@@ -605,9 +759,21 @@ export default function PrintBookPage() {
               <span className="text-text-muted">{bindingType === "spiral" ? "Spiral" : "Staple"} binding ({pricing.totalCopies} {pricing.totalCopies === 1 ? "copy" : "copies"})</span>
               <span className="font-medium text-text-primary">+{fmt(pricing.bindingCost)}</span>
             </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-muted">Delivery</span>
+              <span className="font-medium text-text-primary">
+                {deliveryCharge === 0
+                  ? <span className="text-emerald-600 font-semibold">Free</span>
+                  : deliveryCharge === null
+                  ? <span className="text-text-muted italic">Enter location below</span>
+                  : `+${fmt(deliveryCharge)}`}
+              </span>
+            </div>
             <div className="flex justify-between border-t border-black/10 pt-2.5">
               <span className="font-serif text-lg text-text-primary">Total</span>
-              <span className="font-serif text-2xl text-[#8f2d22]">{fmt(pricing.total)}</span>
+              <span className="font-serif text-2xl text-[#8f2d22]">
+                {fmt(pricing.total + (deliveryCharge ?? 0))}
+              </span>
             </div>
           </div>
         </section>
@@ -627,6 +793,59 @@ export default function PrintBookPage() {
               Print orders are prepaid via Razorpay (UPI · Card · Net Banking). Your order is confirmed only after payment.
             </p>
           </div>
+        </div>
+
+        {/* Delivery location */}
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-text-muted">
+            Delivery Location (for charges)
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={pincode}
+              onChange={(e) => {
+                const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                setPincode(v);
+              }}
+              maxLength={6}
+              placeholder="Enter 6-digit pincode"
+              className="h-11 flex-1 rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/25 focus:bg-white transition-all"
+            />
+            <button
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={geoLoading}
+              title="Use my current location"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-[#f8f4ee] text-text-muted transition-all hover:border-black/20 hover:text-text-primary disabled:opacity-50"
+            >
+              <Locate size={16} className={geoLoading ? "animate-spin" : ""} />
+            </button>
+          </div>
+          {geoError && <p className="mt-1 text-xs text-amber-600">{geoError}</p>}
+          {delivery && (
+            <div className={`mt-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
+              deliveryCharge === 0
+                ? "border-emerald-200 bg-emerald-50"
+                : "border-amber-200 bg-amber-50"
+            }`}>
+              <Truck size={15} className={deliveryCharge === 0 ? "text-emerald-600 shrink-0" : "text-amber-600 shrink-0"} />
+              <div>
+                <p className={`text-xs font-semibold ${deliveryCharge === 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                  {deliveryCharge === 0 ? "Free Delivery" : delivery.label}
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  {delivery.sublabel}
+                  {deliveryCharge !== null && deliveryCharge > 0 && ` · Delivery charge: ${fmt(deliveryCharge)}`}
+                </p>
+              </div>
+            </div>
+          )}
+          {!delivery && (
+            <p className="mt-1 text-xs text-text-muted">
+              Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+
+            </p>
+          )}
         </div>
 
         {/* Customer Details */}
@@ -692,7 +911,7 @@ export default function PrintBookPage() {
           {initiateMut.isPending
             ? <><Loader2 size={15} className="animate-spin" /> Uploading & Preparing Payment…</>
             : pdfs.length > 0
-              ? <><CreditCard size={15} /> Pay {fmt(pricing.total)} — Secure Razorpay</>
+              ? <><CreditCard size={15} /> Pay {fmt(pricing.total + (deliveryCharge ?? 0))} — Secure Razorpay</>
               : "Upload PDFs to continue"}
         </button>
 

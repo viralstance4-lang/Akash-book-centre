@@ -81,10 +81,13 @@ export default function AdminShippingPage() {
   const [distThreshold,     setDistThreshold]     = useState("3");
   const [perKmRate,         setPerKmRate]          = useState("8");
   const [freeThreshold,     setFreeThreshold]     = useState("199");
-  const [defaultKgRate,     setDefaultKgRate]     = useState("70");
-  const [localZoneRate,     setLocalZoneRate]     = useState("50");
-  const [northEastRate,     setNorthEastRate]     = useState("80");
-  const [stateRates,        setStateRates]        = useState<StateRate[]>([]);
+  const [defaultKgRate,        setDefaultKgRate]        = useState("70");
+  const [localZoneRate,        setLocalZoneRate]        = useState("50");
+  const [northEastRate,        setNorthEastRate]        = useState("80");
+  const [localZoneAreaCharge,  setLocalZoneAreaCharge]  = useState("0");
+  const [northEastAreaCharge,  setNorthEastAreaCharge]  = useState("0");
+  const [defaultAreaCharge,    setDefaultAreaCharge]    = useState("0");
+  const [stateRates,           setStateRates]           = useState<StateRate[]>([]);
   const [newState,          setNewState]          = useState("");
   const [newRate,           setNewRate]           = useState("");
   const [saveSuccess,       setSaveSuccess]       = useState(false);
@@ -107,6 +110,9 @@ export default function AdminShippingPage() {
     setDefaultKgRate(String(config.defaultKgRate));
     setLocalZoneRate(String(config.localZoneRate));
     setNorthEastRate(String(config.northEastRate));
+    setLocalZoneAreaCharge(String(config.localZoneAreaCharge ?? 0));
+    setNorthEastAreaCharge(String(config.northEastAreaCharge ?? 0));
+    setDefaultAreaCharge(String(config.defaultAreaCharge ?? 0));
     setStateRates(config.stateRates ?? []);
   }, [config]);
 
@@ -129,6 +135,9 @@ export default function AdminShippingPage() {
       defaultKgRate:         Number(defaultKgRate),
       localZoneRate:         Number(localZoneRate),
       northEastRate:         Number(northEastRate),
+      localZoneAreaCharge:   Number(localZoneAreaCharge),
+      northEastAreaCharge:   Number(northEastAreaCharge),
+      defaultAreaCharge:     Number(defaultAreaCharge),
       stateRates,
     });
   };
@@ -289,22 +298,37 @@ export default function AdminShippingPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Delhi NCR (₹/kg)">
+          <Field label="Delhi NCR — Weight Rate (₹/kg)">
             <NumInput value={localZoneRate} onChange={setLocalZoneRate} prefix="₹" suffix="/kg" placeholder="50" />
           </Field>
-          <Field label="North East (₹/kg)">
+          <Field label="North East — Weight Rate (₹/kg)">
             <NumInput value={northEastRate} onChange={setNorthEastRate} prefix="₹" suffix="/kg" placeholder="80" />
           </Field>
-          <Field label="All Over India (₹/kg)">
+          <Field label="All Over India — Weight Rate (₹/kg)">
             <NumInput value={defaultKgRate} onChange={setDefaultKgRate} prefix="₹" suffix="/kg" placeholder="70" />
           </Field>
         </div>
 
+        <div className="mt-5">
+          <p className="mb-2 text-sm font-medium text-text-primary">Flat Area Charge per Zone <span className="ml-1 text-xs font-normal text-text-muted">(added on top of weight charge · set 0 to disable)</span></p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Delhi NCR — Area Charge (₹)">
+              <NumInput value={localZoneAreaCharge} onChange={setLocalZoneAreaCharge} prefix="₹" placeholder="0" />
+            </Field>
+            <Field label="North East — Area Charge (₹)">
+              <NumInput value={northEastAreaCharge} onChange={setNorthEastAreaCharge} prefix="₹" placeholder="0" />
+            </Field>
+            <Field label="All Over India — Area Charge (₹)">
+              <NumInput value={defaultAreaCharge} onChange={setDefaultAreaCharge} prefix="₹" placeholder="0" />
+            </Field>
+          </div>
+        </div>
+
         <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 space-y-1">
-          <p><span className="font-semibold">Example (2 kg order):</span></p>
-          <p>Delhi NCR → 2 × ₹{localZoneRate || "50"} = <span className="font-semibold">₹{Math.round(2 * Number(localZoneRate || 50))}</span></p>
-          <p>North East → 2 × ₹{northEastRate || "80"} = <span className="font-semibold">₹{Math.round(2 * Number(northEastRate || 80))}</span></p>
-          <p>Maharashtra → 2 × ₹{defaultKgRate || "70"} = <span className="font-semibold">₹{Math.round(2 * Number(defaultKgRate || 70))}</span></p>
+          <p><span className="font-semibold">Example (2 kg order) — Area Charge + Weight Charge:</span></p>
+          <p>Delhi NCR → ₹{localZoneAreaCharge || "0"} + 2 × ₹{localZoneRate || "50"} = <span className="font-semibold">₹{Number(localZoneAreaCharge || 0) + Math.round(2 * Number(localZoneRate || 50))}</span></p>
+          <p>North East → ₹{northEastAreaCharge || "0"} + 2 × ₹{northEastRate || "80"} = <span className="font-semibold">₹{Number(northEastAreaCharge || 0) + Math.round(2 * Number(northEastRate || 80))}</span></p>
+          <p>Maharashtra → ₹{defaultAreaCharge || "0"} + 2 × ₹{defaultKgRate || "70"} = <span className="font-semibold">₹{Number(defaultAreaCharge || 0) + Math.round(2 * Number(defaultKgRate || 70))}</span></p>
         </div>
       </SectionCard>
 
@@ -444,7 +468,11 @@ export default function AdminShippingPage() {
               </span>
               <span className="text-xs text-text-muted">
                 {testResult.type === "DISTANCE_BASED" && `${testResult.breakdown.distance} km × ₹${testResult.breakdown.rate}/km`}
-                {testResult.type === "WEIGHT_BASED"   && `${testResult.breakdown.weight} kg × ₹${testResult.breakdown.rate}/kg · Zone: ${testResult.zone ?? testResult.breakdown.zone ?? "All India"}`}
+                {testResult.type === "WEIGHT_BASED"   && (
+                  testResult.areaCharge && testResult.areaCharge > 0
+                    ? `Area ₹${testResult.areaCharge} + ${testResult.breakdown.weight} kg × ₹${testResult.breakdown.rate}/kg · Zone: ${testResult.zone ?? testResult.breakdown.zone ?? "All India"}`
+                    : `${testResult.breakdown.weight} kg × ₹${testResult.breakdown.rate}/kg · Zone: ${testResult.zone ?? testResult.breakdown.zone ?? "All India"}`
+                )}
                 {testResult.type === "FREE"            && "Order value above free delivery threshold"}
                 {testResult.type === "DISABLED"        && "Shipping is currently disabled"}
               </span>

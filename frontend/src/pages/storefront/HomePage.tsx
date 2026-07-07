@@ -1,5 +1,5 @@
 import { ArrowRight, BookOpen, SlidersHorizontal, X } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
@@ -15,6 +15,7 @@ import BannerSlider from "../../components/ui/BannerSlider";
 import CategorySlider from "../../components/ui/CategorySlider";
 import { SkeletonCategory, SkeletonGrid } from "../../components/ui/SkeletonLoader";
 import { useAuthStore } from "../../store/auth.store";
+import { getSectionViewAllHref, getCategorySectionItems } from "../../utils/sectionLinks";
 
 const MAX_PRICE     = 5000;
 const formatPrice   = (v: number) =>
@@ -27,7 +28,6 @@ export default function HomePage() {
   const [maxPrice, setMaxPrice] = useState("");
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const deferredSearch          = useDeferredValue(search);
-  const booksSectionRef         = useRef<HTMLElement | null>(null);
   const queryClient             = useQueryClient();
   const navigate                = useNavigate();
   const isAuthenticated         = useAuthStore((s) => s.isAuthenticated);
@@ -88,14 +88,6 @@ export default function HomePage() {
 
 
 
-
-  const getVisibleCategories = (cfg: HomepageSection["config"]) => {
-    const limit = cfg.limit ?? 8;
-    if (cfg.showAll !== false) return categories.filter((c) => c.isActive).slice(0, limit);
-    const ids = cfg.selectedCategoryIds ?? [];
-    const filtered = ids.length ? categories.filter((c) => ids.includes(c.id) && c.isActive) : categories.filter((c) => c.isActive);
-    return filtered.slice(0, limit);
-  };
 
   // ── All-books filtering ───────────────────────────────────────────────────────
   const filteredBooks = useMemo(() => {
@@ -161,7 +153,7 @@ export default function HomePage() {
 
   // ── Section renderers ─────────────────────────────────────────────────────────
   const renderSection = (section: HomepageSection) => {
-    const { type, config, id } = section;
+    const { type, id } = section;
 
     switch (type) {
 
@@ -170,12 +162,18 @@ export default function HomePage() {
 
       // ── Browse by Category ──────────────────────────────────────────────────
       case "categories": {
-        const visibleCats = getVisibleCategories(config);
-        if (!visibleCats.length || deferredSearch) return null;
+        const items = getCategorySectionItems(section, categories);
+        if (!items.length || deferredSearch) return null;
+        const heading = section.title?.trim() || "Browse by Category";
         return (
           <section key={id} className="space-y-4">
-            <h2 className="font-serif text-xl text-text-primary sm:text-2xl">Browse by Category</h2>
-            <CategorySlider categories={visibleCats} />
+            <div className="flex items-center justify-between">
+              <h2 className="font-serif text-xl text-text-primary sm:text-2xl">{heading}</h2>
+              <Link to="/categories" className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                View all <ArrowRight size={13} />
+              </Link>
+            </div>
+            <CategorySlider categories={items} />
           </section>
         );
       }
@@ -187,8 +185,8 @@ export default function HomePage() {
           <section key={id} className="overflow-hidden rounded-2xl bg-[#1d1a17] sm:rounded-3xl">
             <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-8">
               <div>
-                <p className="text-xs uppercase tracking-widest text-white/60">New Service</p>
-                <h2 className="mt-1.5 font-serif text-2xl text-white sm:text-3xl">Print Your Custom Book</h2>
+                <p className="text-xs uppercase tracking-widest text-white/60">{section.subtitle?.trim() || "New Service"}</p>
+                <h2 className="mt-1.5 font-serif text-2xl text-white sm:text-3xl">{section.title?.trim() || "Print Your Custom Book"}</h2>
                 <p className="mt-2 max-w-md text-sm text-white/70">Upload any PDF and we'll print it for you — color or B&W, spiral or stapler binding.</p>
               </div>
               <Link to="/print-book"
@@ -202,11 +200,11 @@ export default function HomePage() {
       // ── All Books ─────────────────────────────────────────────────────────────
       case "allBooks":
         return (
-          <section key={id} id="books-grid" ref={booksSectionRef} className="space-y-4">
+          <section key={id} id="books-grid" className="space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="font-serif text-xl text-text-primary sm:text-2xl">
-                  {deferredSearch ? `Results for "${deferredSearch}"` : "All Books"}
+                  {deferredSearch ? `Results for "${deferredSearch}"` : (section.title?.trim() || "All Books")}
                 </h2>
                 <p className="mt-0.5 text-sm text-text-muted">{filteredBooks.length} titles</p>
               </div>
@@ -288,7 +286,7 @@ export default function HomePage() {
         const cat = section.categoryId ? categories.find((c) => c.id === section.categoryId) : null;
         const sub = section.subcategoryId ? cat?.subcategories?.find((s) => s.id === section.subcategoryId) : null;
         const subtitle = section.subtitle ?? (sub ? sub.name : cat ? cat.name : null);
-        const viewHref = sub ? `/category/${cat?.slug}/${sub.slug}` : cat ? `/category/${cat.slug}` : null;
+        const viewHref = getSectionViewAllHref(section, categories);
         return (
           <section key={id} className="space-y-4">
             <div className="flex items-center justify-between">
@@ -296,16 +294,9 @@ export default function HomePage() {
                 <h2 className="font-serif text-xl text-text-primary sm:text-2xl">{section.title}</h2>
                 {subtitle && <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>}
               </div>
-              {viewHref ? (
-                <Link to={viewHref} className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                  View all <ArrowRight size={13} />
-                </Link>
-              ) : (
-                <button type="button" onClick={() => booksSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                  View all <ArrowRight size={13} />
-                </button>
-              )}
+              <Link to={viewHref} className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                View all <ArrowRight size={13} />
+              </Link>
             </div>
             <BookSlider books={sectionBooks} onAddToCart={(book) => handleAddToCart(book.id)}
               cartBookIds={cartBookIds}

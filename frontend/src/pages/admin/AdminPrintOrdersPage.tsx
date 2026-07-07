@@ -11,6 +11,7 @@ import {
   updatePrintOrderStatus, updatePrintSettings,
   type PrintOrder,
 } from "../../api/print.api";
+import { markPrintOrderSeen } from "../../api/admin.api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -180,6 +181,13 @@ export default function AdminPrintOrdersPage() {
       maxPdfsPerOrder:      String(s.maxPdfsPerOrder      ?? 20),
     });
   }, [printSettingsData]);
+
+  useEffect(() => {
+    if (!expandedId) return;
+    markPrintOrderSeen(expandedId).then(() => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-notification-counts"] });
+    }).catch(() => {});
+  }, [expandedId, queryClient]);
 
   const updateStatusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>

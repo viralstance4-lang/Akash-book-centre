@@ -19,7 +19,7 @@ import {
   adminGetAllSections, adminCreateSection, adminUpdateSection,
   adminDeleteSection, adminDuplicateSection, adminReorderSections,
   type HomepageSection, type SectionType, type LayoutType, type BookFilterType,
-  type CreateSectionPayload,
+  type CategoryDisplayMode, type CreateSectionPayload,
 } from "../../api/homepage-sections.api";
 import { getCategories } from "../../api/categories.api";
 import type { Category } from "../../api/categories.api";
@@ -46,6 +46,12 @@ const FILTER_OPTIONS: { value: BookFilterType; label: string; desc: string }[] =
   { value: "bestSellers",  label: "Best Sellers",  desc: "Featured / popular books" },
   { value: "featured",     label: "Featured",      desc: "Manually featured books" },
   { value: "all",          label: "All Books",     desc: "All books from category" },
+];
+
+const DISPLAY_MODE_OPTIONS: { value: CategoryDisplayMode; label: string; desc: string }[] = [
+  { value: "auto",          label: "Auto (Recommended)", desc: "Subcategories if available, else the category" },
+  { value: "categories",    label: "Show Categories",    desc: "Always show the category itself" },
+  { value: "subcategories", label: "Show Subcategories", desc: "Show this category's subcategories" },
 ];
 
 const FIXED_TYPES: SectionType[] = ["banner", "printCta", "allBooks"];
@@ -87,18 +93,27 @@ interface SectionModalProps {
   onSave: (data: CreateSectionPayload) => void;
   onClose: () => void;
   isSaving: boolean;
+  error?: string;
 }
 
-function SectionModal({ initial, categories, onSave, onClose, isSaving }: SectionModalProps) {
+function SectionModal({ initial, categories, onSave, onClose, isSaving, error }: SectionModalProps) {
   const isNew = initial === null;
-  const [form, setForm] = useState<CreateSectionPayload>(
-    initial
-      ? { title: initial.title, subtitle: initial.subtitle ?? "", description: initial.description ?? "",
-          type: initial.type, layoutType: initial.layoutType, bookFilter: initial.bookFilter,
-          categoryId: initial.categoryId ?? null, subcategoryId: initial.subcategoryId ?? null,
-          isEnabled: initial.isEnabled, order: initial.order, config: { ...initial.config } }
-      : { ...EMPTY_SECTION },
-  );
+  const [form, setForm] = useState<CreateSectionPayload>(() => {
+    if (!initial) return { ...EMPTY_SECTION };
+    const next: CreateSectionPayload = {
+      title: initial.title, subtitle: initial.subtitle ?? "", description: initial.description ?? "",
+      type: initial.type, layoutType: initial.layoutType, bookFilter: initial.bookFilter,
+      categoryId: initial.categoryId ?? null, subcategoryId: initial.subcategoryId ?? null,
+      isEnabled: initial.isEnabled, order: initial.order, config: { ...initial.config },
+    };
+    // Migrate a legacy single categoryId on "categories" sections into the
+    // multi-select picker so it shows up checked, then drop the old field.
+    if (next.type === "categories" && !next.config.selectedCategoryIds?.length && next.categoryId) {
+      next.config     = { ...next.config, selectedCategoryIds: [next.categoryId] };
+      next.categoryId = null;
+    }
+    return next;
+  });
 
   const set = <K extends keyof CreateSectionPayload>(k: K, v: CreateSectionPayload[K]) =>
     setForm(f => ({ ...f, [k]: v }));
@@ -247,16 +262,51 @@ function SectionModal({ initial, categories, onSave, onClose, isSaving }: Sectio
           {/* ── Categories-section fields ── */}
           {isCats && (
             <>
-              <div className="flex items-center gap-3">
-                <button type="button"
-                  onClick={() => set("config", { ...form.config, showAll: !(form.config.showAll ?? true) })}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${form.config.showAll !== false ? "bg-[#1d1a17]" : "bg-black/20"}`}>
-                  <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.config.showAll !== false ? "translate-x-5" : ""}`} />
-                </button>
-                <span className="text-sm font-medium text-text-primary">Show all categories</span>
-              </div>
               <div>
-                <FieldLabel>Max categories to show</FieldLabel>
+                <FieldLabel>Categories <span className="normal-case font-normal">(leave empty to browse all categories)</span></FieldLabel>
+                <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-xl border border-black/10 bg-white p-2">
+                  {categories.map(c => {
+                    const ids     = form.config.selectedCategoryIds ?? [];
+                    const checked = ids.includes(c.id);
+                    return (
+                      <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-[#f8f4ee]">
+                        <input type="checkbox" checked={checked}
+                          onChange={() => {
+                            const next = checked ? ids.filter(id => id !== c.id) : [...ids, c.id];
+                            set("config", { ...form.config, selectedCategoryIds: next });
+                          }}
+                          className="h-4 w-4 rounded border-black/20 accent-[#1d1a17]" />
+                        <span className="text-text-primary">{c.name}</span>
+                        {c.subcategories.length > 0 && (
+                          <span className="ml-auto shrink-0 text-[10px] text-text-muted">{c.subcategories.length} subcategories</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {(form.config.selectedCategoryIds?.length ?? 0) > 0 && (
+                <div>
+                  <FieldLabel>Display Type</FieldLabel>
+                  <div className="space-y-1.5">
+                    {DISPLAY_MODE_OPTIONS.map(opt => {
+                      const active = (form.config.displayMode ?? "auto") === opt.value;
+                      return (
+                        <button key={opt.value} type="button" onClick={() => set("config", { ...form.config, displayMode: opt.value })}
+                          className={`w-full rounded-xl border px-3 py-2 text-left transition-all
+                            ${active ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:border-black/30"}`}>
+                          <p className={`text-sm font-medium ${active ? "text-white" : "text-text-primary"}`}>{opt.label}</p>
+                          <p className={`mt-0.5 text-[10px] ${active ? "text-white/70" : "text-text-muted"}`}>{opt.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <FieldLabel>Max items to show</FieldLabel>
                 <input type="number" min={2} max={20} value={form.config.limit ?? 8}
                   onChange={e => set("config", { ...form.config, limit: Number(e.target.value) })}
                   className="w-24 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:border-black/30" />
@@ -282,16 +332,21 @@ function SectionModal({ initial, categories, onSave, onClose, isSaving }: Sectio
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 border-t border-black/8 px-5 py-4">
-          <button onClick={onClose}
-            className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:bg-[#f4efe7]">
-            Cancel
-          </button>
-          <button onClick={() => onSave(form)} disabled={!form.title.trim() || isSaving}
-            className="inline-flex items-center gap-2 rounded-full bg-[#1d1a17] px-5 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed">
-            {isSaving && <Loader2 size={13} className="animate-spin" />}
-            {isNew ? "Create Section" : "Save Changes"}
-          </button>
+        <div className="border-t border-black/8 px-5 py-4 space-y-3">
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{error}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose}
+              className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:bg-[#f4efe7]">
+              Cancel
+            </button>
+            <button onClick={() => onSave(form)} disabled={!form.title.trim() || isSaving}
+              className="inline-flex items-center gap-2 rounded-full bg-[#1d1a17] px-5 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSaving && <Loader2 size={13} className="animate-spin" />}
+              {isNew ? "Create Section" : "Save Changes"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -424,6 +479,8 @@ export default function AdminHomepageBuilderPage() {
   const [modalSection, setModalSection] = useState<HomepageSection | "new" | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
+  const [modalError, setModalError] = useState("");
+  const [reorderError, setReorderError] = useState("");
 
   // Queries
   const { data: rawSections = [], isLoading } = useQuery({
@@ -443,14 +500,14 @@ export default function AdminHomepageBuilderPage() {
   // Mutations
   const createMut = useMutation({
     mutationFn: adminCreateSection,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); },
-    onError: (e: any) => alert(e?.response?.data?.message ?? "Create failed"),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); setModalError(""); },
+    onError: (e: any) => setModalError(e?.response?.data?.message ?? "Create failed"),
   });
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => adminUpdateSection(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); },
-    onError: (e: any) => alert(e?.response?.data?.message ?? "Update failed"),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); setModalError(""); },
+    onError: (e: any) => setModalError(e?.response?.data?.message ?? "Update failed"),
   });
 
   const deleteMut = useMutation({
@@ -472,7 +529,7 @@ export default function AdminHomepageBuilderPage() {
       setTimeout(() => setSaveOk(false), 2000);
       qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] });
     },
-    onError: (e: any) => alert(e?.response?.data?.message ?? "Reorder failed"),
+    onError: (e: any) => setReorderError(e?.response?.data?.message ?? "Reorder failed"),
   });
 
   // Drag end
@@ -537,6 +594,14 @@ export default function AdminHomepageBuilderPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+
+      {/* ── Reorder error ── */}
+      {reorderError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600 flex items-center justify-between gap-3">
+          <span>{reorderError}</span>
+          <button onClick={() => setReorderError("")} className="shrink-0 text-red-400 hover:text-red-600"><X size={14} /></button>
+        </div>
+      )}
 
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -655,8 +720,9 @@ export default function AdminHomepageBuilderPage() {
           initial={modalSection === "new" ? null : modalSection}
           categories={categories}
           onSave={handleModalSave}
-          onClose={() => setModalSection(null)}
+          onClose={() => { setModalSection(null); setModalError(""); }}
           isSaving={createMut.isPending || updateMut.isPending}
+          error={modalError}
         />
       )}
     </div>

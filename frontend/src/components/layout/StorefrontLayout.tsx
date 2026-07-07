@@ -87,10 +87,10 @@ export default function StorefrontLayout() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f5f1ea] font-sans text-text-primary flex flex-col pb-[62px] md:pb-0">
+    <div className="min-h-screen font-sans text-text-primary flex flex-col pb-[62px] md:pb-0" style={{ background: "linear-gradient(to bottom, #ffd6d6 0px, #ffffff 520px)" }}>
       {/* Top Navbar */}
       <header className={`sticky top-0 z-40 w-full bg-white border-b border-border transition-shadow duration-300 ${isScrolled ? "shadow-md" : ""}`}>
-        <div className="mx-auto flex h-16 max-w-screen-2xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex flex-nowrap h-16 max-w-screen-2xl items-center gap-1 sm:gap-3 px-3 sm:px-6 lg:px-8">
           <SiteLogo />
 
           {/* Desktop Nav */}
@@ -262,20 +262,18 @@ export default function StorefrontLayout() {
         <div className="mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {/* Brand */}
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1 flex flex-col items-start">
               <SiteLogo size="md" />
-              <p className="mt-3 text-sm text-text-muted leading-6">Your curated independent bookstore. Quality books, fast delivery, easy returns.</p>
-             {/* Social Icons */}
-  <div className="flex gap-4 mt-4 text-lg">
-    
-    <a href="https://t.me/Abcupsc" target="_blank" rel="noopener noreferrer" className="hover:text-blue-500 transition"><IconTelegram /></a>
-    <a href="https://www.instagram.com/akash_books_centre_abc?igsh=MXFreGF0ZWc5eWxyYg%3D%3D" target="_blank" rel="noopener noreferrer" className="hover:text-pink-500 transition"><IconInstagram /></a>
-    <a href="https://www.facebook.com/people/Akash-Book-Centre/pfbid02aQV79LPCAg9nvSGVnYmUE53skzXTo71L8DF1Cd7HqR6hFjZk7CvMFAfCpPEJkSnpl/?rdid=ligYbmRxIurPn6V7&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1FdzyHsz5X%2F" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition"><IconFacebook /></a>
-    <a href="https://www.youtube.com/@akashbookcentre9255" target="_blank" rel="noopener noreferrer" className="hover:text-red-500 transition"><IconYoutube /></a>
-    <a href="https://wa.me//+918810285500" target="_blank" rel="noopener noreferrer" className="hover:text-green-500 transition"><IconWhatsapp /></a>
-
-  </div>
-            </div>            
+              <p className="mt-3 w-full text-sm text-text-muted leading-6">Your curated independent bookstore. Quality books, fast delivery, easy returns.</p>
+              {/* Social Icons */}
+              <div className="flex gap-4 mt-4">
+                <a href="https://t.me/Abcupsc" target="_blank" rel="noopener noreferrer" className="hover:text-blue-500 transition"><IconTelegram /></a>
+                <a href="https://www.instagram.com/akash_books_centre_abc?igsh=MXFreGF0ZWc5eWxyYg%3D%3D" target="_blank" rel="noopener noreferrer" className="hover:text-pink-500 transition"><IconInstagram /></a>
+                <a href="https://www.facebook.com/people/Akash-Book-Centre/pfbid02aQV79LPCAg9nvSGVnYmUE53skzXTo71L8DF1Cd7HqR6hFjZk7CvMFAfCpPEJkSnpl/?rdid=ligYbmRxIurPn6V7&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1FdzyHsz5X%2F" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition"><IconFacebook /></a>
+                <a href="https://www.youtube.com/@akashbookcentre9255" target="_blank" rel="noopener noreferrer" className="hover:text-red-500 transition"><IconYoutube /></a>
+                <a href="https://wa.me//+918810285500" target="_blank" rel="noopener noreferrer" className="hover:text-green-500 transition"><IconWhatsapp /></a>
+              </div>
+            </div>
 
             {/* Useful Links */}
             <div>

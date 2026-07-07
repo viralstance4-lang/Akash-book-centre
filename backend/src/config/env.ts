@@ -14,8 +14,9 @@ const schema = z.object({
   CLOUDINARY_CLOUD_NAME:  z.string().min(1),
   CLOUDINARY_API_KEY:     z.string().min(1),
   CLOUDINARY_API_SECRET:  z.string().min(1),
-  RAZORPAY_KEY_ID:        z.string().min(1),
-  RAZORPAY_KEY_SECRET:    z.string().min(1),
+  RAZORPAY_KEY_ID:             z.string().min(1),
+  RAZORPAY_KEY_SECRET:         z.string().min(1),
+  RAZORPAY_WEBHOOK_SECRET:     z.string().optional(),
   ADMIN_EMAIL:            z.string().optional(),
   SUPPORT_EMAIL:          z.string().optional(),
   ADMIN_OTP_EMAIL:        z.string().optional(),
@@ -26,17 +27,15 @@ const schema = z.object({
     .default("http://localhost:5173")
     .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
 
-  // ── Shiprocket (optional – for shipment creation and tracking) ──────────────
-  /** Email used to login to Shiprocket dashboard */
-  SHIPROCKET_EMAIL:           z.string().optional(),
-  /** Password for Shiprocket account */
-  SHIPROCKET_PASSWORD:        z.string().optional(),
-  /** Name of the pickup location as configured in Shiprocket dashboard (default: Primary) */
-  SHIPROCKET_PICKUP_LOCATION: z.string().optional().default("Primary"),
-  /** Pincode of your pickup/warehouse address (used for courier serviceability check) */
-  SHIPROCKET_PICKUP_PINCODE:  z.string().optional().default("110001"),
-  /** Optional secret token appended to webhook URL for basic security */
-  SHIPROCKET_WEBHOOK_TOKEN:   z.string().optional(),
+  // ── Shipmozo (optional – for shipment creation and tracking) ────────────────
+  /** Shipmozo API public key — from dashboard → API Documentation */
+  SHIPMOZO_PUBLIC_KEY:      z.string().optional(),
+  /** Shipmozo API private key — from dashboard → API Documentation */
+  SHIPMOZO_PRIVATE_KEY:     z.string().optional(),
+  /** Warehouse ID configured in Shipmozo (leave blank to use default) */
+  SHIPMOZO_WAREHOUSE_ID:    z.string().optional().default(""),
+  /** Pincode of your pickup/warehouse address (used for serviceability check) */
+  SHIPMOZO_PICKUP_PINCODE:  z.string().optional().default("110008"),
 
   // ── Email — Resend (production / Render) ─────────────────────────────────────
   /** Resend API key — get free at resend.com (3000 emails/month) */

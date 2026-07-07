@@ -54,6 +54,8 @@ export const createPrintOrderSchema = z.object({
   fileCopies:     z.string().optional(),
   /** JSON array of human-readable file sizes, e.g. '["1.2 MB","0.4 MB"]' */
   fileSizes:      z.string().optional(),
+  /** Distance in km from Patel Nagar — used to calculate delivery charge */
+  deliveryDistance: z.union([z.number(), z.string()]).transform(Number).optional(),
 });
 
 export type CreatePrintOrderInput = z.infer<typeof createPrintOrderSchema>;
@@ -85,25 +87,41 @@ export function getPricePerPage(
   return totalRawPages < 20 ? settings.colorBothSideUnder20 : settings.colorBothSideAbove20;
 }
 
-export function calculatePrintPrice(params: {
-  pageCount: number;
-  copies: number;
-  printSide: "single" | "both";
-  colorType: "color" | "bw";
-  bindingType: "spiral" | "stapler";
-  settings: PricingSettings;
-}): { pricePerPage: number; printCost: number; bindingCost: number; totalPrice: number } {
-  const { pageCount, copies, printSide, colorType, bindingType, settings } = params;
-
-  const pricePerPage = getPricePerPage(pageCount, printSide, colorType, settings);
-  const printCost    = pricePerPage * pageCount * copies;
-  const bindingCost  = (bindingType === "spiral" ? settings.spiralExtra : settings.staplerExtra) * copies;
-  const totalPrice   = Math.round((printCost + bindingCost) * 100) / 100;
-
-  return { pricePerPage, printCost, bindingCost, totalPrice };
-}
-
 /** Rule: 60 pages per minute (rounded up to nearest minute) */
 export function calculateEstimatedMinutes(totalPages: number): number {
   return Math.max(1, Math.ceil(totalPages / 60));
+}
+
+/**
+ * Count PDF pages from a raw buffer using two complementary methods:
+ *
+ * Method 1 — /Count N in the Pages dictionary tree:
+ *   The root /Pages object stores the total leaf-page count as /Count N.
+ *   Taking the maximum across all /Count occurrences gives the root value.
+ *
+ * Method 2 — /Type /Page dictionary entries:
+ *   Each page object in an uncompressed PDF contains /Type /Page.
+ *   Works as a fallback when /Count is inside a compressed object stream.
+ *
+ * Returns 0 when neither method detects pages (e.g. encrypted/corrupted PDF).
+ */
+export function countPdfPagesFromBuffer(buffer: Buffer): number {
+  const content = buffer.toString("latin1");
+
+  // Method 1: highest /Count value == root page tree count
+  const countMatches: number[] = [];
+  const countRegex = /\/Count\s+(\d+)/g;
+  let m: RegExpExecArray | null;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = countRegex.exec(content)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > 0) countMatches.push(n);
+  }
+  const maxCount = countMatches.length > 0 ? Math.max(...countMatches) : 0;
+
+  // Method 2: explicit /Type /Page dictionary entries
+  const directPages = (content.match(/\/Type[\s\0]*\/Page[^s]/g) ?? []).length;
+
+  const detected = Math.max(maxCount, directPages);
+  return detected > 0 ? detected : 0;
 }

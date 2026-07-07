@@ -95,3 +95,11 @@ export const resendPrintInvoice = async (req: Request, res: Response, next: Next
     res.json({ success: true, message: "Invoice sent successfully", data: order });
   } catch (err) { next(err); }
 };
+
+export const markPrintOrderSeen = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params["id"] as string;
+    await printService.markPrintOrderSeen(id);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

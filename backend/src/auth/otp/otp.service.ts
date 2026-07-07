@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import prisma from "../../lib/prisma";
 import AppError from "../../lib/AppError";
+import logger from "../../config/logger";
 import { sendOtpEmail } from "../../lib/email";
 
 const OTP_EXPIRY_MINUTES = 10;
@@ -66,8 +67,10 @@ export const requestOtp = async (target: string) => {
     data: { userId: user.id, code, target, type: "LOGIN", expiresAt },
   });
 
-  // Send OTP via email
-  await sendOtpEmail(target, code, OTP_EXPIRY_MINUTES);
+  // Fire-and-forget — OTP is already in DB, so respond immediately.
+  sendOtpEmail(target, code, OTP_EXPIRY_MINUTES).catch((err) =>
+    logger.error({ err: (err as Error).message, target }, "[OTP] Failed to send OTP email"),
+  );
 
   return { message: `OTP sent to ${target}`, expiresInMinutes: OTP_EXPIRY_MINUTES };
 };

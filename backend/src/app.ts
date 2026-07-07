@@ -26,9 +26,10 @@ import settingsRouter from "./modules/settings/settings.routes";
 import shippingRouter, { adminShippingRouter } from "./modules/shipping/shipping.routes";
 import usersRouter from "./modules/users/users.routes";
 import returnsRouter, { adminReturnsRouter } from "./modules/returns/returns.routes";
-import adminShiprocketRouter, { shiprocketWebhookRouter } from "./modules/shiprocket/shiprocket.routes";
+import adminShipmozoRouter from "./modules/shipmozo/shipmozo.routes";
 import adminUtilsRouter from "./modules/admin/admin.routes";
 import diagRouter from "./modules/admin/diag.routes";
+import { categorySectionsRouter, adminCategorySectionsRouter } from "./modules/category-sections/category-sections.routes";
 
 const app = express();
 
@@ -142,11 +143,11 @@ app.use("/api/v1/shipping",         shippingRouter);
 app.use("/api/v1/reviews",          reviewsRouter);
 app.use("/api/v1/pages",            pagesRouter);
 app.use("/api/v1/returns",          returnsRouter);
-app.use("/api/v1/shiprocket",       shiprocketWebhookRouter);
 app.use("/api/v1/featured",         featuredRouter);
 app.use("/api/v1/homepage-config",  homepageConfigRouter);
 app.use("/api/v1/homepage-sections", homepageSectionsRouter);
-app.use("/api/v1/categories",       categoriesRouter);
+app.use("/api/v1/categories",         categoriesRouter);
+app.use("/api/v1/category-sections",  categorySectionsRouter);
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
 app.use("/api/v1/admin/books",            adminBooksRouter);
@@ -160,10 +161,11 @@ app.use("/api/v1/admin/pages",            adminPagesRouter);
 app.use("/api/v1/admin/featured",         adminFeaturedRouter);
 app.use("/api/v1/admin/homepage-config",  adminHomepageConfigRouter);
 app.use("/api/v1/admin/homepage-sections", adminHomepageSectionsRouter);
-app.use("/api/v1/admin/categories",       adminCategoriesRouter);
+app.use("/api/v1/admin/categories",         adminCategoriesRouter);
+app.use("/api/v1/admin/category-sections",  adminCategorySectionsRouter);
 app.use("/api/v1/admin/returns",          adminReturnsRouter);
 app.use("/api/v1/admin/shipping",         adminShippingRouter);
-app.use("/api/v1/admin/shiprocket",       adminShiprocketRouter);
+app.use("/api/v1/admin/shipmozo",         adminShipmozoRouter);
 app.use("/api/v1/admin",                  adminUtilsRouter);
 app.use("/api/v1/diag",                   diagRouter);
 

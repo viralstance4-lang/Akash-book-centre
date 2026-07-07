@@ -50,6 +50,9 @@ export type PrintOrder = {
   pageCount: number;
   copies: number;
   totalPrice: number;
+  deliveryCharge?: number;
+  deliveryType?: string | null;
+  deliveryDistance?: number | null;
   estimatedMinutes: number;
   status: string;
   paymentMethod: "COD" | "ONLINE";
@@ -70,6 +73,7 @@ export type PrintOrderInitiated = {
   printOrderId:    string;
   razorpayOrderId: string;
   amount:          number;
+  deliveryCharge:  number;
   customerName:    string;
   customerEmail:   string;
 };

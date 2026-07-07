@@ -56,6 +56,7 @@ export type Book = {
   isPrintBook?: boolean;
   allowStapleBinding?: boolean;
   allowSpiralBinding?: boolean;
+  isOutOfStock?: boolean;
   height?: number | null;
   length?: number | null;
   breadth?: number | null;
@@ -135,16 +136,16 @@ export type Order = {
   customerEmail?: string | null;
   deliveryType?: "FREE" | "PAID" | null;
   deliveryDistance?: number | null;
-  // ── Shiprocket fields ──────────────────────────────────────────────────────
-  shiprocketOrderId?:    string | null;
-  shiprocketShipmentId?: string | null;
-  awbCode?:              string | null;
-  courierName?:          string | null;
-  trackingUrl?:          string | null;
-  labelUrl?:             string | null;
-  invoiceUrl?:           string | null;
-  manifestUrl?:          string | null;
-  shiprocketStatus?:     string | null;
+  // ── Shipmozo fields ────────────────────────────────────────────────────────
+  shipmozoOrderId?:     string | null;
+  shipmozoReferenceId?: string | null;
+  awbCode?:             string | null;
+  courierName?:         string | null;
+  trackingUrl?:         string | null;
+  labelUrl?:            string | null;
+  invoiceUrl?:          string | null;
+  manifestUrl?:         string | null;
+  shipmozoStatus?:      string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

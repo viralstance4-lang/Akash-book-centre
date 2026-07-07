@@ -1,19 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
+import { getFeaturedBooks } from "../../api/featured.api";
 import { getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
 import ProductListingGrid from "../../components/ui/ProductListingGrid";
 import { useAuthStore } from "../../store/auth.store";
 import type { Book } from "../../types";
 
-export default function AllBooksPage() {
+export default function BestSellersPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const queryClient     = useQueryClient();
   const navigate        = useNavigate();
 
-  const { data: booksData, isLoading } = useQuery({
+  const { data: featuredData, isLoading: featuredLoading } = useQuery({
+    queryKey: ["featured-books"],
+    queryFn:  getFeaturedBooks,
+  });
+
+  const featuredBooks = (featuredData?.data ?? []) as Book[];
+
+  // Fall back to books flagged as featured when no curated best-seller list exists yet
+  const { data: allBooksData, isLoading: allBooksLoading } = useQuery({
     queryKey: ["books", { page: 1, limit: 500 }],
     queryFn:  () => getBooks({ page: 1, limit: 500 }),
+    enabled:  !featuredLoading && featuredBooks.length === 0,
   });
 
   const { data: cartData } = useQuery({
@@ -28,9 +38,12 @@ export default function AllBooksPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
   });
 
-  const allBooks: Book[] = booksData?.data?.books ?? [];
-  const cartBookIds      = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
-  const addingBookId     = addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null;
+  const isLoading = featuredLoading || (featuredBooks.length === 0 && allBooksLoading);
+  const books: Book[] = featuredBooks.length > 0
+    ? featuredBooks
+    : (allBooksData?.data?.books ?? []).filter((b) => b.isFeatured);
+
+  const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
 
   const handleAddToCart = (book: Book) => {
     if (!isAuthenticated) { navigate("/login"); return; }
@@ -38,25 +51,28 @@ export default function AllBooksPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
+    <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-xs text-text-muted">
         <Link to="/" className="hover:text-text-primary transition-colors">Home</Link>
         <span>/</span>
-        <span className="text-text-primary font-medium">All Books</span>
+        <span className="text-text-primary font-medium">Best Sellers</span>
       </nav>
 
       {/* Header */}
-      <h1 className="font-serif text-3xl text-text-primary">All Books</h1>
+      <div>
+        <p className="text-[0.68rem] uppercase tracking-[0.22em] text-text-muted">Most loved</p>
+        <h1 className="font-serif text-3xl text-text-primary">Best Sellers</h1>
+      </div>
 
       <ProductListingGrid
-        books={allBooks}
+        books={books}
         isLoading={isLoading}
         cartBookIds={cartBookIds}
         onAddToCart={handleAddToCart}
-        addingBookId={addingBookId}
-        emptyTitle="No products found"
-        emptyMessage="Check back later for new arrivals."
+        addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
+        emptyTitle="No best sellers yet"
+        emptyMessage="Check back later or browse all books."
       />
     </div>
   );

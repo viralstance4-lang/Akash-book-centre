@@ -105,6 +105,7 @@ model Book {
   isPrintBook        Boolean                  @default(false)
   allowStapleBinding Boolean             @default(false)
   allowSpiralBinding Boolean             @default(false)
+  isOutOfStock       Boolean             @default(false)
   height        Decimal?                 @db.Decimal(10, 2) // cm
   length        Decimal?                 @db.Decimal(10, 2) // cm
   breadth       Decimal?                 @db.Decimal(10, 2) // cm
@@ -120,6 +121,7 @@ model Book {
   cartItems     CartItem[]
   orderItems    OrderItem[]
   reviews       Review[]
+  sectionLinks  CategorySectionBook[]
   @@index([categoryId])
   @@index([subcategoryId])
 }
@@ -207,19 +209,20 @@ model Order {
   customerEmail    String?
   deliveryType     String?       @default("PAID")
   deliveryDistance Decimal?      @db.Decimal(5, 2)
-  // ── Shiprocket integration fields ───────────────────────────────────────
-  shiprocketOrderId    String?
-  shiprocketShipmentId String?
+  // ── Shipmozo integration fields ──────────────────────────────────────────
+  shipmozoOrderId      String?
+  shipmozoReferenceId  String?
   awbCode              String?
   courierName          String?
   trackingUrl          String?
   labelUrl             String?
   invoiceUrl           String?
   manifestUrl          String?
-  shiprocketStatus     String?   @default("NOT_CREATED")
+  shipmozoStatus       String?   @default("NOT_CREATED")
   invoiceNumber    String?       @unique
   invoiceSent      Boolean       @default(false)
   invoiceSentAt    DateTime?
+  adminSeen        Boolean       @default(false)
   /// Shipping zone, weight, and rate breakdown — populated at order time
   shippingDetails  Json?
   createdAt        DateTime      @default(now())
@@ -232,14 +235,6 @@ model Order {
   @@index([awbCode])
 }
 
-/// Cached Shiprocket JWT token – auto-refreshed when near expiry
-model ShiprocketToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  token     String   @db.Text
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
 
 model OrderItem {
   id              String  @id @default(uuid()) @db.Uuid
@@ -408,6 +403,9 @@ model PrintOrder {
   customerName    String?
   customerPhone   String?     @db.VarChar(20)
   customerAddress String?
+  deliveryCharge   Decimal   @default(0) @db.Decimal(10, 2)
+  deliveryType     String?   @default("PAID")
+  deliveryDistance Decimal?  @db.Decimal(5, 2)
   colorPrice    Decimal?      @db.Decimal(10, 2)
   bwPrice       Decimal?      @db.Decimal(10, 2)
   bindingExtra  Decimal?      @db.Decimal(10, 2)
@@ -415,6 +413,7 @@ model PrintOrder {
   invoiceNumber String?       @unique
   invoiceSent   Boolean       @default(false)
   invoiceSentAt DateTime?
+  adminSeen     Boolean       @default(false)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   user          User          @relation(fields: [userId], references: [id])
@@ -466,9 +465,10 @@ model Category {
   order         Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
-  subcategories Subcategory[]
-  books         Book[]
-  bookCategories BookCategory[]
+  subcategories    Subcategory[]
+  books            Book[]
+  bookCategories   BookCategory[]
+  sections         CategorySection[]
 }
 
 /// Sub-category belonging to a Category
@@ -483,9 +483,11 @@ model Subcategory {
   order         Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  books         Book[]
+  category         Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  books            Book[]
   bookSubcategories BookSubcategory[]
+  sections         CategorySection[]
+  sectionSubcategories CategorySectionSubcategory[]
   @@unique([categoryId, name])
   @@index([categoryId])
 }
@@ -541,6 +543,10 @@ model ShippingSettings {
   localZoneRate         Decimal  @default(50)  @db.Decimal(10, 2)
   /// North East (Arunachal Pradesh, Assam, Manipur, Meghalaya, Mizoram, Nagaland, Tripura, Sikkim)
   northEastRate         Decimal  @default(80)  @db.Decimal(10, 2)
+  /// ── Flat area charges (added on top of weight charge for beyond-threshold orders) ──
+  localZoneAreaCharge   Decimal  @default(0)   @db.Decimal(10, 2)
+  northEastAreaCharge   Decimal  @default(0)   @db.Decimal(10, 2)
+  defaultAreaCharge     Decimal  @default(0)   @db.Decimal(10, 2)
   // ── Legacy fields (kept for backward compatibility) ──────────────────
   freeRadius            Float    @default(5.0)
   baseCharge            Decimal  @default(50) @db.Decimal(10, 2)
@@ -549,4 +555,54 @@ model ShippingSettings {
   prepaidDiscountType   String   @default("PERCENT")
   prepaidDiscountValue  Decimal  @default(5)  @db.Decimal(10, 2)
   updatedAt             DateTime @updatedAt
+}
+
+/// Admin-defined sections that appear as cards on the customer-facing Categories page
+model CategorySection {
+  id            String   @id @default(uuid()) @db.Uuid
+  heading       String
+  imageUrl      String?
+  imagePublicId String?
+  /// "category" = auto-resolved from a category/subcategory | "manual" = hand-picked books
+  contentType   String   @default("category") @db.VarChar(20)
+  categoryId    String?  @db.Uuid
+  subcategoryId String?  @db.Uuid
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  category    Category?    @relation(fields: [categoryId],    references: [id], onDelete: SetNull)
+  subcategory Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  sectionBooks         CategorySectionBook[]
+  sectionSubcategories CategorySectionSubcategory[]
+
+  @@index([sortOrder])
+}
+
+/// Junction table: books manually pinned to a CategorySection
+model CategorySectionBook {
+  id        String          @id @default(uuid()) @db.Uuid
+  sectionId String          @db.Uuid
+  bookId    String          @db.Uuid
+  sortOrder Int             @default(0)
+
+  section   CategorySection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  book      Book            @relation(fields: [bookId],    references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, bookId])
+  @@index([sectionId])
+}
+
+/// Junction table: subcategories linked to a CategorySection (multi-subcategory support)
+model CategorySectionSubcategory {
+  id            String          @id @default(uuid()) @db.Uuid
+  sectionId     String          @db.Uuid
+  subcategoryId String          @db.Uuid
+
+  section     CategorySection @relation(fields: [sectionId],     references: [id], onDelete: Cascade)
+  subcategory Subcategory     @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, subcategoryId])
+  @@index([sectionId])
 }

@@ -4,12 +4,16 @@ import type { ApiSuccessResponse } from "../types";
 export type SectionType    = "books" | "banner" | "categories" | "printCta" | "allBooks";
 export type LayoutType     = "horizontal" | "grid" | "carousel";
 export type BookFilterType = "newArrivals" | "bestSellers" | "featured" | "all";
+/** How a 'categories' section displays each selected category — 'auto' shows
+ *  its subcategories when it has any, else falls back to the category itself. */
+export type CategoryDisplayMode = "auto" | "categories" | "subcategories";
 
 export interface SectionConfig {
   limit?:                 number;
   showAll?:               boolean;
   selectedCategoryIds?:   string[];
   selectedSubcategoryIds?: string[];
+  displayMode?:           CategoryDisplayMode;
   useManual?:             boolean;
   selectedProductIds?:    string[];
 }

@@ -1,10 +1,11 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Layers3 } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBooks } from "../../api/books.api";
-import { getCategories, type Category } from "../../api/categories.api";
+import { getCategories, type Category, type Subcategory } from "../../api/categories.api";
 import { addToCart, getCart } from "../../api/cart.api";
-import BookCard from "../../components/ui/BookCard";
+import CategorySidebar from "../../components/ui/CategorySidebar";
+import ProductListingGrid from "../../components/ui/ProductListingGrid";
 import { useAuthStore } from "../../store/auth.store";
 import type { Book } from "../../types";
 
@@ -12,27 +13,33 @@ export default function SubcategoryPage() {
   const { slug } = useParams<{ slug: string }>();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const queryClient     = useQueryClient();
+  const navigate        = useNavigate();
 
-  // Find which category owns this subcategory
-  const { data: catsData } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
+  const { data: catsData, isLoading: catsLoading } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
   const categories: Category[] = catsData?.data ?? [];
 
   let categorySlug: string | undefined;
-  let subcategoryName = "";
   let categoryName    = "";
+  let subcategory: Subcategory | undefined;
+  let parentCategory: Category | undefined;
+
   for (const cat of categories) {
     const sub = cat.subcategories.find((s) => s.slug === slug);
     if (sub) {
       categorySlug    = cat.slug;
       categoryName    = cat.name;
-      subcategoryName = sub.name;
+      subcategory     = sub;
+      parentCategory  = cat;
       break;
     }
   }
 
-  const { data: booksData, isLoading } = useQuery({
+  const subcategoryName      = subcategory?.name ?? "";
+  const siblingSubcategories = parentCategory?.subcategories.filter((s) => s.isActive) ?? [];
+
+  const { data: booksData, isLoading: booksLoading } = useQuery({
     queryKey: ["books-subcategory", slug],
-    queryFn:  () => getBooks({ subcategory: slug, limit: 100 }),
+    queryFn:  () => getBooks({ subcategory: slug, limit: 200 }),
     enabled:  !!slug,
   });
 
@@ -49,69 +56,133 @@ export default function SubcategoryPage() {
 
   const books: Book[]  = booksData?.data?.books ?? [];
   const cartBookIds    = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const addingBookId   = addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null;
 
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-2 text-xs text-text-muted">
-        <Link to="/" className="hover:text-text-primary transition-colors">Home</Link>
-        <span>/</span>
-        {categorySlug ? (
-          <Link to={`/category/${categorySlug}`} className="hover:text-text-primary transition-colors">
-            {categoryName}
-          </Link>
-        ) : (
-          <span>Category</span>
-        )}
-        <span>/</span>
-        <span className="text-text-primary font-medium">{subcategoryName || slug}</span>
-      </nav>
+  const handleAddToCart = (book: Book) => {
+    if (!isAuthenticated) { navigate("/login"); return; }
+    addToCartMutation.mutate({ bookId: book.id, quantity: 1 });
+  };
 
-      {/* Header */}
-      <div className="mb-8">
-        <p className="text-[0.68rem] uppercase tracking-[0.22em] text-text-muted">
-          {categoryName && `${categoryName} › `}Books
-        </p>
-        <h1 className="font-serif text-3xl text-text-primary">{subcategoryName || slug}</h1>
-        {!isLoading && (
-          <p className="mt-1 text-sm text-text-muted">
-            {books.length} book{books.length !== 1 ? "s" : ""}
-          </p>
-        )}
+  const outerClass = "-mx-4 -my-5 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex min-h-screen";
+
+  // ── Loading ───────────────────────────────────────────────────────────────────
+  if (catsLoading) {
+    return (
+      <div className={outerClass}>
+        {/* Category sidebar skeleton */}
+        <aside className="w-[60px] sm:w-[72px] shrink-0 border-r border-gray-100 bg-white">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex flex-col items-center gap-1.5 px-2 py-2.5">
+              <div className="h-10 w-10 animate-pulse rounded-xl bg-black/8" />
+              <div className="h-2 w-9 animate-pulse rounded bg-black/8" />
+            </div>
+          ))}
+        </aside>
+        {/* Subcategory sidebar skeleton */}
+        <aside className="w-[72px] sm:w-[90px] shrink-0 border-r border-gray-100 bg-white">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex flex-col items-center gap-1.5 px-2 py-3">
+              <div className="h-11 w-11 animate-pulse rounded-xl bg-black/8" />
+              <div className="h-2 w-10 animate-pulse rounded bg-black/8" />
+            </div>
+          ))}
+        </aside>
+        <div className="flex-1 px-3 pt-4">
+          <div className="grid grid-cols-2 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="aspect-[3/4] animate-pulse rounded-2xl bg-black/8" />
+            ))}
+          </div>
+        </div>
       </div>
+    );
+  }
 
-      {isLoading ? (
-        <div className="grid grid-cols-3 gap-2 md:grid-cols-4 lg:grid-cols-5">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-[3/4] animate-pulse rounded-2xl bg-black/8" />
-          ))}
-        </div>
-      ) : books.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-20 text-text-muted">
-          <BookOpen size={36} strokeWidth={1.2} />
-          <p className="text-sm">No books in this subcategory yet.</p>
-          {categorySlug && (
-            <Link to={`/category/${categorySlug}`}
-              className="mt-2 inline-flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors">
-              <ArrowLeft size={13} /> Back to {categoryName}
+  // ── Not found ─────────────────────────────────────────────────────────────────
+  if (!subcategory) {
+    return (
+      <div className={outerClass}>
+        <CategorySidebar />
+        <div className="flex-1 flex items-center justify-center py-20">
+          <div className="text-center px-4">
+            <p className="font-serif text-2xl text-text-primary">Subcategory not found</p>
+            <Link to="/" className="mt-4 inline-flex items-center gap-2 text-sm text-text-muted hover:text-text-primary">
+              <ArrowLeft size={14} /> Back to home
             </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 3-panel layout (same structure as CategoryPage blinkit layout) ─────────────
+  return (
+    <div className={outerClass}>
+      <CategorySidebar activeCategorySlug={categorySlug} />
+
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Parent category name header */}
+        <div className="px-3 py-2.5 border-b border-gray-100 bg-white">
+          <h1 className="font-serif text-base text-text-primary sm:text-lg leading-tight">{categoryName}</h1>
+        </div>
+
+        <div className="flex flex-1">
+          {/* Subcategory sidebar — sibling subcategories, current one highlighted */}
+          {siblingSubcategories.length > 0 && (
+            <aside className="w-[72px] sm:w-[90px] shrink-0 sticky top-[125px] sm:top-16 self-start max-h-[calc(100vh-125px)] sm:max-h-[calc(100vh-4rem)] overflow-y-auto border-r border-gray-100 bg-white scrollbar-none">
+              {siblingSubcategories.map((sub) => {
+                const active = sub.slug === slug;
+                return (
+                  <Link
+                    key={sub.id}
+                    to={`/subcategory/${sub.slug}`}
+                    className={`w-full flex flex-col items-center gap-1 px-1.5 py-3 border-l-[3px] transition-colors ${
+                      active
+                        ? "border-red-500 bg-red-50/70"
+                        : "border-transparent hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="h-11 w-11 rounded-xl overflow-hidden bg-[#f4efe7] shrink-0 flex items-center justify-center">
+                      {sub.imageUrl ? (
+                        <img src={sub.imageUrl} alt={sub.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <Layers3 size={16} className="text-text-muted/50" strokeWidth={1.4} />
+                      )}
+                    </div>
+                    <span className={`text-[9px] leading-tight text-center break-words w-full px-0.5 ${
+                      active ? "text-red-500 font-semibold" : "text-gray-500"
+                    }`}>
+                      {sub.name}
+                    </span>
+                  </Link>
+                );
+              })}
+            </aside>
           )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-2 md:grid-cols-4 lg:grid-cols-5">
-          {books.map((book) => (
-            <BookCard
-              key={book.id}
-              book={book}
-              isInCart={cartBookIds.has(book.id)}
-              onAddToCart={isAuthenticated
-                ? (b) => addToCartMutation.mutate({ bookId: b.id, quantity: 1 })
-                : undefined}
-              isAddingToCart={addToCartMutation.isPending}
+
+          {/* Product content */}
+          <div className="flex-1 min-w-0 px-2 pt-3 pb-20">
+            <div className="mb-3">
+              <h2 className="font-serif text-sm font-medium text-text-primary leading-tight">
+                {subcategoryName}
+              </h2>
+            </div>
+            <ProductListingGrid
+              books={books}
+              isLoading={booksLoading}
+              cartBookIds={cartBookIds}
+              onAddToCart={handleAddToCart}
+              addingBookId={addingBookId}
+              emptyTitle="No products found"
+              emptyMessage="No books in this subcategory yet."
+              enableSearch={false}
+              enableSort={false}
+              enablePriceFilter={false}
+              columns={2}
             />
-          ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -2,7 +2,8 @@ import crypto from "crypto";
 
 import env from "../../config/env";
 import AppError from "../../lib/AppError";
-import { sendAdminOrderNotification, sendOrderInvoice } from "../../lib/email";
+import logger from "../../config/logger";
+import { sendAdminOrderNotification, sendInvoiceNotification, sendOrderInvoice } from "../../lib/email";
 import { generateInvoicePdf } from "../../lib/invoice";
 import prisma from "../../lib/prisma";
 
@@ -161,12 +162,25 @@ export const verifyPayment = async (
     invoiceNumber: invNum,
   };
 
-  sendAdminOrderNotification(orderData).catch(() => {});
+  // Payment confirmed — now safe to clear the cart
+  prisma.cart.findUnique({ where: { userId } })
+    .then((cart) => cart ? prisma.cartItem.deleteMany({ where: { cartId: cart.id } }) : null)
+    .catch(() => {});
 
-  if (customerEmail && invNum) {
+  sendAdminOrderNotification(orderData).catch(() => {});
+  sendInvoiceNotification({
+    orderId:       updatedOrder.id,
+    orderType:     "BOOK",
+    customerName:  shippingAddress.name ?? "Customer",
+    customerEmail,
+    total:         finalAmt,
+    paymentMethod: "ONLINE",
+  }).catch(() => {});
+
+  if (customerEmail) {
     const sendWithPdf = async () => {
       try {
-        const pdfBuffer = await generateInvoicePdf({
+        const pdfBuffer = invNum ? await generateInvoicePdf({
           invoiceNumber:  invNum,
           orderId:        updatedOrder.id,
           createdAt:      updatedOrder.createdAt,
@@ -185,19 +199,17 @@ export const verifyPayment = async (
           discount,
           total:         finalAmt,
           paymentMethod: "ONLINE",
-        });
+        }) : undefined;
         await sendOrderInvoice(customerEmail, orderData, pdfBuffer);
         await prisma.order.update({
           where: { id: updatedOrder.id },
           data:  { invoiceSent: true, invoiceSentAt: new Date() },
         });
       } catch (err) {
-        console.error("[INVOICE] Online order invoice failed:", (err as Error).message);
+        logger.error({ err: (err as Error).message, orderId: updatedOrder.id }, "[INVOICE] Online order invoice failed");
       }
     };
     sendWithPdf().catch(() => {});
-  } else if (customerEmail) {
-    sendOrderInvoice(customerEmail, orderData).catch(() => {});
   }
 
   return updatedOrder;

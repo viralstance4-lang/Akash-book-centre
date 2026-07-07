@@ -10,7 +10,7 @@ export default function SiteLogo({ size = "md", className = "", onClick }: Props
   const settings = data?.data;
 
   const configWidth = (settings as any)?.logoWidth ?? 120;
-  const configHeight = (settings as any)?.logoHeight ?? 40;
+  const configHeight = (settings as any)?.logoHeight ?? 56;
   const scale = size === "sm" ? 0.7 : size === "lg" ? 1.4 : 1;
   const width = Math.round(configWidth * scale);
   const height = Math.round(configHeight * scale);
@@ -20,10 +20,11 @@ export default function SiteLogo({ size = "md", className = "", onClick }: Props
 
   return (
     <Link to="/" onClick={onClick}
-      className={`shrink-0 flex items-center gap-2 font-serif font-bold tracking-tighter text-text-primary transition-opacity hover:opacity-80 ${textSize} ${className}`}>
+      className={`shrink-0 inline-flex items-center gap-2 font-serif font-bold tracking-tighter text-text-primary transition-opacity hover:opacity-80 ${textSize} ${className}`}>
       {settings?.logoUrl ? (
         <img src={settings.logoUrl} alt={settings.storeName ?? "Logo"}
-          style={{ width, height, objectFit: "contain" }} />
+          className="w-auto max-h-[60px] sm:max-h-none"
+          style={{ height, maxWidth: width, objectFit: "contain" }} />
       ) : (
         <>
           <BookOpen size={iconSize} className="text-accent" />

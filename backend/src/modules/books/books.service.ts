@@ -14,6 +14,7 @@ type CreateBookInput = {
   isPrintBook?: boolean;
   allowStapleBinding?: boolean;
   allowSpiralBinding?: boolean;
+  isOutOfStock?: boolean;
   height?: number;
   length?: number;
   breadth?: number;
@@ -130,6 +131,7 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
         isPrintBook:        data.isPrintBook        ?? false,
         allowStapleBinding: data.allowStapleBinding ?? false,
         allowSpiralBinding: data.allowSpiralBinding ?? false,
+        isOutOfStock:       data.isOutOfStock       ?? false,
         height: data.height ?? null,
         length: data.length ?? null,
         breadth: data.breadth ?? null,
@@ -211,6 +213,7 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
         ...(data.isPrintBook        !== undefined && { isPrintBook:        data.isPrintBook }),
         ...(data.allowStapleBinding !== undefined && { allowStapleBinding: data.allowStapleBinding }),
         ...(data.allowSpiralBinding !== undefined && { allowSpiralBinding: data.allowSpiralBinding }),
+        ...(data.isOutOfStock       !== undefined && { isOutOfStock:       data.isOutOfStock }),
         ...(data.height       !== undefined && { height:       data.height }),
         ...(data.length       !== undefined && { length:       data.length }),
         ...(data.breadth      !== undefined && { breadth:      data.breadth }),

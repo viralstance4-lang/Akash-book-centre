@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Layers3 } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { Category } from "../../api/categories.api";
+import type { CategorySectionItem } from "../../utils/sectionLinks";
 
 type Props = {
-  categories: Category[];
+  categories: CategorySectionItem[];
 };
 
 export default function CategorySlider({ categories }: Props) {
@@ -63,13 +63,12 @@ export default function CategorySlider({ categories }: Props) {
         {categories.map((cat) => (
           <Link
             key={cat.id}
-            to={`/category/${cat.slug}`}
+            to={cat.href}
             style={{ scrollSnapAlign: "start" }}
             className={[
-              // Mobile: 4 per view, sm: 5, lg: 7
               "shrink-0",
               "w-[calc(25%-6px)] sm:w-[calc(20%-6px)] lg:w-[calc(14.28%-6px)]",
-              "group relative overflow-hidden rounded-2xl border border-black/8",
+              "group overflow-hidden rounded-2xl border border-black/8",
               "transition-all hover:-translate-y-0.5 hover:border-black/20 hover:shadow-sm",
             ].join(" ")}
           >
@@ -86,15 +85,8 @@ export default function CategorySlider({ categories }: Props) {
                 </div>
               )}
             </div>
-
-            {cat.imageUrl && (
-              <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent pointer-events-none" />
-            )}
-
-            <div className={cat.imageUrl ? "absolute bottom-0 left-0 right-0 px-1.5 pb-2" : "relative px-1.5 pb-2 pt-1.5"}>
-              <p className={`truncate text-[10px] font-semibold leading-tight text-center sm:text-[11px] ${
-                cat.imageUrl ? "text-white drop-shadow-sm" : "text-text-primary"
-              }`}>
+            <div className="px-1.5 pb-2 pt-1.5">
+              <p className="truncate text-[10px] font-semibold leading-tight text-center text-text-primary sm:text-[11px]">
                 {cat.name}
               </p>
             </div>

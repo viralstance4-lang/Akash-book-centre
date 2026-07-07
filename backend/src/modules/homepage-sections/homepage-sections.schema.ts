@@ -3,12 +3,16 @@ import { z } from "zod";
 export const SECTION_TYPES    = ["books", "banner", "categories", "printCta", "allBooks"] as const;
 export const LAYOUT_TYPES     = ["horizontal", "grid", "carousel"] as const;
 export const BOOK_FILTER_TYPES = ["newArrivals", "bestSellers", "featured", "all"] as const;
+/// How a 'categories' section displays each selected category:
+/// 'auto' shows its subcategories when it has any, else the category itself.
+export const CATEGORY_DISPLAY_MODES = ["auto", "categories", "subcategories"] as const;
 
 export const SectionConfigSchema = z.object({
   limit:                  z.number().int().positive().max(100).optional(),
   showAll:                z.boolean().optional(),
   selectedCategoryIds:    z.array(z.string()).optional(),
   selectedSubcategoryIds: z.array(z.string()).optional(),
+  displayMode:            z.enum(CATEGORY_DISPLAY_MODES).optional(),
   useManual:              z.boolean().optional(),
   selectedProductIds:     z.array(z.string()).optional(),
 }).default({});

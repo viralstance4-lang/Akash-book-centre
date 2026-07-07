@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import AdminLayout from "../components/layout/AdminLayout";
 import StorefrontLayout from "../components/layout/StorefrontLayout";
 import { getMe, refreshToken } from "../api/auth.api";
 import AdminBannersPage from "../pages/admin/AdminBannersPage";
+import AdminCategorySectionsPage from "../pages/admin/AdminCategorySectionsPage";
 import AdminHomepageBuilderPage from "../pages/admin/AdminHomepageBuilderPage";
 import AdminBooksPage from "../pages/admin/AdminBooksPage";
 import AdminCategoriesPage from "../pages/admin/AdminCategoriesPage";
@@ -35,17 +36,25 @@ import OrderDetailPage from "../pages/storefront/OrderDetailPage";
 import SubcategoryPage from "../pages/storefront/SubcategoryPage";
 import OrdersPage from "../pages/storefront/OrdersPage";
 import AllBooksPage from "../pages/storefront/AllBooksPage";
+import BestSellersPage from "../pages/storefront/BestSellersPage";
 import FeaturedBooksPage from "../pages/storefront/FeaturedBooksPage";
 import PrintBookPage from "../pages/storefront/PrintBookPage";
 import ReturnsPage from "../pages/storefront/ReturnsPage";
 import MyReturnsPage from "../pages/storefront/MyReturnsPage";
+import SectionBooksPage from "../pages/storefront/SectionBooksPage";
 import { useAuthStore } from "../store/auth.store";
 import AdminRoute from "./AdminRoute";
 import ProtectedRoute from "./ProtectedRoute";
 import { SessionRestoreSkeleton } from "../components/ui/SkeletonLoader";
 
-/** 10-hour session check interval — every 5 minutes */
+/** Inactivity check interval — every 5 minutes, fires setSessionExpired if idle 10 h */
 const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+}
 
 function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -98,7 +107,7 @@ export default function AppRouter() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Periodic 10-hour session expiry check ─────────────────────────────────
+  // ── Periodic inactivity expiry check ─────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -131,6 +140,7 @@ export default function AppRouter() {
   return (
     <div className={`transition-opacity duration-500 ease-out ${isRouterVisible ? "opacity-100" : "opacity-0"}`}>
       <BrowserRouter>
+        <ScrollToTop />
         <Routes>
           <Route element={<StorefrontLayout />}>
           <Route path="/"                       element={<HomePage />} />
@@ -139,10 +149,12 @@ export default function AppRouter() {
           <Route path="/subcategory/:slug"       element={<SubcategoryPage />} />
           <Route path="/books/:id"              element={<BookDetailPage />} />
           <Route path="/all-books"       element={<AllBooksPage />} />
+          <Route path="/best-sellers"    element={<BestSellersPage />} />
           <Route path="/featured"        element={<FeaturedBooksPage />} />
           <Route path="/print-book"     element={<PrintBookPage />} />
           <Route path="/returns"        element={<ReturnsPage />} />
           <Route path="/pages/:slug"    element={<DynamicPage />} />
+          <Route path="/section/:id"    element={<SectionBooksPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/cart"         element={<CartPage />} />
             <Route path="/checkout"     element={<CheckoutPage />} />
@@ -172,7 +184,8 @@ export default function AppRouter() {
             <Route path="/admin/returns"      element={<AdminReturnsPage />} />
             <Route path="/admin/shipping"         element={<AdminShippingPage />} />
             <Route path="/admin/settings"          element={<AdminSettingsPage />} />
-            <Route path="/admin/homepage-builder" element={<AdminHomepageBuilderPage />} />
+            <Route path="/admin/homepage-builder"      element={<AdminHomepageBuilderPage />} />
+            <Route path="/admin/category-sections"    element={<AdminCategorySectionsPage />} />
           </Route>
         </Route>
 

@@ -35,6 +35,9 @@ export interface ShippingConfig {
   defaultKgRate:         number;   // ₹/kg fallback (All India)
   localZoneRate:         number;   // ₹/kg for Delhi NCR zone
   northEastRate:         number;   // ₹/kg for North East zone
+  localZoneAreaCharge:   number;   // flat area charge for Delhi NCR (added to weight charge)
+  northEastAreaCharge:   number;   // flat area charge for North East
+  defaultAreaCharge:     number;   // flat area charge for All India
   stateRates:            StateRate[];
 }
 
@@ -49,19 +52,28 @@ export interface ShippingInput {
 export type ShippingType = "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
 
 export interface ShippingResult {
-  charge:    number;
-  type:      ShippingType;
-  zone?:     string;       // human-readable zone name for display
+  charge:      number;
+  areaCharge?: number;    // flat zone fee (for WEIGHT_BASED only)
+  weightCharge?: number;  // weight × rate component (for WEIGHT_BASED only)
+  type:        ShippingType;
+  zone?:       string;    // human-readable zone name for display
   breakdown: {
     distance?:       number;
     orderValue?:     number;
     rate?:           number;
     weight?:         number;
+    areaCharge?:     number;
+    weightCharge?:   number;
     usedFallback?:   boolean;
     matchedState?:   string;
     zone?:           string;
   };
 }
+
+// ─── Packaging weight ─────────────────────────────────────────────────────────
+
+/** Fixed packaging weight added to every order before shipping is calculated. */
+export const PACKAGING_WEIGHT_KG = 0.15;
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
@@ -73,6 +85,9 @@ const DEFAULT_SETTINGS = {
   defaultKgRate:         70,   // All India
   localZoneRate:         50,   // Delhi NCR
   northEastRate:         80,   // North East
+  localZoneAreaCharge:   0,    // flat area charge Delhi NCR (default 0)
+  northEastAreaCharge:   0,    // flat area charge North East
+  defaultAreaCharge:     0,    // flat area charge All India
   stateRates:            [] as StateRate[],
   // legacy fields
   freeRadius:            5.0,
@@ -142,19 +157,22 @@ export class ShippingService {
       };
     }
 
-    // ── Step 2: Beyond threshold → zone-based weight pricing ─────────────────
-    const zone    = ShippingService.detectZone(city, state);
+    // ── Step 2: Beyond threshold → zone-based weight + area pricing ──────────
+    const zone      = ShippingService.detectZone(city, state);
     const zoneLabel = ZONE_LABELS[zone];
 
     let rate:         number;
+    let areaCharge:   number;
     let usedFallback: boolean;
     let matchedState: string | undefined;
 
     if (zone === "LOCAL_DELHI_NCR") {
       rate         = config.localZoneRate;
+      areaCharge   = config.localZoneAreaCharge;
       usedFallback = false;
     } else if (zone === "NORTH_EAST") {
       rate         = config.northEastRate;
+      areaCharge   = config.northEastAreaCharge;
       usedFallback = false;
     } else {
       // ALL_INDIA — check per-state overrides first (backward compat), then defaultKgRate
@@ -162,19 +180,25 @@ export class ShippingService {
         ? config.stateRates.find((r) => r.state.toLowerCase() === state.toLowerCase())
         : undefined;
       rate         = matched?.rate ?? config.defaultKgRate;
+      areaCharge   = config.defaultAreaCharge;
       usedFallback = !matched;
       matchedState = matched?.state;
     }
 
-    const charge = Math.round(weightInKg * rate);
+    const weightCharge = Math.round(weightInKg * rate);
+    const charge       = areaCharge + weightCharge;
 
     return {
       charge,
+      areaCharge,
+      weightCharge,
       type:      "WEIGHT_BASED",
       zone:      matchedState ?? zoneLabel,
       breakdown: {
         weight:       weightInKg,
         rate,
+        areaCharge,
+        weightCharge,
         usedFallback,
         matchedState,
         zone:         zoneLabel,
@@ -250,8 +274,11 @@ export class ShippingService {
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
       defaultKgRate:         Number(row.defaultKgRate),
-      localZoneRate:         Number(row.localZoneRate  ?? DEFAULT_SETTINGS.localZoneRate),
-      northEastRate:         Number(row.northEastRate  ?? DEFAULT_SETTINGS.northEastRate),
+      localZoneRate:         Number(row.localZoneRate        ?? DEFAULT_SETTINGS.localZoneRate),
+      northEastRate:         Number(row.northEastRate        ?? DEFAULT_SETTINGS.northEastRate),
+      localZoneAreaCharge:   Number(row.localZoneAreaCharge  ?? 0),
+      northEastAreaCharge:   Number(row.northEastAreaCharge  ?? 0),
+      defaultAreaCharge:     Number(row.defaultAreaCharge    ?? 0),
       stateRates:            Array.isArray(row.stateRates) ? (row.stateRates as StateRate[]) : [],
     };
   }

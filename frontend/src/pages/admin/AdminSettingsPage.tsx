@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle, ImagePlus, Save, Trash2, Truck, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { getShiprocketPickupLocations, type PickupLocation, testShiprocketAuth } from "../../api/admin.api";
+import { testShipmozoConnection } from "../../api/admin.api";
 import { getSettings, updateSettings } from "../../api/settings.api";
 
 export default function AdminSettingsPage() {
@@ -18,20 +18,12 @@ export default function AdminSettingsPage() {
   const [spiralBindingPrice, setSpiralBindingPrice] = useState(30);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
-  const [srTestResult,    setSrTestResult]    = useState<{ ok: boolean; message: string } | null>(null);
-  const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
-  const [selectedPickup,  setSelectedPickup]  = useState("");
+  const [smTestResult, setSmTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const srTestMutation = useMutation({
-    mutationFn: testShiprocketAuth,
-    onSuccess: (data) => setSrTestResult({ ok: data.success, message: data.message }),
-    onError: (e: any) => setSrTestResult({ ok: false, message: e?.response?.data?.message ?? e?.message ?? "Request failed" }),
-  });
-
-  const srPickupMutation = useMutation({
-    mutationFn: getShiprocketPickupLocations,
-    onSuccess: (data) => { setPickupLocations(data.data ?? []); setSelectedPickup(""); },
-    onError: (e: any) => setSrTestResult({ ok: false, message: e?.response?.data?.message ?? e?.message ?? "Failed to fetch locations" }),
+  const smTestMutation = useMutation({
+    mutationFn: testShipmozoConnection,
+    onSuccess: (data) => setSmTestResult({ ok: data.success, message: data.message }),
+    onError: (e: any) => setSmTestResult({ ok: false, message: e?.response?.data?.message ?? e?.message ?? "Request failed" }),
   });
 
   const { data, isLoading } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
@@ -223,71 +215,39 @@ export default function AdminSettingsPage() {
         <ArrowRight size={16} className="text-text-muted group-hover:text-text-primary transition-colors shrink-0" />
       </Link>
 
-      {/* Shiprocket Diagnostics */}
+      {/* Shipmozo Connection */}
       <div className="rounded-2xl border border-black/8 bg-white p-5 space-y-3">
-        <h3 className="font-serif text-lg text-text-primary">Shiprocket Connection</h3>
+        <h3 className="font-serif text-lg text-text-primary">Shipmozo Connection</h3>
         <p className="text-xs text-text-muted">
-          Tests credentials and lets you see the exact Pickup Location Name to paste in your .env.
+          Verify that SHIPMOZO_PUBLIC_KEY and SHIPMOZO_PRIVATE_KEY are set correctly in your .env.
         </p>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => { setSrTestResult(null); srTestMutation.mutate(); }}
-            disabled={srTestMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-xs font-medium text-text-primary hover:bg-[#f4efe7] disabled:opacity-50 transition-colors"
-          >
-            <Truck size={13} />
-            {srTestMutation.isPending ? "Testing…" : "Test Shiprocket Auth"}
-          </button>
+        <button
+          type="button"
+          onClick={() => { setSmTestResult(null); smTestMutation.mutate(); }}
+          disabled={smTestMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-xs font-medium text-text-primary hover:bg-[#f4efe7] disabled:opacity-50 transition-colors"
+        >
+          <Truck size={13} />
+          {smTestMutation.isPending ? "Testing…" : "Test Shipmozo Connection"}
+        </button>
 
-          <button
-            type="button"
-            onClick={() => { setSrTestResult(null); srPickupMutation.mutate(); }}
-            disabled={srPickupMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-xs font-medium text-text-primary hover:bg-[#f4efe7] disabled:opacity-50 transition-colors"
-          >
-            <Truck size={13} />
-            {srPickupMutation.isPending ? "Loading…" : "Load Pickup Locations"}
-          </button>
-        </div>
-
-        {srTestResult && (
-          <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm ${srTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
-            {srTestResult.ok
+        {smTestResult && (
+          <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm ${smTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+            {smTestResult.ok
               ? <CheckCircle size={16} className="mt-0.5 shrink-0" />
               : <XCircle size={16} className="mt-0.5 shrink-0" />}
-            <span>{srTestResult.message}</span>
+            <span>{smTestResult.message}</span>
           </div>
         )}
 
-        {pickupLocations.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-text-muted uppercase tracking-widest">
-              Your Pickup Locations — copy the Name into SHIPROCKET_PICKUP_LOCATION in .env
-            </p>
-            <select
-              value={selectedPickup}
-              onChange={(e) => setSelectedPickup(e.target.value)}
-              className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-3 py-2.5 text-sm outline-none focus:bg-white"
-            >
-              <option value="">— Select to view details —</option>
-              {pickupLocations.map((loc) => (
-                <option key={loc.id} value={loc.name}>
-                  {loc.name} — {loc.city}, {loc.state} {loc.pincode}
-                </option>
-              ))}
-            </select>
-            {selectedPickup && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 space-y-1">
-                <p className="text-xs text-emerald-700 font-medium">Copy this into your .env:</p>
-                <code className="block text-sm font-mono text-emerald-800 select-all bg-emerald-100 rounded-lg px-3 py-2">
-                  SHIPROCKET_PICKUP_LOCATION={selectedPickup}
-                </code>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="rounded-xl border border-black/8 bg-[#f8f4ee] px-4 py-3 space-y-1">
+          <p className="text-[11px] font-medium text-text-muted uppercase tracking-widest">Required .env keys</p>
+          <code className="block text-xs font-mono text-text-primary">SHIPMOZO_PUBLIC_KEY=your_public_key</code>
+          <code className="block text-xs font-mono text-text-primary">SHIPMOZO_PRIVATE_KEY=your_private_key</code>
+          <code className="block text-xs font-mono text-text-primary">SHIPMOZO_WAREHOUSE_ID=your_warehouse_id</code>
+          <code className="block text-xs font-mono text-text-primary">SHIPMOZO_PICKUP_PINCODE=110008</code>
+        </div>
       </div>
 
       {/* Preview */}

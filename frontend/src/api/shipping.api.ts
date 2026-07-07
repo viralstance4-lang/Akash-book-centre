@@ -15,6 +15,10 @@ export interface ShippingSettings {
   localZoneRate: number;
   northEastRate: number;
   defaultKgRate: number;
+  // Flat area charges per zone (added on top of weight charge)
+  localZoneAreaCharge: number;
+  northEastAreaCharge: number;
+  defaultAreaCharge: number;
   updatedAt: string;
 }
 
@@ -32,9 +36,12 @@ export const getShippingSettings = async (): Promise<ShippingSettings> => {
     prepaidDiscountValue:  c.prepaidDiscountValue ?? 0,
     isShippingEnabled:     c.isShippingEnabled,
     freeDeliveryThreshold: c.freeDeliveryThreshold,
-    localZoneRate:         c.localZoneRate  ?? 50,
-    northEastRate:         c.northEastRate  ?? 80,
-    defaultKgRate:         c.defaultKgRate  ?? 70,
+    localZoneRate:         c.localZoneRate        ?? 50,
+    northEastRate:         c.northEastRate        ?? 80,
+    defaultKgRate:         c.defaultKgRate        ?? 70,
+    localZoneAreaCharge:   c.localZoneAreaCharge  ?? 0,
+    northEastAreaCharge:   c.northEastAreaCharge  ?? 0,
+    defaultAreaCharge:     c.defaultAreaCharge    ?? 0,
     updatedAt:             c.updatedAt ?? "",
   };
 };
@@ -60,19 +67,26 @@ export interface ShippingConfig {
   defaultKgRate:         number;
   localZoneRate:         number;
   northEastRate:         number;
+  localZoneAreaCharge:   number;
+  northEastAreaCharge:   number;
+  defaultAreaCharge:     number;
   stateRates:            StateRate[];
   updatedAt:             string;
 }
 
 export interface ShippingResult {
-  charge:    number;
-  type:      "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
-  zone?:     string;
+  charge:        number;
+  areaCharge?:   number;
+  weightCharge?: number;
+  type:          "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
+  zone?:         string;
   breakdown: {
     distance?:     number;
     orderValue?:   number;
     rate?:         number;
     weight?:       number;
+    areaCharge?:   number;
+    weightCharge?: number;
     usedFallback?: boolean;
     matchedState?: string;
     zone?:         string;

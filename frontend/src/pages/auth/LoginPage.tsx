@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import SiteLogo from "../../components/ui/SiteLogo";
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle, Loader2, Mail, ShieldCheck } from "lucide-react";
 
 import { login, requestOtp, resendAdminOtp, verifyAdminOtp, verifyOtp } from "../../api/auth.api";
@@ -44,6 +44,8 @@ function OtpDigitInput({
 
 export default function LoginPage() {
   const navigate     = useNavigate();
+  const location     = useLocation();
+  const from         = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
   const setAuth      = useAuthStore((s) => s.setAuth);
   const logoutReason = useAuthStore((s) => s.logoutReason);
 
@@ -91,6 +93,13 @@ export default function LoginPage() {
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
+  // Customer OTP resend cooldown — useEffect ensures cleanup on unmount
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   const formatCountdown = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -118,7 +127,7 @@ export default function LoginPage() {
         return;
       }
       setAuth((payload as any).user, (payload as any).accessToken);
-      navigate("/");
+      navigate(from, { replace: true });
     },
     onError: (e: any) => {
       setErrorMsg(e.response?.data?.message ?? "Failed to sign in.");
@@ -169,15 +178,14 @@ export default function LoginPage() {
       setOtpExpiry(data.data.expiresInMinutes);
       setMode("otp-verify");
       setErrorMsg("");
-      let s = 60; setCooldown(s);
-      const t = setInterval(() => { s -= 1; setCooldown(s); if (s <= 0) clearInterval(t); }, 1000);
+      setCooldown(60);
     },
     onError: (e: any) => setErrorMsg(e.response?.data?.message ?? "Failed to send OTP."),
   });
 
   const otpVerifyMut = useMutation({
     mutationFn: () => verifyOtp(otpTarget, otpCode),
-    onSuccess: (data) => { setAuth(data.data.user, data.data.accessToken); navigate("/"); },
+    onSuccess: (data) => { setAuth(data.data.user, data.data.accessToken); navigate(from, { replace: true }); },
     onError:   (e: any) => setErrorMsg(e.response?.data?.message ?? "Invalid OTP. Please try again."),
   });
 

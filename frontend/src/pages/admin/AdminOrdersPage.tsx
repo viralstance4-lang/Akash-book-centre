@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ExternalLink, FileText, Loader2, Package, RefreshCw, Truck, X } from "lucide-react";
-import { useState } from "react";
+import { ExternalLink, FileText, Loader2, Package, Truck, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import {
   deleteAdminOrder,
@@ -10,7 +10,7 @@ import {
   resendOrderInvoice,
   updateOrderStatus,
 } from "../../api/admin.api";
-import * as ShiprocketApi from "../../api/shiprocket.api";
+import * as ShipmozoApi from "../../api/shipmozo.api";
 import type { ApiErrorResponse, Order, OrderStatus } from "../../types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
   RETURNED:         "bg-gray-100 text-gray-700",
 };
 
-const SR_STATUS_COLORS: Record<string, string> = {
+const SM_STATUS_COLORS: Record<string, string> = {
   NOT_CREATED:     "bg-gray-100 text-gray-500",
   CREATED:         "bg-blue-100 text-blue-700",
   AWB_ASSIGNED:    "bg-violet-100 text-violet-700",
@@ -42,167 +42,134 @@ const formatPrice = (value: number) =>
     style: "currency", currency: "INR", maximumFractionDigits: 0,
   }).format(value);
 
-// ── Shiprocket Panel ──────────────────────────────────────────────────────────
+// ── Shipmozo Panel ────────────────────────────────────────────────────────────
 
-function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => void }) {
-  const [srError, setSrError]         = useState("");
-  const [trackData, setTrackData]     = useState<Record<string, unknown> | null>(null);
-  const [showTrack, setShowTrack]     = useState(false);
+function ShipmozoPanel({ order, onUpdate }: { order: Order; onUpdate: () => void }) {
+  const [smError, setSmError]       = useState("");
+  const [trackData, setTrackData]   = useState<Record<string, unknown> | null>(null);
+  const [showTrack, setShowTrack]   = useState(false);
 
-  const sr = order as Order & {
-    shiprocketOrderId?: string | null;
-    shiprocketShipmentId?: string | null;
-    awbCode?: string | null;
-    courierName?: string | null;
-    trackingUrl?: string | null;
-    labelUrl?: string | null;
-    invoiceUrl?: string | null;
-    manifestUrl?: string | null;
-    shiprocketStatus?: string | null;
-  };
+  const smStatus = order.shipmozoStatus ?? "NOT_CREATED";
 
-  const srStatus = sr.shiprocketStatus ?? "NOT_CREATED";
-
-  function handleSrError(err: unknown) {
+  function handleSmError(err: unknown) {
     const axErr = err as AxiosError<ApiErrorResponse>;
-    setSrError(axErr.response?.data?.message ?? "Shiprocket action failed");
+    setSmError(axErr.response?.data?.message ?? "Shipmozo action failed");
   }
 
   const createMut = useMutation({
-    mutationFn: () => ShiprocketApi.createShipment(order.id),
-    onSuccess: () => { setSrError(""); onUpdate(); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.createShipment(order.id),
+    onSuccess: () => { setSmError(""); onUpdate(); },
+    onError: handleSmError,
   });
 
   const awbMut = useMutation({
-    mutationFn: () => ShiprocketApi.generateAWB(order.id),
-    onSuccess: () => { setSrError(""); onUpdate(); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.assignCourier(order.id),
+    onSuccess: () => { setSmError(""); onUpdate(); },
+    onError: handleSmError,
   });
 
   const labelMut = useMutation({
-    mutationFn: () => ShiprocketApi.generateLabel(order.id),
-    onSuccess: (res) => { setSrError(""); onUpdate(); window.open(res.data.labelUrl, "_blank"); },
-    onError: handleSrError,
-  });
-
-  const invoiceMut = useMutation({
-    mutationFn: () => ShiprocketApi.generateInvoice(order.id),
-    onSuccess: (res) => { setSrError(""); onUpdate(); window.open(res.data.invoiceUrl, "_blank"); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.getLabel(order.id),
+    onSuccess: (res) => {
+      setSmError(""); onUpdate();
+      if (res.data.labelUrl) window.open(res.data.labelUrl, "_blank");
+    },
+    onError: handleSmError,
   });
 
   const manifestMut = useMutation({
-    mutationFn: () => ShiprocketApi.generateManifest(order.id),
-    onSuccess: (res) => { setSrError(""); onUpdate(); window.open(res.data.manifestUrl, "_blank"); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.generateManifest(order.id),
+    onSuccess: (res) => {
+      setSmError(""); onUpdate();
+      if (res.data.manifestUrl) window.open(res.data.manifestUrl, "_blank");
+    },
+    onError: handleSmError,
   });
 
   const trackMut = useMutation({
-    mutationFn: () => ShiprocketApi.trackShipment(order.id),
-    onSuccess: (res) => { setSrError(""); setTrackData(res.data); setShowTrack(true); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.trackShipment(order.id),
+    onSuccess: (res) => { setSmError(""); setTrackData(res.data as Record<string, unknown>); setShowTrack(true); },
+    onError: handleSmError,
   });
 
   const cancelMut = useMutation({
-    mutationFn: () => ShiprocketApi.cancelShipment(order.id),
-    onSuccess: () => { setSrError(""); onUpdate(); },
-    onError: handleSrError,
-  });
-
-  const syncMut = useMutation({
-    mutationFn: () => ShiprocketApi.syncStatus(order.id),
-    onSuccess: () => { setSrError(""); onUpdate(); },
-    onError: handleSrError,
+    mutationFn: () => ShipmozoApi.cancelShipment(order.id),
+    onSuccess: () => { setSmError(""); onUpdate(); },
+    onError: handleSmError,
   });
 
   const anyPending =
     createMut.isPending || awbMut.isPending || labelMut.isPending ||
-    invoiceMut.isPending || manifestMut.isPending || trackMut.isPending ||
-    cancelMut.isPending || syncMut.isPending;
+    manifestMut.isPending || trackMut.isPending || cancelMut.isPending;
 
   return (
     <div className="mt-5 rounded-[1.1rem] border border-violet-200 bg-violet-50/50 p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Package size={15} className="text-violet-600" />
-          <p className="text-[0.68rem] uppercase tracking-[0.2em] text-violet-700 font-semibold">
-            Shiprocket Fulfillment
-          </p>
-        </div>
-        {sr.shiprocketOrderId && (
-          <button
-            type="button"
-            onClick={() => syncMut.mutate()}
-            disabled={anyPending}
-            title="Sync latest status from Shiprocket"
-            className="flex items-center gap-1 rounded-full border border-violet-200 bg-white px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-50 disabled:opacity-50"
-          >
-            <RefreshCw size={10} className={syncMut.isPending ? "animate-spin" : ""} />
-            Sync
-          </button>
-        )}
+      <div className="flex items-center gap-2 mb-3">
+        <Package size={15} className="text-violet-600" />
+        <p className="text-[0.68rem] uppercase tracking-[0.2em] text-violet-700 font-semibold">
+          Shipmozo Fulfillment
+        </p>
       </div>
 
-      {/* Shiprocket Status badge */}
+      {/* Status badge */}
       <div className="mb-3 flex flex-wrap gap-2">
-        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${SR_STATUS_COLORS[srStatus] ?? "bg-gray-100 text-gray-500"}`}>
-          {srStatus.replace(/_/g, " ")}
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${SM_STATUS_COLORS[smStatus] ?? "bg-gray-100 text-gray-500"}`}>
+          {smStatus.replace(/_/g, " ")}
         </span>
-        {sr.courierName && (
+        {order.courierName && (
           <span className="inline-flex items-center gap-1 rounded-full bg-white border border-violet-200 px-2.5 py-0.5 text-[10px] text-violet-700">
             <Truck size={9} />
-            {sr.courierName}
+            {order.courierName}
           </span>
         )}
       </div>
 
       {/* Shipment details */}
-      {sr.shiprocketOrderId && (
+      {order.shipmozoOrderId && (
         <div className="mb-3 rounded-lg bg-white border border-violet-100 p-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
-            <span className="text-text-muted">Shiprocket Order</span>
-            <span className="font-mono text-text-primary">#{sr.shiprocketOrderId}</span>
+            <span className="text-text-muted">Shipmozo Order ID</span>
+            <span className="font-mono text-text-primary">#{order.shipmozoOrderId}</span>
           </div>
-          {sr.shiprocketShipmentId && (
+          {order.shipmozoReferenceId && (
             <div className="flex justify-between">
-              <span className="text-text-muted">Shipment ID</span>
-              <span className="font-mono text-text-primary">#{sr.shiprocketShipmentId}</span>
+              <span className="text-text-muted">Reference ID</span>
+              <span className="font-mono text-text-primary">#{order.shipmozoReferenceId}</span>
             </div>
           )}
-          {sr.awbCode && (
+          {order.awbCode && (
             <div className="flex justify-between">
               <span className="text-text-muted">AWB Code</span>
-              <span className="font-mono font-semibold text-violet-700">{sr.awbCode}</span>
+              <span className="font-mono font-semibold text-violet-700">{order.awbCode}</span>
             </div>
           )}
-          {sr.trackingUrl && (
+          {order.trackingUrl && (
             <a
-              href={sr.trackingUrl}
+              href={order.trackingUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-violet-600 hover:text-violet-800 mt-1"
             >
               <ExternalLink size={11} />
-              Track on Shiprocket
+              Track Shipment
             </a>
           )}
         </div>
       )}
 
       {/* Error message */}
-      {srError && (
+      {smError && (
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
           <X size={12} className="mt-0.5 shrink-0" />
-          <span>{srError}</span>
+          <span>{smError}</span>
         </div>
       )}
 
       {/* Action buttons — progressive disclosure */}
       <div className="space-y-2">
-        {/* Step 1: Create Shipment */}
-        {!sr.shiprocketOrderId && (
+        {/* Step 1: Push to Shipmozo */}
+        {!order.shipmozoOrderId && (
           <button
             type="button"
             onClick={() => createMut.mutate()}
@@ -214,8 +181,8 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
           </button>
         )}
 
-        {/* Step 2: Generate AWB */}
-        {sr.shiprocketOrderId && !sr.awbCode && (
+        {/* Step 2: Auto-assign courier & AWB */}
+        {order.shipmozoOrderId && !order.awbCode && (
           <button
             type="button"
             onClick={() => awbMut.mutate()}
@@ -223,12 +190,12 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white transition-all hover:bg-violet-700 disabled:opacity-50"
           >
             {awbMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Truck size={12} />}
-            Generate AWB &amp; Assign Courier
+            Assign Courier &amp; Generate AWB
           </button>
         )}
 
-        {/* Step 3+: Download actions (only after AWB) */}
-        {sr.awbCode && (
+        {/* Step 3+: Actions available after AWB */}
+        {order.awbCode && (
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -236,17 +203,8 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
               disabled={anyPending}
               className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-[11px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
             >
-              {labelMut.isPending ? <Loader2 size={10} className="animate-spin" /> : null}
-              {sr.labelUrl ? "Re-download Label" : "Download Label"}
-            </button>
-            <button
-              type="button"
-              onClick={() => invoiceMut.mutate()}
-              disabled={anyPending}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-[11px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
-            >
-              {invoiceMut.isPending ? <Loader2 size={10} className="animate-spin" /> : null}
-              Download Invoice
+              {labelMut.isPending ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />}
+              {order.labelUrl ? "Re-download Label" : "Download Label"}
             </button>
             <button
               type="button"
@@ -255,13 +213,13 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
               className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-[11px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
             >
               {manifestMut.isPending ? <Loader2 size={10} className="animate-spin" /> : null}
-              Generate Manifest
+              {order.manifestUrl ? "Re-gen Manifest" : "Generate Manifest"}
             </button>
             <button
               type="button"
               onClick={() => trackMut.mutate()}
               disabled={anyPending}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-[11px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+              className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-[11px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
             >
               {trackMut.isPending ? <Loader2 size={10} className="animate-spin" /> : null}
               Live Track
@@ -269,23 +227,17 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
           </div>
         )}
 
-        {/* Existing label/invoice quick-open links */}
-        {(sr.labelUrl || sr.invoiceUrl || sr.manifestUrl) && (
+        {/* Quick-open saved PDF links */}
+        {(order.labelUrl || order.manifestUrl) && (
           <div className="flex flex-wrap gap-2 pt-1">
-            {sr.labelUrl && (
-              <a href={sr.labelUrl} target="_blank" rel="noopener noreferrer"
+            {order.labelUrl && (
+              <a href={order.labelUrl} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[10px] text-violet-600 hover:underline">
                 <ExternalLink size={9} /> Label PDF
               </a>
             )}
-            {sr.invoiceUrl && (
-              <a href={sr.invoiceUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[10px] text-violet-600 hover:underline">
-                <ExternalLink size={9} /> Invoice PDF
-              </a>
-            )}
-            {sr.manifestUrl && (
-              <a href={sr.manifestUrl} target="_blank" rel="noopener noreferrer"
+            {order.manifestUrl && (
+              <a href={order.manifestUrl} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[10px] text-violet-600 hover:underline">
                 <ExternalLink size={9} /> Manifest PDF
               </a>
@@ -293,12 +245,12 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
           </div>
         )}
 
-        {/* Cancel shipment */}
-        {sr.shiprocketOrderId && srStatus !== "CANCELLED" && srStatus !== "DELIVERED" && (
+        {/* Cancel */}
+        {order.shipmozoOrderId && smStatus !== "CANCELLED" && smStatus !== "DELIVERED" && (
           <button
             type="button"
             onClick={() => {
-              if (window.confirm("Cancel this Shiprocket shipment? This cannot be undone.")) {
+              if (window.confirm("Cancel this Shipmozo shipment? This cannot be undone.")) {
                 cancelMut.mutate();
               }
             }}
@@ -311,7 +263,7 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
         )}
       </div>
 
-      {/* Live tracking modal */}
+      {/* Live tracking panel */}
       {showTrack && trackData && (
         <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3">
           <div className="flex items-center justify-between mb-2">
@@ -322,20 +274,20 @@ function ShiprocketPanel({ order, onUpdate }: { order: Order; onUpdate: () => vo
               className="text-text-muted hover:text-text-primary"><X size={12} /></button>
           </div>
           {(() => {
-            const activities: any[] =
-              (trackData as any)?.tracking_data?.track_activities ??
-              (trackData as any)?.tracking_data?.shipment_track_activities ?? [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const activities: any[] = (trackData as any)?.data?.tracking_info ?? [];
             if (activities.length === 0) {
               return <p className="text-xs text-text-muted">No tracking activities yet.</p>;
             }
             return (
               <ol className="space-y-2">
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {activities.slice(0, 8).map((act: any, i: number) => (
                   <li key={i} className="flex gap-3 text-xs">
                     <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${i === 0 ? "bg-violet-600" : "bg-gray-300"}`} />
                     <div>
-                      <p className="font-medium text-text-primary">{act["sr-status"] ?? act.activity}</p>
-                      <p className="text-text-muted">{act.date} · {act.location}</p>
+                      <p className="font-medium text-text-primary">{act.status ?? act.activity}</p>
+                      <p className="text-text-muted">{act.date ?? ""} · {act.location ?? ""}</p>
                     </div>
                   </li>
                 ))}
@@ -373,6 +325,12 @@ export default function AdminOrdersPage() {
     queryFn: () => getAdminOrder(selectedOrderId!),
     enabled: Boolean(selectedOrderId),
   });
+
+  useEffect(() => {
+    if (detailData && selectedOrderId) {
+      void queryClient.invalidateQueries({ queryKey: ["admin-notification-counts"] });
+    }
+  }, [detailData, selectedOrderId, queryClient]);
 
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, nextStatus }: { id: string; nextStatus: OrderStatus }) =>
@@ -473,10 +431,9 @@ export default function AdminOrdersPage() {
                       <span className="text-xs text-text-muted">
                         {order.paymentStatus ?? order.payment?.status ?? "PENDING"}
                       </span>
-                      {/* Shiprocket status indicator */}
-                      {(order as any).shiprocketOrderId && (
+                      {order.shipmozoOrderId && (
                         <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                          SR
+                          SM
                         </span>
                       )}
                     </div>
@@ -576,9 +533,10 @@ export default function AdminOrdersPage() {
             <div className="mt-4 space-y-2 rounded-[1.1rem] bg-white p-4">
               <p className="mb-3 text-[0.68rem] uppercase tracking-[0.2em] text-text-muted">Order Breakdown</p>
               <div className="flex justify-between text-sm"><span className="text-text-muted">Subtotal</span><span>{formatPrice(Number(selectedOrder.totalAmount))}</span></div>
-              {(selectedOrder as any).deliveryCharge > 0 && (
-                <div className="flex justify-between text-sm text-amber-600"><span>Delivery Charge</span><span>+{formatPrice(Number((selectedOrder as any).deliveryCharge))}</span></div>
-              )}
+              {(selectedOrder as any).deliveryCharge > 0
+                ? <div className="flex justify-between text-sm text-amber-600"><span>Delivery Charge</span><span>+{formatPrice(Number((selectedOrder as any).deliveryCharge))}</span></div>
+                : <div className="flex justify-between text-sm text-emerald-600"><span>Delivery</span><span>Free Delivery</span></div>
+              }
               {(selectedOrder as any).discountAmount > 0 && (
                 <div className="flex justify-between text-sm text-emerald-600"><span>Discount</span><span>-{formatPrice(Number((selectedOrder as any).discountAmount))}</span></div>
               )}
@@ -611,8 +569,8 @@ export default function AdminOrdersPage() {
               </div>
             </div>
 
-            {/* ── Shiprocket Panel ────────────────────────────────────────── */}
-            <ShiprocketPanel
+            {/* ── Shipmozo Panel ──────────────────────────────────────────── */}
+            <ShipmozoPanel
               order={selectedOrder}
               onUpdate={() => {
                 void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });

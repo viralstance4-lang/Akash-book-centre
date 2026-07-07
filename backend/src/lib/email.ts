@@ -6,12 +6,15 @@ import logger from "../config/logger";
 const SUPPORT_EMAIL = env.SUPPORT_EMAIL ?? "akashbookcentre5500@gmail.com";
 const FROM_ADDRESS  = env.RESEND_FROM ?? "Akash Book Centre <onboarding@resend.dev>";
 
-// ── Resend client (primary — production / Render) ─────────────────────────────
+// ── Resend client (primary) ───────────────────────────────────────────────────
+// Without a verified custom domain / RESEND_FROM, onboarding@resend.dev only
+// delivers to the Resend account owner. Customer emails will fail until the
+// user verifies a domain at resend.com/domains and sets RESEND_FROM in .env.
+// We still keep Resend enabled so admin OTP (sent to the account-owner email)
+// continues to work.
 const resendClient = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
-export const isEmailConfigured = Boolean(resendClient);
-
-// ── Gmail SMTP transporter (fallback — local dev when Resend not configured) ──
+// ── Gmail SMTP transporter (primary when RESEND_FROM not set, fallback otherwise) ──
 // Gmail App Passwords are 16 chars; Google displays them with spaces for readability.
 const gmailPass = env.GMAIL_PASS?.replace(/\s/g, "");
 const gmailTransport =
@@ -22,23 +25,40 @@ const gmailTransport =
       })
     : null;
 
+export const isEmailConfigured = Boolean(resendClient) || Boolean(gmailTransport);
 export const isGmailConfigured = Boolean(gmailTransport);
 
 // ── Startup verification ──────────────────────────────────────────────────────
 export async function verifyTransporter(): Promise<void> {
+  // Warn if RESEND_FROM is not set — customer emails will fail (domain not verified)
+  if (env.RESEND_API_KEY && !env.RESEND_FROM) {
+    logger.warn(
+      "[EMAIL] RESEND_FROM not set — Resend will send from onboarding@resend.dev. " +
+      "This ONLY delivers to the Resend account owner email. " +
+      "Customer invoice emails will FAIL until you: " +
+      "1) verify a domain at resend.com/domains, " +
+      "2) add RESEND_FROM=<noreply@yourdomain.com> to .env, " +
+      "3) restart the server.",
+    );
+  }
+
+  if (resendClient && gmailTransport) {
+    logger.info({ primary: FROM_ADDRESS, fallback: env.GMAIL_USER }, "[EMAIL] Resend (primary) + Gmail SMTP (fallback) both ready");
+    return;
+  }
   if (resendClient) {
-    logger.info({ from: FROM_ADDRESS }, "[EMAIL] Resend API configured — ready");
+    logger.info({ from: FROM_ADDRESS }, "[EMAIL] Resend API configured — ready (no Gmail fallback)");
     return;
   }
   if (gmailTransport && env.GMAIL_USER) {
-    logger.info({ from: env.GMAIL_USER }, "[EMAIL] Gmail SMTP configured — ready (dev fallback)");
+    logger.info({ from: env.GMAIL_USER }, "[EMAIL] Gmail SMTP configured — ready");
     return;
   }
   logger.warn("[EMAIL] No email provider configured — RESEND_API_KEY and GMAIL_USER both missing");
 }
 
 // ── Retry helper ──────────────────────────────────────────────────────────────
-const MAX_ATTEMPTS    = 3;
+const MAX_ATTEMPTS    = 1;   // Resend domain errors are deterministic — no point retrying
 const BACKOFF_BASE_MS = 2_000;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -50,49 +70,81 @@ type MailPayload = {
 };
 
 const sendMailSafe = async (options: MailPayload): Promise<void> => {
-  if (!resendClient) {
-    logger.warn("[EMAIL] Resend not configured — skipping send");
-    return;
+  // ── Primary: Resend ───────────────────────────────────────────────────────
+  if (resendClient) {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const payload: Parameters<typeof resendClient.emails.send>[0] = {
+          from:    FROM_ADDRESS,
+          to:      [options.to],
+          subject: options.subject,
+          html:    options.html,
+        };
+        if (options.attachments?.length) {
+          payload.attachments = options.attachments.map((a) => ({
+            filename: a.filename,
+            content:  a.content,
+          }));
+        }
+        const { error } = await resendClient.emails.send(payload);
+        if (error) throw new Error(error.message);
+
+        logger.info(
+          { to: options.to, subject: options.subject, attempt },
+          "[EMAIL] Sent via Resend",
+        );
+        return;
+
+      } catch (err) {
+        lastErr = err;
+        logger.warn(
+          { to: options.to, attempt, maxAttempts: MAX_ATTEMPTS, err },
+          `[EMAIL] Resend attempt ${attempt} failed`,
+        );
+        if (attempt < MAX_ATTEMPTS) await sleep(BACKOFF_BASE_MS * attempt);
+      }
+    }
+
+    logger.warn(
+      { to: options.to, err: lastErr },
+      "[EMAIL] Resend failed after all attempts — trying Gmail fallback",
+    );
   }
 
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // ── Fallback: Gmail SMTP ─────────────────────────────────────────────────
+  if (gmailTransport && env.GMAIL_USER) {
     try {
-      const payload: Parameters<typeof resendClient.emails.send>[0] = {
-        from:    FROM_ADDRESS,
-        to:      [options.to],
+      await gmailTransport.sendMail({
+        from:    `"Akash Book Centre" <${env.GMAIL_USER}>`,
+        to:      options.to,
         subject: options.subject,
         html:    options.html,
-      };
-      if (options.attachments?.length) {
-        payload.attachments = options.attachments.map((a) => ({
-          filename: a.filename,
-          content:  a.content,
-        }));
-      }
-      const { error } = await resendClient.emails.send(payload);
-      if (error) throw new Error(error.message);
-
+        ...(options.attachments?.length
+          ? {
+              attachments: options.attachments.map((a) => ({
+                filename:    a.filename,
+                content:     a.content,
+                contentType: a.contentType,
+              })),
+            }
+          : {}),
+      });
       logger.info(
-        { to: options.to, subject: options.subject, attempt },
-        "[EMAIL] Sent successfully",
+        { to: options.to, subject: options.subject },
+        "[EMAIL] Sent via Gmail SMTP fallback",
       );
       return;
-
     } catch (err) {
-      lastErr = err;
-      logger.warn(
-        { to: options.to, attempt, maxAttempts: MAX_ATTEMPTS, err },
-        `[EMAIL] Send attempt ${attempt} failed`,
-      );
-      if (attempt < MAX_ATTEMPTS) await sleep(BACKOFF_BASE_MS * attempt);
+      logger.error({ to: options.to, err }, "[EMAIL] Gmail SMTP fallback also failed");
     }
   }
 
-  logger.error(
-    { to: options.to, subject: options.subject, err: lastErr },
-    "[EMAIL] All attempts failed",
-  );
+  if (!resendClient && !gmailTransport) {
+    logger.warn("[EMAIL] No email provider configured — skipping send");
+  } else {
+    logger.error({ to: options.to, subject: options.subject }, "[EMAIL] All email providers failed");
+  }
 };
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
