@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, Check, CheckCircle, Clock, CreditCard, Eye,
-  FileText, Loader2, LocateFixed, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
+  FileText, Loader2, LocateFixed, Minus, Pencil, Plus, ShieldCheck, Trash2, Truck, Upload, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -37,9 +37,12 @@ type PdfFile = {
   pageCount:       number;   // 0 = detection failed, requires manual entry
   detecting:       boolean;
   detectionFailed: boolean;
+  overriding:      boolean;  // manual edit mode toggled on after a successful auto-detect
   copies:          number;
   previewUrl:      string;
 };
+
+const MAX_FILE_SIZE_BYTES = 70 * 1024 * 1024; // mirrors the backend's multer limit (printorders.routes.ts)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -310,20 +313,33 @@ export default function PrintBookPage() {
       (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
     );
     if (pdfsOnly.length === 0) { setFileError("Please select PDF files only."); return; }
+
+    const errors: string[] = [];
+    const oversized = pdfsOnly.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+    const sized = pdfsOnly.filter((f) => f.size <= MAX_FILE_SIZE_BYTES);
+    if (oversized.length > 0) {
+      errors.push(
+        `${oversized.map((f) => f.name).join(", ")} ${oversized.length > 1 ? "are" : "is"} over the 70 MB limit and ${oversized.length > 1 ? "were" : "was"} skipped.`,
+      );
+    }
+    if (sized.length === 0) { setFileError(errors.join(" ")); return; }
+
     const remaining = S.maxPdfsPerOrder - pdfs.length;
     if (remaining <= 0) {
-      setFileError(`You've reached the limit of ${S.maxPdfsPerOrder} PDFs per order. Remove a file to add another.`);
+      errors.push(`You've reached the limit of ${S.maxPdfsPerOrder} PDFs per order. Remove a file to add another.`);
+      setFileError(errors.join(" "));
       return;
     }
-    const toAdd = pdfsOnly.slice(0, remaining);
-    if (pdfsOnly.length > remaining) {
-      setFileError(
+    const toAdd = sized.slice(0, remaining);
+    if (sized.length > remaining) {
+      errors.push(
         `You can't upload more than ${S.maxPdfsPerOrder} PDFs at once. The first ${toAdd.length} have been added — you can upload the remaining ones in the next order.`,
       );
     }
+    if (errors.length > 0) setFileError(errors.join(" "));
     const entries: PdfFile[] = toAdd.map((f) => ({
       id: generateId(), file: f, pageCount: 0, detecting: true,
-      detectionFailed: false, copies: 1,
+      detectionFailed: false, overriding: false, copies: 1,
       previewUrl: URL.createObjectURL(f),
     }));
     setPdfs((prev) => [...prev, ...entries]);
@@ -633,12 +649,28 @@ export default function PrintBookPage() {
                     ) : p.detectionFailed ? (
                       <span className="ml-1.5 text-amber-600">· page count unclear</span>
                     ) : (
-                      <span className="ml-1.5">· {p.pageCount} pages</span>
+                      <span className="ml-1.5 inline-flex items-center gap-1">
+                        · {p.pageCount} pages
+                        {!p.overriding && (
+                          <button
+                            type="button"
+                            title="Edit page count"
+                            onClick={() => setPdfs((prev) => prev.map((x) =>
+                              x.id === p.id ? { ...x, overriding: true } : x,
+                            ))}
+                            className="text-text-muted/50 transition-colors hover:text-text-primary"
+                          >
+                            <Pencil size={10} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </p>
-                  {!p.detecting && p.detectionFailed && (
+                  {!p.detecting && (p.detectionFailed || p.overriding) && (
                     <div className="mt-1.5 flex items-center gap-2">
-                      <span className="text-xs text-text-muted">Enter pages manually:</span>
+                      <span className="text-xs text-text-muted">
+                        {p.detectionFailed ? "Enter pages manually:" : "Page count:"}
+                      </span>
                       <input
                         type="number"
                         min="1"
@@ -650,8 +682,23 @@ export default function PrintBookPage() {
                             x.id === p.id ? { ...x, pageCount: val, detectionFailed: val === 0 } : x,
                           ));
                         }}
-                        className="h-7 w-20 rounded-lg border border-amber-300 bg-amber-50 px-2 text-xs text-text-primary outline-none focus:border-amber-500"
+                        className={`h-7 w-20 rounded-lg border px-2 text-xs text-text-primary outline-none ${
+                          p.detectionFailed
+                            ? "border-amber-300 bg-amber-50 focus:border-amber-500"
+                            : "border-black/15 bg-white focus:border-black/40"
+                        }`}
                       />
+                      {p.overriding && !p.detectionFailed && (
+                        <button
+                          type="button"
+                          onClick={() => setPdfs((prev) => prev.map((x) =>
+                            x.id === p.id ? { ...x, overriding: false } : x,
+                          ))}
+                          className="text-xs text-text-muted underline underline-offset-2 hover:text-text-primary"
+                        >
+                          Done
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
