@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle, CreditCard, Locate, LocateFixed, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, CreditCard, LocateFixed, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCart } from "../../api/cart.api";
@@ -12,7 +12,6 @@ import type { ShippingAddress } from "../../types";
 import {
   SHOP,
   getDeliveryFromPincode,
-  getDeliveryFromGeolocation,
   getDeliveryFromCoords,
   getCoordsForPincode,
   getBestPosition,
@@ -55,9 +54,11 @@ export default function CheckoutPage() {
   const [onlineSuccess, setOnlineSuccess] = useState(false);
   const [onlineOrderId, setOnlineOrderId] = useState("");
   const [delivery, setDelivery] = useState<DeliveryResult | null>(null);
-  const [geoLoading, setGeoLoading] = useState(false);
-  const [geoError, setGeoError] = useState("");
   const [preciseLocation, setPreciseLocation] = useState<{ lat: number; lng: number } | null>(null);
+  // Collapsed fallback for when the address autocomplete has no match / Google
+  // Places is unreachable — keeps checkout unblockable without a prominent
+  // always-visible pincode field.
+  const [showPincodeFallback, setShowPincodeFallback] = useState(false);
   const [placeSelectionKey, setPlaceSelectionKey] = useState(0);
   const [usingCurrentLocation, setUsingCurrentLocation] = useState(false);
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
@@ -95,7 +96,6 @@ export default function CheckoutPage() {
     const pin = form.pincode.trim();
     if (pin.length === 6 && /^\d{6}$/.test(pin)) {
       setDelivery(getDeliveryFromPincode(pin));
-      setGeoError("");
       if (!preciseLocation) {
         const coords = getCoordsForPincode(pin);
         if (coords) setPreciseLocation(coords);
@@ -103,20 +103,6 @@ export default function CheckoutPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.pincode]);
-
-  const handleUseMyLocation = async () => {
-    setGeoLoading(true);
-    setGeoError("");
-    try {
-      const { delivery: result, lat, lng } = await getDeliveryFromGeolocation();
-      setDelivery(result);
-      setPreciseLocation({ lat, lng });
-    } catch {
-      setGeoError("Unable to access your location. Please enter your pincode.");
-    } finally {
-      setGeoLoading(false);
-    }
-  };
 
   const handlePlaceSelected = (place: PlaceSelection) => {
     setForm((c) => ({
@@ -137,6 +123,7 @@ export default function CheckoutPage() {
     }
     setUsingCurrentLocation(false);
     setCurrentLocationAccuracy(null);
+    setShowPincodeFallback(false);
   };
 
   const handleShareCurrentLocation = async () => {
@@ -165,6 +152,7 @@ export default function CheckoutPage() {
       setCurrentLocationAccuracy(coords.accuracy ?? null);
       setPlaceSelectionKey((k) => k + 1);
       setUsingCurrentLocation(true);
+      setShowPincodeFallback(false);
       setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
     } catch {
       setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
@@ -339,7 +327,10 @@ export default function CheckoutPage() {
     if (!form.line1.trim()) errs.line1 = "Required";
     if (!form.city.trim()) errs.city = "Required";
     if (!form.state.trim()) errs.state = "Required";
-    if (!form.pincode.trim()) errs.pincode = "Required";
+    if (!form.pincode.trim()) {
+      errs.pincode = "Please select your address from the suggestions, share your location, or enter your pincode below";
+      setShowPincodeFallback(true);
+    }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -419,7 +410,7 @@ export default function CheckoutPage() {
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-emerald-800">{SHOP.name}</p>
-          <p className="text-xs text-emerald-600">Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+ · Enter your pincode below to check</p>
+          <p className="text-xs text-emerald-600">Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+ · Add your address below to check</p>
         </div>
       </div>
 
@@ -557,6 +548,42 @@ export default function CheckoutPage() {
                 {fieldErrors.line1 && <p className="mt-1 text-xs text-red-500">{fieldErrors.line1}</p>}
               </label>
 
+              {/* Pincode fallback — collapsed by default; only relevant while we don't
+                  yet have any location signal (autocomplete/GPS normally supply this). */}
+              {!preciseLocation && (
+                <div className="sm:col-span-2">
+                  {!showPincodeFallback ? (
+                    <button type="button" onClick={() => setShowPincodeFallback(true)}
+                      className="text-xs font-medium text-text-muted underline decoration-dotted underline-offset-2 hover:text-text-primary">
+                      Can't find your address? Enter pincode manually
+                    </button>
+                  ) : (
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Pincode</span>
+                      <input
+                        type="text"
+                        value={form.pincode}
+                        onChange={(e) => handleChange("pincode", e.target.value)}
+                        maxLength={6}
+                        placeholder="6-digit pincode"
+                        className={`h-11 w-full rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.pincode ? "border-red-300" : "border-black/10 focus:border-black/20"}`}
+                      />
+                    </label>
+                  )}
+                  {fieldErrors.pincode && <p className="mt-1 text-xs text-red-500">{fieldErrors.pincode}</p>}
+                </div>
+              )}
+
+              {(preciseLocation || form.pincode.trim().length === 6) && (
+                <label className="sm:col-span-2 block">
+                  <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Complete Address (House/Flat No., Floor, Landmark) — optional</span>
+                  <input type="text" value={form.line2 ?? ""} onChange={(e) => handleChange("line2", e.target.value)}
+                    placeholder="e.g. House No. 5, 2nd Floor, Near Water Tank"
+                    className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/20 focus:bg-white transition-all" />
+                  <p className="mt-1 text-[11px] text-text-muted">Helps the delivery rider find you faster.</p>
+                </label>
+              )}
+
               {preciseLocation && (
                 <div className="sm:col-span-2">
                   <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Confirm exact location</span>
@@ -570,11 +597,42 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              <label className="sm:col-span-2 block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Address Line 2 (optional)</span>
-                <input type="text" value={form.line2 ?? ""} onChange={(e) => handleChange("line2", e.target.value)}
-                  className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/20 focus:bg-white transition-all" />
-              </label>
+              {/* Delivery status card */}
+              {delivery && (
+                <div className={`sm:col-span-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
+                  displayDeliveryType === "FREE"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : displayDeliveryType === "PAID"
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-black/10 bg-[#f8f4ee]"
+                }`}>
+                  <Truck size={15} className={
+                    displayDeliveryType === "FREE" ? "text-emerald-600 shrink-0" :
+                    displayDeliveryType === "PAID" ? "text-amber-600 shrink-0" :
+                    "text-text-muted shrink-0"
+                  } />
+                  <div>
+                    <p className={`text-xs font-semibold ${
+                      displayDeliveryType === "FREE" ? "text-emerald-700" :
+                      displayDeliveryType === "PAID" ? "text-amber-700" :
+                      "text-text-muted"
+                    }`}>
+                      {displayDeliveryType === "FREE"
+                        ? "Free Delivery"
+                        : deliveryCharge > 0
+                          ? `Delivery Charge: ${fmt(deliveryCharge)}`
+                          : delivery.label}
+                    </p>
+                    <p className="text-[11px] text-text-muted">
+                      {displayDeliveryType === "PAID" && deliveryCharge > 0
+                        ? isLocalDelivery
+                          ? `${Math.ceil(delivery.distanceKm ?? 0)} km × ₹${shippingSettings?.perKmCharge}/km`
+                          : `${totalWeightKg} kg × ₹${zoneRate}/kg · ${delivery.sublabel}`
+                        : delivery.sublabel}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {([
                 ["city", "City", false], ["state", "State", false],
@@ -586,69 +644,6 @@ export default function CheckoutPage() {
                   {fieldErrors[field] && <p className="mt-1 text-xs text-red-500">{fieldErrors[field]}</p>}
                 </label>
               ))}
-
-              {/* Pincode + geolocation */}
-              <div className="sm:col-span-2 block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Pincode</span>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={form.pincode}
-                    onChange={(e) => handleChange("pincode", e.target.value)}
-                    maxLength={6}
-                    placeholder="6-digit pincode"
-                    className={`h-11 flex-1 rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.pincode ? "border-red-300" : "border-black/10 focus:border-black/20"}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleUseMyLocation}
-                    disabled={geoLoading}
-                    title="Use my current location"
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-[#f8f4ee] text-text-muted transition-all hover:border-black/20 hover:text-text-primary disabled:opacity-50"
-                  >
-                    <Locate size={16} className={geoLoading ? "animate-spin" : ""} />
-                  </button>
-                </div>
-                {fieldErrors.pincode && <p className="mt-1 text-xs text-red-500">{fieldErrors.pincode}</p>}
-                {geoError && <p className="mt-1 text-xs text-amber-600">{geoError}</p>}
-
-                {/* Delivery status card */}
-                {delivery && (
-                  <div className={`mt-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
-                    displayDeliveryType === "FREE"
-                      ? "border-emerald-200 bg-emerald-50"
-                      : displayDeliveryType === "PAID"
-                      ? "border-amber-200 bg-amber-50"
-                      : "border-black/10 bg-[#f8f4ee]"
-                  }`}>
-                    <Truck size={15} className={
-                      displayDeliveryType === "FREE" ? "text-emerald-600 shrink-0" :
-                      displayDeliveryType === "PAID" ? "text-amber-600 shrink-0" :
-                      "text-text-muted shrink-0"
-                    } />
-                    <div>
-                      <p className={`text-xs font-semibold ${
-                        displayDeliveryType === "FREE" ? "text-emerald-700" :
-                        displayDeliveryType === "PAID" ? "text-amber-700" :
-                        "text-text-muted"
-                      }`}>
-                        {displayDeliveryType === "FREE"
-                          ? "Free Delivery"
-                          : deliveryCharge > 0
-                            ? `Delivery Charge: ${fmt(deliveryCharge)}`
-                            : delivery.label}
-                      </p>
-                      <p className="text-[11px] text-text-muted">
-                        {displayDeliveryType === "PAID" && deliveryCharge > 0
-                          ? isLocalDelivery
-                            ? `${Math.ceil(delivery.distanceKm ?? 0)} km × ₹${shippingSettings?.perKmCharge}/km`
-                            : `${totalWeightKg} kg × ₹${zoneRate}/kg · ${delivery.sublabel}`
-                          : delivery.sublabel}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
 
               {preciseLocation && (
                 <p className="sm:col-span-2 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">

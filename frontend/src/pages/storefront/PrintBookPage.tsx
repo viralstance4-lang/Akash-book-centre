@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, Check, CheckCircle, Clock, CreditCard, Eye,
-  FileText, Loader2, Locate, LocateFixed, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
+  FileText, Loader2, LocateFixed, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,7 +11,6 @@ import { getPrintSettings, createPrintOrder, verifyPrintPayment } from "../../ap
 import type { PrintOrderInitiated } from "../../api/print.api";
 import { getShippingSettings } from "../../api/shipping.api";
 import {
-  getDeliveryFromGeolocation,
   getDeliveryFromPincode,
   getDeliveryFromCoords,
   getCoordsForPincode,
@@ -161,14 +160,16 @@ export default function PrintBookPage() {
   const [name,        setName]        = useState(user?.name ?? "");
   const [phone,       setPhone]       = useState("");
   const [address,     setAddress]     = useState("");
+  // House/flat no., floor, landmark, etc. — kept separate from `address` and
+  // only joined into the single `customerAddress` string sent to the backend
+  // at submit time (print orders have no structured line2 field).
+  const [completeAddress, setCompleteAddress] = useState("");
   const [pincode,     setPincode]     = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [fileError,   setFileError]   = useState("");
 
   // ── Delivery state ─────────────────────────────────────────────────────────
   const [delivery,    setDelivery]    = useState<DeliveryResult | null>(null);
-  const [geoLoading,  setGeoLoading]  = useState(false);
-  const [geoError,    setGeoError]    = useState("");
 
   // ── Precise (GPS) location for the delivery rider ─────────────────────────
   const [preciseLocation,       setPreciseLocation]       = useState<{ lat: number; lng: number } | null>(null);
@@ -176,6 +177,10 @@ export default function PrintBookPage() {
   const [locatingCurrent,       setLocatingCurrent]       = useState(false);
   const [currentLocationError,  setCurrentLocationError]  = useState("");
   const [placeSelectionKey,     setPlaceSelectionKey]     = useState(0);
+  // Collapsed fallback for when the address autocomplete has no match / Google
+  // Places is unreachable — keeps checkout unblockable without a prominent
+  // always-visible pincode field.
+  const [showPincodeFallback, setShowPincodeFallback] = useState(false);
   // Accuracy radius (meters) the browser reports for its GPS/network fix — laptops
   // and weak-signal phones can be off by hundreds of meters, so this drives a
   // warning nudging the customer to drag the map pin instead of trusting it blindly.
@@ -206,20 +211,6 @@ export default function PrintBookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pincode]);
 
-  const handleUseMyLocation = async () => {
-    setGeoLoading(true);
-    setGeoError("");
-    try {
-      const { delivery: result, lat, lng } = await getDeliveryFromGeolocation();
-      setDelivery(result);
-      setPreciseLocation({ lat, lng });
-    } catch {
-      setGeoError("Unable to access your location. Please enter your pincode.");
-    } finally {
-      setGeoLoading(false);
-    }
-  };
-
   const handleShareCurrentLocation = async () => {
     if (!navigator.geolocation) {
       setCurrentLocationError("Geolocation is not supported by your browser.");
@@ -238,6 +229,7 @@ export default function PrintBookPage() {
       setCurrentLocationAccuracy(coords.accuracy ?? null);
       setPlaceSelectionKey((k) => k + 1);
       setUsingCurrentLocation(true);
+      setShowPincodeFallback(false);
       setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
     } catch {
       setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
@@ -257,6 +249,7 @@ export default function PrintBookPage() {
     }
     setUsingCurrentLocation(false);
     setCurrentLocationAccuracy(null);
+    setShowPincodeFallback(false);
   };
 
   // ── Delivery charge calculation (mirrors backend ShippingService logic) ──────
@@ -459,7 +452,7 @@ export default function PrintBookPage() {
     fd.append("customerName",     name.trim());
     fd.append("customerEmail",    email.trim());
     fd.append("customerPhone",    phone.trim());
-    fd.append("customerAddress",  address.trim());
+    fd.append("customerAddress",  [address.trim(), completeAddress.trim()].filter(Boolean).join(", "));
     if (delivery?.distanceKm != null) fd.append("deliveryDistance", String(delivery.distanceKm));
     if (preciseLocation) {
       fd.append("customerLatitude",  String(preciseLocation.lat));
@@ -469,10 +462,10 @@ export default function PrintBookPage() {
   };
 
   const resetForm = () => {
-    setPdfs([]); setPhone(""); setAddress(""); setPincode(""); setDelivery(null);
-    setGeoError(""); setFieldErrors({}); setFileError(""); setPaymentError("");
+    setPdfs([]); setPhone(""); setAddress(""); setCompleteAddress(""); setPincode(""); setDelivery(null);
+    setFieldErrors({}); setFileError(""); setPaymentError("");
     setPreciseLocation(null); setUsingCurrentLocation(false); setCurrentLocationError("");
-    setCurrentLocationAccuracy(null);
+    setCurrentLocationAccuracy(null); setShowPincodeFallback(false);
   };
 
   // ── Not logged in ──────────────────────────────────────────────────────────
@@ -837,59 +830,6 @@ export default function PrintBookPage() {
           </div>
         </div>
 
-        {/* Delivery location */}
-        <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-text-muted">
-            Delivery Location (for charges)
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={pincode}
-              onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                setPincode(v);
-              }}
-              maxLength={6}
-              placeholder="Enter 6-digit pincode"
-              className="h-11 flex-1 rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/25 focus:bg-white transition-all"
-            />
-            <button
-              type="button"
-              onClick={handleUseMyLocation}
-              disabled={geoLoading}
-              title="Use my current location"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-[#f8f4ee] text-text-muted transition-all hover:border-black/20 hover:text-text-primary disabled:opacity-50"
-            >
-              <Locate size={16} className={geoLoading ? "animate-spin" : ""} />
-            </button>
-          </div>
-          {geoError && <p className="mt-1 text-xs text-amber-600">{geoError}</p>}
-          {delivery && (
-            <div className={`mt-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
-              deliveryCharge === 0
-                ? "border-emerald-200 bg-emerald-50"
-                : "border-amber-200 bg-amber-50"
-            }`}>
-              <Truck size={15} className={deliveryCharge === 0 ? "text-emerald-600 shrink-0" : "text-amber-600 shrink-0"} />
-              <div>
-                <p className={`text-xs font-semibold ${deliveryCharge === 0 ? "text-emerald-700" : "text-amber-700"}`}>
-                  {deliveryCharge === 0 ? "Free Delivery" : delivery.label}
-                </p>
-                <p className="text-[11px] text-text-muted">
-                  {delivery.sublabel}
-                  {deliveryCharge !== null && deliveryCharge > 0 && ` · Delivery charge: ${fmt(deliveryCharge)}`}
-                </p>
-              </div>
-            </div>
-          )}
-          {!delivery && (
-            <p className="mt-1 text-xs text-text-muted">
-              Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+
-            </p>
-          )}
-        </div>
-
         {/* Customer Details */}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
@@ -934,6 +874,41 @@ export default function PrintBookPage() {
             {fieldErrors.address && <p className="mt-1 text-xs text-red-500">{fieldErrors.address}</p>}
           </label>
 
+          {/* Pincode fallback — collapsed by default; only relevant while we don't
+              yet have any location signal (autocomplete/GPS normally supply this). */}
+          {!preciseLocation && (
+            <div className="sm:col-span-2">
+              {!showPincodeFallback ? (
+                <button type="button" onClick={() => setShowPincodeFallback(true)}
+                  className="text-xs font-medium text-text-muted underline decoration-dotted underline-offset-2 hover:text-text-primary">
+                  Can't find your address? Enter pincode manually
+                </button>
+              ) : (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Pincode</span>
+                  <input
+                    type="text"
+                    value={pincode}
+                    onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    maxLength={6}
+                    placeholder="Enter 6-digit pincode"
+                    className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/25 focus:bg-white transition-all"
+                  />
+                </label>
+              )}
+            </div>
+          )}
+
+          {(preciseLocation || pincode.trim().length === 6) && (
+            <label className="block sm:col-span-2">
+              <span className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Complete Address (House/Flat No., Floor, Landmark) — optional</span>
+              <input type="text" value={completeAddress} onChange={(e) => setCompleteAddress(e.target.value)}
+                placeholder="e.g. House No. 5, 2nd Floor, Near Water Tank"
+                className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/25 focus:bg-white transition-all" />
+              <p className="mt-1 text-[11px] text-text-muted">Helps the delivery rider find you faster.</p>
+            </label>
+          )}
+
           <div className="sm:col-span-2">
             <button
               type="button"
@@ -968,6 +943,31 @@ export default function PrintBookPage() {
               />
               <p className="mt-1.5 text-[11px] text-text-muted">Drag the pin to fine-tune your exact location for the delivery rider.</p>
             </div>
+          )}
+
+          {/* Delivery status card */}
+          {delivery && (
+            <div className={`sm:col-span-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
+              deliveryCharge === 0
+                ? "border-emerald-200 bg-emerald-50"
+                : "border-amber-200 bg-amber-50"
+            }`}>
+              <Truck size={15} className={deliveryCharge === 0 ? "text-emerald-600 shrink-0" : "text-amber-600 shrink-0"} />
+              <div>
+                <p className={`text-xs font-semibold ${deliveryCharge === 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                  {deliveryCharge === 0 ? "Free Delivery" : delivery.label}
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  {delivery.sublabel}
+                  {deliveryCharge !== null && deliveryCharge > 0 && ` · Delivery charge: ${fmt(deliveryCharge)}`}
+                </p>
+              </div>
+            </div>
+          )}
+          {!delivery && (
+            <p className="sm:col-span-2 text-xs text-text-muted">
+              Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+ — add your address above to check.
+            </p>
           )}
         </div>
 
