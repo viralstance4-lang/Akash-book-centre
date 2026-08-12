@@ -73,7 +73,9 @@ async function autoDetectPageCount(file: File): Promise<number> {
     await doc.destroy();
     return Number.isFinite(count) && count > 0 ? count : 0;
   } catch (err) {
-    console.warn(`[PDF DETECT] Failed to parse ${file.name}`, err);
+    // console.error (not .warn) so this isn't filtered out by default devtools
+    // log levels — a wrong result here silently breaks pricing for every order.
+    console.error(`[PDF DETECT] Failed to parse "${file.name}":`, err);
     return 0;
   }
 }
