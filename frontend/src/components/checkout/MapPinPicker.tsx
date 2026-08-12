@@ -37,9 +37,19 @@ export default function MapPinPicker({ lat, lng, onPositionChange }: MapPinPicke
         zoomControl={true}
         style={{ height: "100%", width: "100%" }}
       >
+        {/*
+         * CARTO's basemap CDN, not the bare tile.openstreetmap.org server —
+         * the raw OSM tile server explicitly discourages production/commercial
+         * use without heavy caching and can rate-limit or block under normal
+         * customer traffic, which showed up as a blank/grey map. CARTO serves
+         * the same OSM data via a CDN meant for exactly this kind of app, with
+         * no API key required.
+         */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          subdomains="abcd"
+          maxZoom={19}
         />
         <Marker
           position={[lat, lng]}

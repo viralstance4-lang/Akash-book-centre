@@ -61,6 +61,10 @@ export default function CheckoutPage() {
   const [usingCurrentLocation, setUsingCurrentLocation] = useState(false);
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [currentLocationError, setCurrentLocationError] = useState("");
+  // Accuracy radius (meters) the browser reports for its GPS/network fix — laptops
+  // and weak-signal phones can be off by hundreds of meters, so this drives a
+  // warning nudging the customer to drag the map pin instead of trusting it blindly.
+  const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
   const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
@@ -131,6 +135,7 @@ export default function CheckoutPage() {
       setPlaceSelectionKey((k) => k + 1);
     }
     setUsingCurrentLocation(false);
+    setCurrentLocationAccuracy(null);
   };
 
   const handleShareCurrentLocation = () => {
@@ -157,6 +162,7 @@ export default function CheckoutPage() {
             return n;
           });
           setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+          setCurrentLocationAccuracy(coords.accuracy ?? null);
           setPlaceSelectionKey((k) => k + 1);
           setUsingCurrentLocation(true);
           setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
@@ -352,6 +358,7 @@ export default function CheckoutPage() {
     if (usingCurrentLocation && ADDRESS_FIELDS.includes(field)) {
       setUsingCurrentLocation(false);
       setPreciseLocation(null);
+      setCurrentLocationAccuracy(null);
     }
   };
 
@@ -536,6 +543,11 @@ export default function CheckoutPage() {
                 {usingCurrentLocation && (
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                     <CheckCircle size={12} className="shrink-0" /> Using your current location — clear it by editing the address manually.
+                  </p>
+                )}
+                {usingCurrentLocation && currentLocationAccuracy != null && currentLocationAccuracy > 200 && (
+                  <p className="mt-1.5 text-xs text-amber-600">
+                    Your device's location is only accurate to ~{Math.round(currentLocationAccuracy)}m (common on laptops/weak GPS signal) — please drag the pin on the map below to your exact address.
                   </p>
                 )}
               </div>

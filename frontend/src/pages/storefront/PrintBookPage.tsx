@@ -175,6 +175,10 @@ export default function PrintBookPage() {
   const [locatingCurrent,       setLocatingCurrent]       = useState(false);
   const [currentLocationError,  setCurrentLocationError]  = useState("");
   const [placeSelectionKey,     setPlaceSelectionKey]     = useState(0);
+  // Accuracy radius (meters) the browser reports for its GPS/network fix — laptops
+  // and weak-signal phones can be off by hundreds of meters, so this drives a
+  // warning nudging the customer to drag the map pin instead of trusting it blindly.
+  const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState<number | null>(null);
 
   // ── Payment state ──────────────────────────────────────────────────────────
   const [paymentError,  setPaymentError]  = useState("");
@@ -231,6 +235,7 @@ export default function PrintBookPage() {
           setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
           if (place.pincode) setPincode(place.pincode);
           setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+          setCurrentLocationAccuracy(coords.accuracy ?? null);
           setPlaceSelectionKey((k) => k + 1);
           setUsingCurrentLocation(true);
           setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
@@ -258,6 +263,7 @@ export default function PrintBookPage() {
       setPlaceSelectionKey((k) => k + 1);
     }
     setUsingCurrentLocation(false);
+    setCurrentLocationAccuracy(null);
   };
 
   // ── Delivery charge calculation (mirrors backend ShippingService logic) ──────
@@ -473,6 +479,7 @@ export default function PrintBookPage() {
     setPdfs([]); setPhone(""); setAddress(""); setPincode(""); setDelivery(null);
     setGeoError(""); setFieldErrors({}); setFileError(""); setPaymentError("");
     setPreciseLocation(null); setUsingCurrentLocation(false); setCurrentLocationError("");
+    setCurrentLocationAccuracy(null);
   };
 
   // ── Not logged in ──────────────────────────────────────────────────────────
@@ -926,7 +933,7 @@ export default function PrintBookPage() {
               onChange={(v) => {
                 setAddress(v);
                 setFieldErrors((p) => { const n = {...p}; delete n.address; return n; });
-                if (usingCurrentLocation) { setUsingCurrentLocation(false); setPreciseLocation(null); }
+                if (usingCurrentLocation) { setUsingCurrentLocation(false); setPreciseLocation(null); setCurrentLocationAccuracy(null); }
               }}
               onPlaceSelected={handlePlaceSelected}
               placeholder="Your pickup / delivery address"
@@ -948,6 +955,11 @@ export default function PrintBookPage() {
             {usingCurrentLocation && (
               <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                 <CheckCircle size={12} className="shrink-0" /> Using your current location — clear it by editing the address manually.
+              </p>
+            )}
+            {usingCurrentLocation && currentLocationAccuracy != null && currentLocationAccuracy > 200 && (
+              <p className="mt-1.5 text-xs text-amber-600">
+                Your device's location is only accurate to ~{Math.round(currentLocationAccuracy)}m (common on laptops/weak GPS signal) — please drag the pin on the map below to your exact address.
               </p>
             )}
           </div>
