@@ -32,7 +32,7 @@ export default function SectionBooksPage() {
 
   const section = data?.data;
   const books: Book[] = (section?.books ?? []) as Book[];
-  const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
   const addingBookId = addToCartMutation.isPending
     ? (addToCartMutation.variables?.bookId ?? null)
     : null;
@@ -105,6 +105,7 @@ export default function SectionBooksPage() {
               onAddToCart={() => addToCartMutation.mutate({ bookId: book.id, quantity: 1 })}
               isAddingToCart={addingBookId === book.id}
               isInCart={cartBookIds.has(book.id)}
+              cartQuantity={cartBookIds.get(book.id) ?? 0}
             />
           ))}
         </div>

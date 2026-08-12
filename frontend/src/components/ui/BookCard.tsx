@@ -1,4 +1,5 @@
-import { ArrowRight, ShoppingBag } from "lucide-react";
+import { ArrowRight, BookOpen, ShoppingBag } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Book } from "../../types";
 
@@ -7,6 +8,8 @@ type BookCardProps = {
   onAddToCart?: (book: Book) => void;
   isAddingToCart?: boolean;
   isInCart?: boolean;
+  /** Quantity of this book already in the cart — caps further "Add" clicks at book.stock. */
+  cartQuantity?: number;
 };
 
 const formatPrice = (price: number) =>
@@ -21,9 +24,15 @@ export default function BookCard({
   onAddToCart,
   isAddingToCart = false,
   isInCart = false,
+  cartQuantity = 0,
 }: BookCardProps) {
   const isOutOfStock = book.stock < 1;
+  // Matches the stock cap used for the quantity stepper on CartPage — once the
+  // cart already holds as many units as are in stock, further "Add" clicks
+  // must not add more.
+  const atStockLimit = cartQuantity >= book.stock;
   const navigate = useNavigate();
+  const [coverBroken, setCoverBroken] = useState(false);
 
   // Compare price & discount calculation
   const comparePrice = (book as any).comparePrice ? Number((book as any).comparePrice) : null;
@@ -46,11 +55,25 @@ export default function BookCard({
     >
       {/* Image */}
       <div className="relative block overflow-hidden rounded-t-2xl bg-[#efe6d8]">
-        <img
-          src={book.coverImageUrl}
-          alt={book.title}
-          className="aspect-[3/4] w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-        />
+        {coverBroken ? (
+          <div className="flex aspect-[3/4] w-full items-center justify-center">
+            <BookOpen size={28} className="text-text-muted/40" strokeWidth={1.2} />
+          </div>
+        ) : (
+          <img
+            src={book.coverImageUrl}
+            alt={book.title}
+            loading="lazy"
+            className="aspect-[3/4] w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            onError={() => setCoverBroken(true)}
+            onLoad={(e) => {
+              // Some cover APIs (e.g. OpenLibrary) return a 200 with a near-empty
+              // 1px placeholder instead of a real 404 — treat that as broken too.
+              const img = e.currentTarget;
+              if (img.naturalWidth <= 2 || img.naturalHeight <= 2) setCoverBroken(true);
+            }}
+          />
+        )}
         {isOutOfStock && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-text-primary">Out of stock</span>
@@ -96,7 +119,7 @@ export default function BookCard({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onAddToCart?.(book); }}
-            disabled={!onAddToCart || isAddingToCart || isOutOfStock}
+            disabled={!onAddToCart || isAddingToCart || isOutOfStock || atStockLimit}
             className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[0.62rem] font-medium text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-55 ${
               isInCart ? "bg-emerald-700 hover:bg-emerald-800" : "bg-[#1d1a17] hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0"
             }`}

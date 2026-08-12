@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
@@ -35,6 +35,7 @@ export default function BookDetailPage() {
   const [activeTab, setActiveTab] = useState<"details" | "reviews">("details");
   const [qty, setQty] = useState(1);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [coverBroken, setCoverBroken] = useState(false);
   const [bindingType, setBindingType] = useState<"NONE" | "SPIRAL" | "STAPLE">("NONE");
   const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
   const [reviewSuccess, setReviewSuccess] = useState(false);
@@ -75,7 +76,7 @@ export default function BookDetailPage() {
   const book = data?.data;
   const isOutOfStock = (book?.stock ?? 0) < 1;
   const isInCart = cartData?.data?.items.some((item) => item.bookId === book?.id) ?? false;
-  const cartBookIds = new Set(cartData?.data?.items.map((item) => item.bookId) ?? []);
+  const cartBookIds = new Map(cartData?.data?.items.map((item) => [item.bookId, item.quantity]) ?? []);
   const apiError = error as AxiosError<ApiErrorResponse> | null;
   const errorStatus = apiError?.response?.status;
   const relatedBooks = relatedBooksData?.data?.books?.filter((b) => b.id !== book?.id) ?? [];
@@ -188,19 +189,31 @@ export default function BookDetailPage() {
             const safeIndex = Math.min(currentIndex, allImages.length - 1);
             const activeUrl = allImages[safeIndex]?.imageUrl ?? book.coverImageUrl;
 
-            const prev = () => setCurrentIndex((i) => (i === 0 ? allImages.length - 1 : i - 1));
-            const next = () => setCurrentIndex((i) => (i === allImages.length - 1 ? 0 : i + 1));
+            const prev = () => { setCurrentIndex((i) => (i === 0 ? allImages.length - 1 : i - 1)); setCoverBroken(false); };
+            const next = () => { setCurrentIndex((i) => (i === allImages.length - 1 ? 0 : i + 1)); setCoverBroken(false); };
 
             return (
               <>
                 {/* Main image */}
                 <div className="group relative overflow-hidden rounded-2xl border border-black/8 bg-[#f8f4ee]">
-                  <img
-                    key={activeUrl}
-                    src={activeUrl}
-                    alt={book.title}
-                    className="mx-auto block aspect-[3/4] w-full max-w-[280px] object-cover transition-all duration-300 lg:max-w-full"
-                  />
+                  {coverBroken ? (
+                    <div className="mx-auto flex aspect-[3/4] w-full max-w-[280px] items-center justify-center lg:max-w-full">
+                      <BookOpen size={40} className="text-text-muted/40" strokeWidth={1.2} />
+                    </div>
+                  ) : (
+                    <img
+                      key={activeUrl}
+                      src={activeUrl}
+                      alt={book.title}
+                      className="mx-auto block aspect-[3/4] w-full max-w-[280px] object-cover transition-all duration-300 lg:max-w-full"
+                      onError={() => setCoverBroken(true)}
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth <= 2 || img.naturalHeight <= 2) setCoverBroken(true);
+                        else setCoverBroken(false);
+                      }}
+                    />
+                  )}
                   {discount > 0 && (
                     <div className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
                       {discount}% OFF
@@ -233,7 +246,7 @@ export default function BookDetailPage() {
                         {allImages.map((_, i) => (
                           <button
                             key={i} type="button"
-                            onClick={() => setCurrentIndex(i)}
+                            onClick={() => { setCurrentIndex(i); setCoverBroken(false); }}
                             className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "w-4 bg-[#1d1a17]" : "w-1.5 bg-[#1d1a17]/30 hover:bg-[#1d1a17]/60"}`}
                             aria-label={`Go to image ${i + 1}`}
                           />
@@ -249,7 +262,7 @@ export default function BookDetailPage() {
                     {allImages.map((img, idx) => (
                       <button
                         key={img.id} type="button"
-                        onClick={() => setCurrentIndex(idx)}
+                        onClick={() => { setCurrentIndex(idx); setCoverBroken(false); }}
                         className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all duration-200 ${idx === safeIndex ? "border-[#1d1a17] opacity-100 scale-105" : "border-transparent opacity-55 hover:opacity-90 hover:scale-105"}`}
                       >
                         <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
@@ -574,6 +587,7 @@ export default function BookDetailPage() {
               <BookCard key={relatedBook.id} book={relatedBook}
                 onAddToCart={() => { if (!isAuthenticated) { navigate("/login"); return; } addToCartMutation.mutate(relatedBook.id); }}
                 isInCart={cartBookIds.has(relatedBook.id)}
+                cartQuantity={cartBookIds.get(relatedBook.id) ?? 0}
                 isAddingToCart={addToCartMutation.isPending && addToCartMutation.variables === relatedBook.id} />
             ))}
           </div>

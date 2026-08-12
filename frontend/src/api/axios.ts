@@ -55,7 +55,12 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (originalRequest.url?.includes("/auth/refresh")) {
+    // Only /auth/me and /auth/logout carry a real access token that can go stale —
+    // every other /auth/* endpoint (login, register, OTP, refresh itself, ...) is
+    // public and a 401 there is a genuine auth failure, not an expired-token retry.
+    const isRefreshableAuthCall =
+      originalRequest.url?.includes("/auth/me") || originalRequest.url?.includes("/auth/logout");
+    if (originalRequest.url?.includes("/auth/") && !isRefreshableAuthCall) {
       return Promise.reject(error);
     }
 

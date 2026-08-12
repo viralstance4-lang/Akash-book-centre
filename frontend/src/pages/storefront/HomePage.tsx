@@ -14,6 +14,7 @@ import BookSlider from "../../components/ui/BookSlider";
 import BannerSlider from "../../components/ui/BannerSlider";
 import CategorySlider from "../../components/ui/CategorySlider";
 import { SkeletonCategory, SkeletonGrid } from "../../components/ui/SkeletonLoader";
+import { getErrorMessage, useToast, ToastViewport } from "../../components/ui/Toast";
 import { useAuthStore } from "../../store/auth.store";
 import { getSectionViewAllHref, getCategorySectionItems } from "../../utils/sectionLinks";
 
@@ -32,6 +33,7 @@ export default function HomePage() {
   const navigate                = useNavigate();
   const isAuthenticated         = useAuthStore((s) => s.isAuthenticated);
   const user                    = useAuthStore((s) => s.user);
+  const { toast, showToast }    = useToast();
 
   useEffect(() => {
     const q = searchParams.get("q") ?? "";
@@ -53,13 +55,14 @@ export default function HomePage() {
   const addToCartMutation = useMutation({
     mutationFn: ({ bookId, quantity }: { bookId: string; quantity: number }) => addToCart(bookId, quantity),
     onSuccess:  () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
+    onError:    (e) => showToast(false, getErrorMessage(e, "Couldn't add to cart. Please try again.")),
   });
 
   // ── Derived data ──────────────────────────────────────────────────────────────
   const books      = booksData?.data?.books ?? [];
   const categories: Category[] = categoriesData?.data ?? [];
   const banners    = bannersData?.data ?? [];
-  const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
 
   const sections: HomepageSection[] = useMemo(() => {
     return [...homepageSections].sort((a, b) => a.order - b.order).filter((s) => s.isEnabled);
@@ -314,6 +317,7 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8 pb-8">
+      <ToastViewport toast={toast} />
       {user?.role === "ADMIN" && (
         <div className="flex items-center justify-between rounded-2xl bg-[#1d1a17] px-4 py-3 text-white">
           <div className="flex items-center gap-2">

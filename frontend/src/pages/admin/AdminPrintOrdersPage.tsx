@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, Check, ChevronDown, ChevronUp, Download,
-  Eye, Loader2, Mail, Phone, Settings, Trash2, User,
+  Eye, Loader2, Mail, MapPin, Phone, Settings, Share2, Trash2, User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuthStore } from "../../store/auth.store";
@@ -457,6 +457,47 @@ export default function AdminPrintOrdersPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Customer Location (opt-in GPS, only shown if customer shared it) */}
+                      {order.customerLatitude != null && order.customerLongitude != null && (() => {
+                        const lat = order.customerLatitude as number;
+                        const lng = order.customerLongitude as number;
+                        const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+                        const whatsappText = `Print order #${order.id} delivery location: ${mapsLink}`;
+                        return (
+                          <div className="mt-2.5 rounded-xl border border-black/8 bg-[#faf8f5] p-3">
+                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-text-muted">Customer Location</p>
+                            <a href={mapsLink} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg border border-black/10">
+                              <iframe
+                                title="Customer location"
+                                width="100%"
+                                height="140"
+                                style={{ border: 0, display: "block" }}
+                                loading="lazy"
+                                src={`https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`}
+                              />
+                            </a>
+                            <div className="mt-2 flex gap-2">
+                              <a
+                                href={mapsLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-black/10 bg-white py-2 text-xs font-medium text-text-primary hover:border-black/20"
+                              >
+                                <MapPin size={13} /> View on Map
+                              </a>
+                              <a
+                                href={`https://wa.me/?text=${encodeURIComponent(whatsappText)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-emerald-600 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                              >
+                                <Share2 size={13} /> Share with Rider
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Print spec pills */}
                       <div className="mt-2.5 flex flex-wrap gap-1.5">

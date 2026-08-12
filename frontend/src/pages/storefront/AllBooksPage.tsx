@@ -29,7 +29,7 @@ export default function AllBooksPage() {
   });
 
   const allBooks: Book[] = booksData?.data?.books ?? [];
-  const cartBookIds      = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds      = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
   const addingBookId     = addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null;
 
   const handleAddToCart = (book: Book) => {

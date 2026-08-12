@@ -1,4 +1,5 @@
 import AppError from "../../lib/AppError";
+import { deleteImage } from "../../lib/cloudinary";
 import prisma from "../../lib/prisma";
 
 const createSlug = (value: string) =>
@@ -10,27 +11,38 @@ const createSlug = (value: string) =>
 
 // ─── Category ─────────────────────────────────────────────────────────────────
 
-export const getAllCategories = () =>
+/**
+ * `includeInactive` must only ever be set to `true` by admin-authenticated callers
+ * — public storefront requests should never see a category/subcategory an admin
+ * has hidden.
+ */
+export const getAllCategories = (includeInactive = false) =>
   prisma.category.findMany({
+    where: includeInactive ? undefined : { isActive: true },
     orderBy: [{ order: "asc" }, { name: "asc" }],
     include: {
       subcategories: {
+        where: includeInactive ? undefined : { isActive: true },
         orderBy: [{ order: "asc" }, { name: "asc" }],
       },
     },
   });
 
-export const getCategoryBySlug = async (slug: string) => {
+export const getCategoryBySlug = async (slug: string, includeInactive = false) => {
   const cat = await prisma.category.findUnique({
     where: { slug },
     include: {
       subcategories: {
-        where: { isActive: true },
+        where: includeInactive ? undefined : { isActive: true },
         orderBy: [{ order: "asc" }, { name: "asc" }],
       },
     },
   });
-  if (!cat) throw new AppError("Category not found", 404, "CATEGORY_NOT_FOUND");
+  // Treat a hidden category as not-found for public requests (same 404 as a
+  // genuinely missing slug) rather than exposing that it exists but is inactive.
+  if (!cat || (!includeInactive && !cat.isActive)) {
+    throw new AppError("Category not found", 404, "CATEGORY_NOT_FOUND");
+  }
   return cat;
 };
 
@@ -87,17 +99,46 @@ export const updateCategory = async (
     payload.slug = newSlug;
   }
 
-  return prisma.category.update({
-    where: { id },
-    data:  payload,
-    include: { subcategories: { orderBy: [{ order: "asc" }, { name: "asc" }] } },
-  });
+  // Replacing the image: a new one has already been uploaded (imagePublicId
+  // differs from what's on file) — clean up the old Cloudinary asset once the
+  // swap is saved, and roll back the freshly uploaded one if the DB write fails.
+  const isNewImage = data.imagePublicId !== undefined && data.imagePublicId !== existing.imagePublicId;
+
+  let updated;
+  try {
+    updated = await prisma.category.update({
+      where: { id },
+      data:  payload,
+      include: { subcategories: { orderBy: [{ order: "asc" }, { name: "asc" }] } },
+    });
+  } catch (error) {
+    if (isNewImage && data.imagePublicId) await deleteImage(data.imagePublicId);
+    throw error;
+  }
+
+  if (isNewImage && existing.imagePublicId) await deleteImage(existing.imagePublicId);
+  return updated;
 };
 
 export const deleteCategory = async (id: string) => {
   const existing = await prisma.category.findUnique({ where: { id } });
   if (!existing) throw new AppError("Category not found", 404, "CATEGORY_NOT_FOUND");
+
+  // Subcategories cascade-delete at the DB level (schema onDelete: Cascade) —
+  // grab their images first so Cloudinary cleanup still happens after the cascade.
+  const subcategories = await prisma.subcategory.findMany({
+    where: { categoryId: id },
+    select: { imagePublicId: true },
+  });
+
   await prisma.category.delete({ where: { id } });
+
+  if (existing.imagePublicId) await deleteImage(existing.imagePublicId);
+  await Promise.all(
+    subcategories
+      .filter((s): s is { imagePublicId: string } => !!s.imagePublicId)
+      .map((s) => deleteImage(s.imagePublicId)),
+  );
 };
 
 export const getSubcategoriesByCategoryId = (categoryId: string) =>
@@ -170,11 +211,23 @@ export const updateSubcategory = async (
   if (data.isActive      !== undefined) payload.isActive      = data.isActive;
   if (data.order         !== undefined) payload.order         = data.order;
 
-  return prisma.subcategory.update({ where: { id }, data: payload });
+  const isNewImage = data.imagePublicId !== undefined && data.imagePublicId !== existing.imagePublicId;
+
+  let updated;
+  try {
+    updated = await prisma.subcategory.update({ where: { id }, data: payload });
+  } catch (error) {
+    if (isNewImage && data.imagePublicId) await deleteImage(data.imagePublicId);
+    throw error;
+  }
+
+  if (isNewImage && existing.imagePublicId) await deleteImage(existing.imagePublicId);
+  return updated;
 };
 
 export const deleteSubcategory = async (id: string) => {
   const existing = await prisma.subcategory.findUnique({ where: { id } });
   if (!existing) throw new AppError("Subcategory not found", 404, "SUB_NOT_FOUND");
   await prisma.subcategory.delete({ where: { id } });
+  if (existing.imagePublicId) await deleteImage(existing.imagePublicId);
 };

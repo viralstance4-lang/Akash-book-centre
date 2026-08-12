@@ -26,13 +26,13 @@ const GOLD = "#d6b269";
 
 // ── Static content ────────────────────────────────────────────────────────────
 const POLICY_CARDS = [
-  { Icon: Clock,    title: "7-Day Window",    desc: "Submit your return within 7 days of delivery.",          accent: GOLD  },
+  { Icon: Clock,    title: "5-Day Window",    desc: "Submit your return within 5 days of delivery.",          accent: GOLD  },
   { Icon: Shield,   title: "Original Condition", desc: "Books must be unused, unmarked, and undamaged.", accent: NAVY  },
   { Icon: CheckCircle, title: "Quick Review", desc: "We review and respond within 2–3 business days.",        accent: GOLD  },
 ];
 
 const ELIGIBLE = [
-  "Delivered within the last 7 days",
+  "Delivered within the last 5 days",
   "In original, unused, unmarked condition",
   "Original packaging intact where applicable",
   "Standard books — not print-on-demand",
@@ -43,7 +43,7 @@ const NOT_ELIGIBLE = [
   "Print books (custom printed on demand)",
   "Spiral-bound or custom-finished orders",
   "Digital or downloadable content",
-  "Orders placed more than 7 days ago",
+  "Orders placed more than 5 days ago",
   "Books with tears, highlights, or damage",
 ];
 

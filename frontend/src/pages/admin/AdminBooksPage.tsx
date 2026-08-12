@@ -24,6 +24,7 @@ import {
   updateBook,
 } from "../../api/books.api";
 import { getCategories, type Category } from "../../api/categories.api";
+import { getErrorMessage, useToast, ToastViewport } from "../../components/ui/Toast";
 import type { ApiErrorResponse, Book } from "../../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -119,6 +120,10 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
   const [dragIndex, setDragIndex]       = useState<number | null>(null);
   const [uploadFiles, setUploadFiles]   = useState<File[]>([]);
   const [uploadPreviews, setUploadPreviews] = useState<string[]>([]);
+  const { toast, showToast } = useToast();
+  // Snapshot of localImages taken right before a drag starts, so a failed reorder
+  // can revert the grid instead of leaving the unsaved drag order on screen.
+  const preDragImagesRef = useRef<BookImage[] | null>(null);
 
   const addMutation = useMutation({
     mutationFn: (files: File[]) => addBookImages(bookId, files),
@@ -128,6 +133,7 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
       void queryClient.invalidateQueries({ queryKey: ["admin-books"] });
       void queryClient.invalidateQueries({ queryKey: ["books"] });
     },
+    onError: (e) => showToast(false, getErrorMessage(e, "Failed to upload images. Please try again.")),
   });
 
   const deleteMutation = useMutation({
@@ -138,6 +144,7 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
       void queryClient.invalidateQueries({ queryKey: ["admin-books"] });
       void queryClient.invalidateQueries({ queryKey: ["books"] });
     },
+    onError: (e) => showToast(false, getErrorMessage(e, "Failed to delete image. Please try again.")),
   });
 
   const reorderMutation = useMutation({
@@ -148,6 +155,10 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
       void queryClient.invalidateQueries({ queryKey: ["admin-books"] });
       void queryClient.invalidateQueries({ queryKey: ["books"] });
     },
+    onError: (e) => {
+      if (preDragImagesRef.current) setLocalImages(preDragImagesRef.current);
+      showToast(false, getErrorMessage(e, "Failed to save the new image order. Reverted to the last saved order."));
+    },
   });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,7 +168,10 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
     setUploadPreviews(files.map((f) => URL.createObjectURL(f)));
   };
 
-  const handleDragStart = (index: number) => setDragIndex(index);
+  const handleDragStart = (index: number) => {
+    preDragImagesRef.current = localImages;
+    setDragIndex(index);
+  };
   const handleDragOver  = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     if (dragIndex === null || dragIndex === index) return;
@@ -174,6 +188,7 @@ function ImageManager({ bookId, images, onClose }: { bookId: string; images: Boo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <ToastViewport toast={toast} />
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-black/8 px-5 py-4">
           <div>

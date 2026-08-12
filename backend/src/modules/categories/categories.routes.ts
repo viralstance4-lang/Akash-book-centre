@@ -7,6 +7,7 @@ import {
   deleteCategory,
   deleteSubcategory,
   getCategoryBySlug,
+  listAdminCategories,
   listCategories,
   listSubcategories,
   updateCategory,
@@ -26,7 +27,7 @@ categoriesRouter.get("/:slug",         getCategoryBySlug);
 export const adminCategoriesRouter = Router();
 
 // Categories CRUD
-adminCategoriesRouter.get    ("/",    listCategories);
+adminCategoriesRouter.get    ("/",    ...adminMw, listAdminCategories);
 adminCategoriesRouter.post   ("/",    ...adminMw, upload.single("image"), createCategory);
 adminCategoriesRouter.patch  ("/:id", ...adminMw, upload.single("image"), updateCategory);
 adminCategoriesRouter.delete ("/:id", ...adminMw, deleteCategory);

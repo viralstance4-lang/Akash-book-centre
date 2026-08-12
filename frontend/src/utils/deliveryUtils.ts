@@ -1,4 +1,8 @@
-export const SHOP = { lat: 28.6519, lng: 77.1558, name: "South Patel Nagar, New Delhi - 110008" };
+export const SHOP = {
+  lat: 28.646457,
+  lng: 77.158939,
+  name: "3026/5A, Ranjeet Nagar, South Patel Nagar, New Delhi - 110008",
+};
 export const FREE_KM = 3;
 
 const PINCODE_COORDS: Record<string, [number, number]> = {
@@ -132,6 +136,12 @@ export function getDeliveryFromPincode(pincode: string): DeliveryResult {
   const coords = PINCODE_COORDS[pincode];
   if (!coords) return { type: "UNKNOWN", distanceKm: null, label: "Delivery availability unknown", sublabel: "Pincode not in our delivery zone database" };
   return getDeliveryFromCoords(coords[0], coords[1]);
+}
+
+/** Looks up known [lat, lng] coordinates for a pincode, or null if not in the local database. */
+export function getCoordsForPincode(pincode: string): { lat: number; lng: number } | null {
+  const coords = PINCODE_COORDS[pincode];
+  return coords ? { lat: coords[0], lng: coords[1] } : null;
 }
 
 export async function getDeliveryFromGeolocation(): Promise<DeliveryResult> {

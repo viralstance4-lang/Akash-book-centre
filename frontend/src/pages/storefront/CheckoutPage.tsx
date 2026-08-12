@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle, CreditCard, Locate, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, CreditCard, Locate, LocateFixed, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCart } from "../../api/cart.api";
@@ -13,11 +13,17 @@ import {
   SHOP,
   getDeliveryFromPincode,
   getDeliveryFromGeolocation,
+  getDeliveryFromCoords,
+  getCoordsForPincode,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
+import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
+import MapPinPicker from "../../components/checkout/MapPinPicker";
 
 type ShippingField = keyof ShippingAddress;
 type CheckoutOrder = { id: string; razorpayOrderId?: string };
+
+const ADDRESS_FIELDS: ShippingField[] = ["line1", "line2", "city", "state", "pincode"];
 declare global { interface Window { Razorpay?: new (options: any) => { open: () => void }; } }
 
 const fmt = (v: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
@@ -50,6 +56,11 @@ export default function CheckoutPage() {
   const [delivery, setDelivery] = useState<DeliveryResult | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState("");
+  const [preciseLocation, setPreciseLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [placeSelectionKey, setPlaceSelectionKey] = useState(0);
+  const [usingCurrentLocation, setUsingCurrentLocation] = useState(false);
+  const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
+  const [currentLocationError, setCurrentLocationError] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
   const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
@@ -71,13 +82,21 @@ export default function CheckoutPage() {
     }
   }, [codBlocked, paymentMethod]);
 
-  // Auto-calculate delivery when pincode reaches 6 digits
+  // Auto-calculate delivery when pincode reaches 6 digits.
+  // Also derive coordinates from the pincode so the server can compute an
+  // authoritative distance for pincode-only checkouts (no GPS/autocomplete used).
+  // Skipped when a more precise location is already set (GPS or autocomplete).
   useEffect(() => {
     const pin = form.pincode.trim();
     if (pin.length === 6 && /^\d{6}$/.test(pin)) {
       setDelivery(getDeliveryFromPincode(pin));
       setGeoError("");
+      if (!preciseLocation) {
+        const coords = getCoordsForPincode(pin);
+        if (coords) setPreciseLocation(coords);
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.pincode]);
 
   const handleUseMyLocation = async () => {
@@ -91,6 +110,67 @@ export default function CheckoutPage() {
     } finally {
       setGeoLoading(false);
     }
+  };
+
+  const handlePlaceSelected = (place: PlaceSelection) => {
+    setForm((c) => ({
+      ...c,
+      line1: place.line1 || c.line1,
+      city: place.city || c.city,
+      state: place.state || c.state,
+      pincode: place.pincode || c.pincode,
+    }));
+    setFieldErrors((c) => {
+      const n = { ...c };
+      delete n.line1; delete n.city; delete n.state; delete n.pincode;
+      return n;
+    });
+    if (place.lat != null && place.lng != null) {
+      setPreciseLocation({ lat: place.lat, lng: place.lng });
+      setPlaceSelectionKey((k) => k + 1);
+    }
+    setUsingCurrentLocation(false);
+  };
+
+  const handleShareCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setCurrentLocationError("Geolocation is not supported by your browser.");
+      return;
+    }
+    setCurrentLocationLoading(true);
+    setCurrentLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const place = await reverseGeocode(coords.latitude, coords.longitude);
+          setForm((c) => ({
+            ...c,
+            line1: place.line1,
+            city: place.city ?? "",
+            state: place.state ?? "",
+            pincode: place.pincode ?? "",
+          }));
+          setFieldErrors((c) => {
+            const n = { ...c };
+            delete n.line1; delete n.city; delete n.state; delete n.pincode;
+            return n;
+          });
+          setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+          setPlaceSelectionKey((k) => k + 1);
+          setUsingCurrentLocation(true);
+          setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
+        } catch {
+          setCurrentLocationError("Could not determine your address from your location. Please enter it manually.");
+        } finally {
+          setCurrentLocationLoading(false);
+        }
+      },
+      () => {
+        setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
+        setCurrentLocationLoading(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true },
+    );
   };
 
   const verifyPaymentMutation = useMutation({
@@ -112,7 +192,8 @@ export default function CheckoutPage() {
         method,
         customerEmail,
         delivery?.type === "UNKNOWN" ? undefined : (delivery?.type ?? undefined),
-        delivery?.distanceKm ?? undefined,
+        preciseLocation?.lat ?? undefined,
+        preciseLocation?.lng ?? undefined,
       ),
     onSuccess: async (response, variables) => {
       const order = response.data as CheckoutOrder;
@@ -189,10 +270,11 @@ export default function CheckoutPage() {
     return shippingSettings.defaultKgRate ?? 70;
   }, [shippingZone, shippingSettings]);
 
-  // Whether the customer is in the local distance-based zone
+  // Whether the customer is within the local distance-based radius — beyond this,
+  // pricing switches to weight/zone-based (mirrors backend distanceThreshold).
   const isLocalDelivery = delivery?.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3);
 
-  // Flat area charge per zone (only for weight-based, beyond threshold)
+  // Flat area charge per zone (only for weight-based, beyond the local radius)
   const areaCharge = useMemo(() => {
     if (!shippingSettings || !shippingSettings.isShippingEnabled || isLocalDelivery) return 0;
     if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneAreaCharge ?? 0;
@@ -206,7 +288,8 @@ export default function CheckoutPage() {
     const distance = delivery?.distanceKm ?? null;
     if (distance !== null && distance <= (shippingSettings.freeRadius ?? 3)) {
       if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
-      return Math.round(distance * Number(shippingSettings.perKmCharge));
+      // Round distance UP to the next whole km before billing (2.9km & 3.0km bill as 3km; 3.2km bills as 4km)
+      return Math.ceil(distance) * Number(shippingSettings.perKmCharge);
     }
     return Math.round(totalWeightKg * zoneRate);
   }, [delivery?.distanceKm, shippingSettings, totalAmount, totalWeightKg, zoneRate]);
@@ -265,6 +348,10 @@ export default function CheckoutPage() {
     setForm((c) => ({ ...c, [field]: value }));
     setFieldErrors((c) => { const n = { ...c }; delete n[field]; return n; });
     setSubmitError("");
+    if (usingCurrentLocation && ADDRESS_FIELDS.includes(field)) {
+      setUsingCurrentLocation(false);
+      setPreciseLocation(null);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -425,7 +512,65 @@ export default function CheckoutPage() {
 
               {([
                 ["name", "Full Name", false], ["phone", "Phone Number", false],
-                ["line1", "Address Line 1", true], ["line2", "Address Line 2 (optional)", true],
+              ] as Array<[ShippingField, string, boolean]>).map(([field, label, full]) => (
+                <label key={field} className={`${full ? "sm:col-span-2" : ""} block`}>
+                  <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">{label}</span>
+                  <input type="text" value={form[field] ?? ""} onChange={(e) => handleChange(field, e.target.value)}
+                    className={`h-11 w-full rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors[field] ? "border-red-300" : "border-black/10 focus:border-black/20"}`} />
+                  {fieldErrors[field] && <p className="mt-1 text-xs text-red-500">{fieldErrors[field]}</p>}
+                </label>
+              ))}
+
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={handleShareCurrentLocation}
+                  disabled={currentLocationLoading}
+                  className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-[#f8f4ee] px-4 py-2 text-xs font-medium text-text-primary transition-all hover:border-black/20 hover:bg-white disabled:opacity-50"
+                >
+                  <LocateFixed size={14} className={currentLocationLoading ? "animate-spin" : ""} />
+                  {currentLocationLoading ? "Getting your location…" : "Share your current location"}
+                </button>
+                {currentLocationError && <p className="mt-1.5 text-xs text-amber-600">{currentLocationError}</p>}
+                {usingCurrentLocation && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                    <CheckCircle size={12} className="shrink-0" /> Using your current location — clear it by editing the address manually.
+                  </p>
+                )}
+              </div>
+
+              <label className="sm:col-span-2 block">
+                <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Address Line 1</span>
+                <AddressAutocomplete
+                  value={form.line1}
+                  onChange={(v) => handleChange("line1", v)}
+                  onPlaceSelected={handlePlaceSelected}
+                  placeholder="Start typing your address..."
+                  className={`h-11 w-full rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.line1 ? "border-red-300" : "border-black/10 focus:border-black/20"}`}
+                />
+                {fieldErrors.line1 && <p className="mt-1 text-xs text-red-500">{fieldErrors.line1}</p>}
+              </label>
+
+              {preciseLocation && (
+                <div className="sm:col-span-2">
+                  <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Confirm exact location</span>
+                  <MapPinPicker
+                    key={placeSelectionKey}
+                    lat={preciseLocation.lat}
+                    lng={preciseLocation.lng}
+                    onPositionChange={(lat, lng) => setPreciseLocation({ lat, lng })}
+                  />
+                  <p className="mt-1.5 text-[11px] text-text-muted">Drag the pin to fine-tune your exact location for the delivery rider.</p>
+                </div>
+              )}
+
+              <label className="sm:col-span-2 block">
+                <span className="mb-1.5 block text-xs uppercase tracking-[0.2em] text-text-muted">Address Line 2 (optional)</span>
+                <input type="text" value={form.line2 ?? ""} onChange={(e) => handleChange("line2", e.target.value)}
+                  className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-sm outline-none focus:border-black/20 focus:bg-white transition-all" />
+              </label>
+
+              {([
                 ["city", "City", false], ["state", "State", false],
               ] as Array<[ShippingField, string, boolean]>).map(([field, label, full]) => (
                 <label key={field} className={`${full ? "sm:col-span-2" : ""} block`}>
@@ -489,8 +634,8 @@ export default function CheckoutPage() {
                       </p>
                       <p className="text-[11px] text-text-muted">
                         {displayDeliveryType === "PAID" && deliveryCharge > 0
-                          ? (delivery.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3))
-                            ? `${delivery.distanceKm} km × ₹${shippingSettings?.perKmCharge}/km`
+                          ? isLocalDelivery
+                            ? `${Math.ceil(delivery.distanceKm ?? 0)} km × ₹${shippingSettings?.perKmCharge}/km`
                             : `${totalWeightKg} kg × ₹${zoneRate}/kg · ${delivery.sublabel}`
                           : delivery.sublabel}
                       </p>
@@ -498,6 +643,12 @@ export default function CheckoutPage() {
                   </div>
                 )}
               </div>
+
+              {preciseLocation && (
+                <p className="sm:col-span-2 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+                  <CheckCircle size={12} className="shrink-0" /> Precise location captured from your address for the delivery rider ✓
+                </p>
+              )}
 
               {submitError && <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{submitError}</div>}
 
@@ -591,7 +742,10 @@ export default function CheckoutPage() {
                         <span>+{fmt(weightCharge)}</span>
                       </div>
                     </>
-                  : <div className="flex justify-between text-sm text-amber-600"><span>Delivery Charges</span><span>+{fmt(deliveryCharge)}</span></div>
+                  : <div className="flex justify-between text-sm text-amber-600">
+                      <span>Delivery Charge <span className="text-xs font-normal text-text-muted">({Math.ceil(delivery?.distanceKm ?? 0)} km × ₹{shippingSettings?.perKmCharge}/km)</span></span>
+                      <span>+{fmt(deliveryCharge)}</span>
+                    </div>
             )}
             {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Coupon Discount</span><span>-{fmt(discount)}</span></div>}
             {prepaidDiscount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Prepaid Discount</span><span>-{fmt(prepaidDiscount)}</span></div>}

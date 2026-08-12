@@ -43,7 +43,7 @@ export default function BestSellersPage() {
     ? featuredBooks
     : (allBooksData?.data?.books ?? []).filter((b) => b.isFeatured);
 
-  const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
 
   const handleAddToCart = (book: Book) => {
     if (!isAuthenticated) { navigate("/login"); return; }

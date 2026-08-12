@@ -20,6 +20,7 @@ const PAYMENT_STATUS_STYLES: Record<PaymentStatus, string> = {
   PENDING: "bg-amber-100 text-amber-800",
   SUCCESS: "bg-emerald-100 text-emerald-800",
   FAILED: "bg-rose-100 text-rose-800",
+  REFUNDED: "bg-gray-100 text-gray-700",
 };
 
 const formatPrice = (value: number) =>

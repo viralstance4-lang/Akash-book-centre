@@ -14,5 +14,3 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </StrictMode>,
 );
-
- console.log(`TypeScript version:`);

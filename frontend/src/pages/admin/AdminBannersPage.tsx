@@ -367,7 +367,7 @@ export default function AdminBannersPage() {
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-text-muted transition-colors hover:border-black/20 hover:text-text-primary">
                       <Pencil size={14} />
                     </button>
-                    <button type="button" onClick={() => deleteMutation.mutate(banner.id)} disabled={deleteMutation.isPending}
+                    <button type="button" onClick={() => { if (window.confirm(`Delete banner "${banner.title || banner.redirectUrl}"? This will remove it from the live homepage.`)) deleteMutation.mutate(banner.id); }} disabled={deleteMutation.isPending}
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-100 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
                       <Trash2 size={14} />
                     </button>

@@ -6,7 +6,8 @@ import BookCard from "./BookCard";
 type Props = {
   books: Book[];
   onAddToCart: (book: Book) => void;
-  cartBookIds: Set<string>;
+  /** Map of bookId -> quantity currently in the cart. */
+  cartBookIds: Map<string, number>;
   addingBookId?: string | null;
 };
 
@@ -76,6 +77,7 @@ export default function BookSlider({ books, onAddToCart, cartBookIds, addingBook
               book={book}
               onAddToCart={onAddToCart}
               isInCart={cartBookIds.has(book.id)}
+              cartQuantity={cartBookIds.get(book.id) ?? 0}
               isAddingToCart={addingBookId === book.id}
             />
           </div>

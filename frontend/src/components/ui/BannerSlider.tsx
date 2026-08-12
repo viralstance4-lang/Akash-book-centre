@@ -18,6 +18,17 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
   const navigate = useNavigate();
 
   const activeBanners = banners.filter((b) => b.isActive);
+  // `current` is state, so it can briefly point past the end of `activeBanners`
+  // the instant a background refetch shrinks the list (e.g. an admin deactivates
+  // a banner while this is on screen). Deriving a clamped index at render time
+  // — rather than reading `current` directly — means the slide-out banner is
+  // safely skipped on the very next render instead of `activeBanners[current]`
+  // evaluating to undefined and crashing. `next`/`prev`/the timer already wrap
+  // `current` via modulo against the new length, so it self-corrects shortly
+  // after anyway; this just keeps the render safe and correct in the meantime.
+  const safeCurrent = activeBanners.length > 0
+    ? Math.min(current, activeBanners.length - 1)
+    : 0;
 
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -47,7 +58,7 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
     }
   };
 
-  const cur = activeBanners[current];
+  const cur = activeBanners[safeCurrent];
 
   return (
     <div
@@ -79,7 +90,7 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
         <div
           key={banner.id}
           className={`absolute inset-0 transition-opacity duration-700 ${
-            index === current ? "opacity-100 z-10" : "opacity-0 z-0"
+            index === safeCurrent ? "opacity-100 z-10" : "opacity-0 z-0"
           }`}
         >
           {/* Desktop image (≥640px) */}
@@ -132,7 +143,7 @@ export default function BannerSlider({ banners }: BannerSliderProps) {
               <button key={i} type="button"
                 onClick={() => { setCurrent(i); startTimer(); }}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === current ? "w-6 bg-white" : "w-1.5 bg-white/50 hover:bg-white/80"
+                  i === safeCurrent ? "w-6 bg-white" : "w-1.5 bg-white/50 hover:bg-white/80"
                 }`}
               />
             ))}

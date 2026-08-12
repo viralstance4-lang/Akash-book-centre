@@ -240,6 +240,8 @@ export const deleteBook = async (id: string) => {
   if (cartItemCount > 0 || orderItemCount > 0)
     throw new AppError("Cannot delete a book that is present in carts or orders", 400, "BOOK_IN_USE");
   await prisma.book.delete({ where: { id } });
+  // FeaturedSection.bookId has no FK/cascade, so it won't clean up on its own.
+  await prisma.featuredSection.deleteMany({ where: { bookId: id } });
   await deleteImage(existingBook.coverPublicId);
 };
 

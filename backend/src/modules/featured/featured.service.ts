@@ -1,3 +1,4 @@
+import AppError from "../../lib/AppError";
 import prisma from "../../lib/prisma";
 
 export const getFeaturedBooks = async () => {
@@ -9,6 +10,9 @@ export const getFeaturedBooks = async () => {
 };
 
 export const addFeaturedBook = async (bookId: string, order: number) => {
+  const book = await prisma.book.findUnique({ where: { id: bookId }, select: { id: true } });
+  if (!book) throw new AppError("Book not found", 404, "BOOK_NOT_FOUND");
+
   const existing = await prisma.featuredSection.findFirst({ where: { bookId } });
   if (existing) return existing;
   return prisma.featuredSection.create({ data: { bookId, order } });

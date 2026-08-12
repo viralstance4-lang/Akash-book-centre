@@ -18,6 +18,17 @@ const REFRESH_TOKEN_TTL_DAYS = 7;
 const SALT_ROUNDS = 12;
 const JWT_ACCESS_SECRET: Secret = env.JWT_ACCESS_SECRET;
 
+// Admin OTP session tokens are issued after the password step but before OTP
+// verification, so they must NOT be accepted by authMiddleware (which only checks
+// JWT_ACCESS_SECRET) — otherwise a token from that half-authenticated state could be
+// used as a real session on any route that doesn't additionally require ADMIN role.
+// Deriving this from JWT_ACCESS_SECRET (rather than adding a new required env var)
+// keeps the keys cryptographically independent without any extra deploy config.
+const JWT_OTP_SESSION_SECRET: Secret = crypto
+  .createHmac("sha256", JWT_ACCESS_SECRET)
+  .update("admin-otp-session")
+  .digest("hex");
+
 const OTP_EXPIRY_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_ATTEMPTS = 5;
@@ -305,14 +316,14 @@ const maskEmail = (email: string): string => {
 };
 
 const generateAdminOtpSessionToken = (userId: string): string =>
-  jwt.sign({ sub: userId, type: "ADMIN_OTP_SESSION" }, JWT_ACCESS_SECRET, {
+  jwt.sign({ sub: userId, type: "ADMIN_OTP_SESSION" }, JWT_OTP_SESSION_SECRET, {
     expiresIn: `${ADMIN_OTP_SESSION_MINUTES}m`,
   });
 
 const validateAdminOtpSession = (token: string): string => {
   let payload: { sub?: string; type?: string };
   try {
-    payload = jwt.verify(token, JWT_ACCESS_SECRET) as { sub?: string; type?: string };
+    payload = jwt.verify(token, JWT_OTP_SESSION_SECRET) as { sub?: string; type?: string };
   } catch {
     throw new AppError("OTP session expired. Please log in again.", 401, "INVALID_OTP_SESSION");
   }

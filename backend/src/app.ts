@@ -93,7 +93,15 @@ app.use(
   }),
 );
 app.use(cookieParser);
-app.use(express.json());
+app.use(
+  express.json({
+    // Stashes the raw bytes alongside the parsed body so the Razorpay
+    // webhook handler can HMAC-verify the exact payload it received.
+    verify: (req, _res, buf) => {
+      (req as unknown as { rawBody: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(
   pinoHttp({
     logger,

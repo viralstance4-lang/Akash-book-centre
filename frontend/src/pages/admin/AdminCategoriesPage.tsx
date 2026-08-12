@@ -32,7 +32,7 @@ import {
   createSubcategory,
   deleteCategory,
   deleteSubcategory,
-  getCategories,
+  getAdminCategories,
   updateCategory,
   updateSubcategory,
   type Category,
@@ -118,7 +118,10 @@ function CategoryModal({ state, onClose }: { state: CatModalState; onClose: () =
   const [imageFile, setImageFile] = useState<File | undefined>();
   const [error,     setError]     = useState("");
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["categories"] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["categories"] });
+    qc.invalidateQueries({ queryKey: ["admin-categories"] });
+  };
 
   const createMut = useMutation({
     mutationFn: () => createCategory({ name: name.trim(), imageFile }),
@@ -207,7 +210,10 @@ function SubcategoryModal({ state, onClose }: { state: SubModalState; onClose: (
 
   const existingImg = isEdit ? state.item.imageUrl : undefined;
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["categories"] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["categories"] });
+    qc.invalidateQueries({ queryKey: ["admin-categories"] });
+  };
 
   const createMut = useMutation({
     mutationFn: () => createSubcategory(
@@ -409,8 +415,8 @@ export default function AdminCategoriesPage() {
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["categories"],
-    queryFn:  getCategories,
+    queryKey: ["admin-categories"],
+    queryFn:  getAdminCategories,
   });
 
   const categories: Category[] = data?.data ?? [];
@@ -422,12 +428,20 @@ export default function AdminCategoriesPage() {
   // ── Delete category ──────────────────────────────────────────────────────────
   const deleteCatMut = useMutation({
     mutationFn: deleteCategory,
-    onSuccess:  () => { qc.invalidateQueries({ queryKey: ["categories"] }); setError(""); },
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-categories"] });
+      setError("");
+    },
     onError:    (e) => setError(errMsg(e, "Failed to delete category.")),
   });
 
   const handleDeleteCat = (cat: Category) => {
-    if (!confirm(`Delete category "${cat.name}" and all its subcategories?`)) return;
+    const subCount = cat.subcategories.length;
+    const warning = subCount > 0
+      ? `Delete category "${cat.name}"? This will also delete ${subCount} subcategor${subCount === 1 ? "y" : "ies"} and their images. This cannot be undone.`
+      : `Delete category "${cat.name}"? This cannot be undone.`;
+    if (!confirm(warning)) return;
     setError("");
     deleteCatMut.mutate(cat.id);
   };
@@ -435,7 +449,10 @@ export default function AdminCategoriesPage() {
   // ── Delete subcategory ───────────────────────────────────────────────────────
   const deleteSubMut = useMutation({
     mutationFn: deleteSubcategory,
-    onSuccess:  () => { qc.invalidateQueries({ queryKey: ["categories"] }); },
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-categories"] });
+    },
     onError:    (e) => setError(errMsg(e, "Failed to delete subcategory.")),
   });
 

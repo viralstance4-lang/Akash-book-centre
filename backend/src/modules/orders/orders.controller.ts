@@ -20,13 +20,15 @@ const getUserIdOrThrow = (userId?: string) => {
 
 export const placeOrder: RequestHandler = async (req, res, next) => {
   try {
-    const { shippingAddress, paymentMethod, customerEmail, deliveryDistance } = req.body;
+    const { shippingAddress, paymentMethod, customerEmail, customerLatitude, customerLongitude, couponCode } = req.body;
     const order = await placeOrderService(
       getUserIdOrThrow(req.user?.id),
       shippingAddress,
       paymentMethod ?? "ONLINE",
       customerEmail,
-      typeof deliveryDistance === "number" ? deliveryDistance : undefined,
+      typeof customerLatitude === "number" ? customerLatitude : undefined,
+      typeof customerLongitude === "number" ? customerLongitude : undefined,
+      typeof couponCode === "string" ? couponCode : undefined,
     );
     res.status(201).json({ success: true, message: "Order placed successfully", data: order });
   } catch (error) { next(error); }

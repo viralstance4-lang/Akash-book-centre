@@ -37,10 +37,19 @@ export default function AdminCouponsPage() {
 
   const handleCreate = () => {
     if (!newForm.code || !newForm.discountValue) { setError("Code and discount value are required"); return; }
+    const discountValue = Number(newForm.discountValue);
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setError("Discount value must be a positive number");
+      return;
+    }
+    if (newForm.discountType === "percentage" && discountValue > 100) {
+      setError("Percentage discount cannot exceed 100%");
+      return;
+    }
     createMutation.mutate({
       code: newForm.code,
       discountType: newForm.discountType,
-      discountValue: Number(newForm.discountValue),
+      discountValue,
       minOrderAmount: newForm.minOrderAmount ? Number(newForm.minOrderAmount) : undefined,
       maxUses: newForm.maxUses ? Number(newForm.maxUses) : undefined,
       isActive: newForm.isActive,
@@ -86,7 +95,8 @@ export default function AdminCouponsPage() {
             </div>
             <div>
               <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Discount Value *</label>
-              <input type="number" value={newForm.discountValue} onChange={(e) => setNewForm(f => ({ ...f, discountValue: e.target.value }))}
+              <input type="number" min={0} max={newForm.discountType === "percentage" ? 100 : undefined}
+                value={newForm.discountValue} onChange={(e) => setNewForm(f => ({ ...f, discountValue: e.target.value }))}
                 placeholder={newForm.discountType === "percentage" ? "e.g. 10 for 10%" : "e.g. 50 for ₹50"}
                 className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:border-black/25 focus:bg-white" />
             </div>
@@ -179,7 +189,7 @@ export default function AdminCouponsPage() {
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-text-muted hover:text-text-primary">
                       <Pencil size={14} />
                     </button>
-                    <button type="button" onClick={() => deleteMutation.mutate(coupon.id)} disabled={deleteMutation.isPending}
+                    <button type="button" onClick={() => { if (window.confirm(`Delete coupon "${coupon.code}"? Customers will no longer be able to use it.`)) deleteMutation.mutate(coupon.id); }} disabled={deleteMutation.isPending}
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
                       <Trash2 size={14} />
                     </button>

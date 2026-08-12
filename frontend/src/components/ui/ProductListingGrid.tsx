@@ -20,7 +20,8 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 type Props = {
   books: Book[];
   isLoading: boolean;
-  cartBookIds: Set<string>;
+  /** Map of bookId -> quantity currently in the cart. */
+  cartBookIds: Map<string, number>;
   onAddToCart: (book: Book) => void;
   addingBookId?: string | null;
   pageSize?: number;
@@ -207,6 +208,7 @@ export default function ProductListingGrid({
               key={book.id}
               book={book}
               isInCart={cartBookIds.has(book.id)}
+              cartQuantity={cartBookIds.get(book.id) ?? 0}
               onAddToCart={onAddToCart}
               isAddingToCart={addingBookId === book.id}
             />

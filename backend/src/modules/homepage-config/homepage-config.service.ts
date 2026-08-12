@@ -11,6 +11,13 @@ const DEFAULT_SECTIONS: HomepageSection[] = [
   { id: "allBooks",        type: "allBooks",        enabled: true,  order: 6, config: {} },
 ];
 
+/**
+ * HomepageConfig is a singleton table — every read/write targets this fixed id
+ * (set by migration 20260812000000_singleton_homepage_config_site_settings)
+ * so concurrent saves upsert the same row instead of racing to create two.
+ */
+const HOMEPAGE_CONFIG_ID = "00000000-0000-0000-0000-000000000001";
+
 /** In-process cache: avoids a DB hit on every homepage render */
 let cache: { sections: HomepageSection[]; cachedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000; // 60 seconds
@@ -22,7 +29,7 @@ export const getHomepageConfig = async (): Promise<{ sections: HomepageSection[]
 
   let record = null;
   try {
-    record = await prisma.homepageConfig.findFirst();
+    record = await prisma.homepageConfig.findUnique({ where: { id: HOMEPAGE_CONFIG_ID } });
   } catch {
     // Table may not exist yet if migration hasn't been run — return defaults
     return { sections: DEFAULT_SECTIONS };
@@ -38,22 +45,14 @@ export const updateHomepageConfig = async (sections: HomepageSection[]): Promise
   // Ensure orders are sequential starting from 1
   const ordered = [...sections].sort((a, b) => a.order - b.order).map((s, i) => ({ ...s, order: i + 1 }));
 
-  console.log("[HomepageConfigService] updateHomepageConfig: received", sections.length, "sections");
-  console.log("[HomepageConfigService] Reordered sections:", JSON.stringify(ordered, null, 2));
-
-  const existing = await prisma.homepageConfig.findFirst();
-  console.log("[HomepageConfigService] Existing record:", existing?.id ? `id=${existing.id}` : "none, creating new");
-  
-  let updated;
-  if (existing) {
-    console.log("[HomepageConfigService] Updating existing record...");
-    updated = await prisma.homepageConfig.update({ where: { id: existing.id }, data: { sections: ordered as any } });
-    console.log("[HomepageConfigService] Update complete, new data:", JSON.stringify(updated.sections, null, 2));
-  } else {
-    console.log("[HomepageConfigService] Creating new record...");
-    updated = await prisma.homepageConfig.create({ data: { sections: ordered as any } });
-    console.log("[HomepageConfigService] Create complete, new data:", JSON.stringify(updated.sections, null, 2));
-  }
+  // Atomic at the DB level (INSERT ... ON CONFLICT (id) DO UPDATE) — two
+  // concurrent saves both upsert the same fixed-id row instead of one of them
+  // creating a duplicate that silently shadows the other's changes.
+  const updated = await prisma.homepageConfig.upsert({
+    where:  { id: HOMEPAGE_CONFIG_ID },
+    update: { sections: ordered as any },
+    create: { id: HOMEPAGE_CONFIG_ID, sections: ordered as any },
+  });
 
   // Bust cache
   cache = { sections: updated.sections as HomepageSection[], cachedAt: Date.now() };

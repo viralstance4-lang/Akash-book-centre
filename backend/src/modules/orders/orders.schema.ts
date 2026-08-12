@@ -14,7 +14,8 @@ export const placeOrderSchema = z.object({
   customerEmail: z.string().email().optional(),
   couponCode: z.string().optional(),
   deliveryType: z.enum(["FREE", "PAID"]).optional(),
-  deliveryDistance: z.number().nonnegative().optional(),
+  customerLatitude: z.number().min(-90).max(90).optional(),
+  customerLongitude: z.number().min(-180).max(180).optional(),
 });
 
 export const updateOrderStatusSchema = z.object({

@@ -53,6 +53,8 @@ export type PrintOrder = {
   deliveryCharge?: number;
   deliveryType?: string | null;
   deliveryDistance?: number | null;
+  calculationMethod?: string | null;
+  storeLocation?: { address: string; lat: number; lng: number } | null;
   estimatedMinutes: number;
   status: string;
   paymentMethod: "COD" | "ONLINE";
@@ -63,6 +65,8 @@ export type PrintOrder = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  customerLatitude?: number | null;
+  customerLongitude?: number | null;
   createdAt: string;
   user?: { name: string; email: string; phone?: string | null };
   files?: PrintFile[];

@@ -29,7 +29,7 @@ export const ZONE_LABELS: Record<ShippingZone, string> = {
 
 export interface ShippingConfig {
   isShippingEnabled:     boolean;
-  distanceThreshold:     number;   // km — radius for local distance-based delivery
+  distanceThreshold:     number;   // km — radius for local distance-based delivery; beyond this, weight-based zone pricing applies
   perKmRate:             number;   // ₹/km for local delivery
   freeDeliveryThreshold: number;   // order value above which local delivery is free
   defaultKgRate:         number;   // ₹/kg fallback (All India)
@@ -123,8 +123,10 @@ export class ShippingService {
    * Priority:
    *  1. DISABLED  — shipping kill-switch off
    *  2. FREE      — within distanceThreshold AND order ≥ freeDeliveryThreshold
-   *  3. DISTANCE_BASED — within distanceThreshold, charged per-km (existing local delivery)
-   *  4. WEIGHT_BASED (zone-aware) — beyond threshold:
+   *  3. DISTANCE_BASED — within distanceThreshold, charged ₹/km (distance rounded UP
+   *     to the next whole km before multiplying — e.g. 2km → ₹16, 3.2km would be ₹32
+   *     if the threshold were wider)
+   *  4. WEIGHT_BASED (zone-aware) — beyond distanceThreshold:
    *       Delhi NCR → localZoneRate
    *       North East → northEastRate
    *       stateRates match → custom per-state rate (legacy overrides)
@@ -138,7 +140,11 @@ export class ShippingService {
       return { charge: 0, type: "DISABLED", breakdown: {} };
     }
 
-    // ── Step 1: Within distance threshold → local delivery (UNCHANGED) ────────
+    // Distance billed in whole kilometers, rounded UP (2.9km and 3.0km bill the
+    // same 3km; 3.2km bills as 4km).
+    const chargeableKm = Math.ceil(distanceInKm);
+
+    // ── Step 1: Within the local distance-based radius ────────────────────────
     if (distanceInKm <= config.distanceThreshold) {
       if (orderValue >= config.freeDeliveryThreshold) {
         return {
@@ -148,7 +154,7 @@ export class ShippingService {
           breakdown: { distance: distanceInKm, orderValue },
         };
       }
-      const charge = Math.round(distanceInKm * config.perKmRate);
+      const charge = Math.round(chargeableKm * config.perKmRate);
       return {
         charge,
         type:      "DISTANCE_BASED",
@@ -157,7 +163,7 @@ export class ShippingService {
       };
     }
 
-    // ── Step 2: Beyond threshold → zone-based weight + area pricing ──────────
+    // ── Step 2: Beyond the radius → zone-based weight + area pricing ─────────
     const zone      = ShippingService.detectZone(city, state);
     const zoneLabel = ZONE_LABELS[zone];
 

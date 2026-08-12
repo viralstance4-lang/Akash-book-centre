@@ -9,7 +9,7 @@ export type OrderStatus =
   | "RETURN_REQUESTED"
   | "RETURNED";
 
-export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
+export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED" | "REFUNDED";
 export type PaymentMethod = "ONLINE" | "COD";
 
 export type User = {
@@ -136,6 +136,10 @@ export type Order = {
   customerEmail?: string | null;
   deliveryType?: "FREE" | "PAID" | null;
   deliveryDistance?: number | null;
+  customerLatitude?: number | null;
+  customerLongitude?: number | null;
+  calculationMethod?: string | null;
+  storeLocation?: { address: string; lat: number; lng: number } | null;
   // ── Shipmozo fields ────────────────────────────────────────────────────────
   shipmozoOrderId?:     string | null;
   shipmozoReferenceId?: string | null;

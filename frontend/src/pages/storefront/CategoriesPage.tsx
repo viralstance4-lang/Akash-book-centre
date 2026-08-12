@@ -8,6 +8,7 @@ import {
 } from "../../api/category-sections.api";
 import { getCategories, type Category } from "../../api/categories.api";
 import BookCard from "../../components/ui/BookCard";
+import { getErrorMessage, useToast, ToastViewport } from "../../components/ui/Toast";
 import { useAuthStore } from "../../store/auth.store";
 import type { Book } from "../../types";
 
@@ -35,6 +36,7 @@ function SubcategoryTile({
           <img
             src={imageUrl}
             alt={name}
+            loading="lazy"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.05]"
           />
         ) : (
@@ -76,6 +78,7 @@ function CategoryTile({
           <img
             src={imageUrl}
             alt={name}
+            loading="lazy"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.05]"
           />
         ) : (
@@ -99,6 +102,7 @@ export default function CategoriesPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const queryClient     = useQueryClient();
   const navigate        = useNavigate();
+  const { toast, showToast } = useToast();
 
   const { data: sectionsData, isLoading: sectionsLoading } = useQuery({
     queryKey: ["category-sections-public"],
@@ -120,11 +124,12 @@ export default function CategoriesPage() {
     mutationFn: ({ bookId, quantity }: { bookId: string; quantity: number }) =>
       addToCart(bookId, quantity),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
+    onError:   (e) => showToast(false, getErrorMessage(e, "Couldn't add to cart. Please try again.")),
   });
 
   const sections: CategorySectionPublic[] = sectionsData?.data ?? [];
   const allCategories: Category[]         = categoriesData?.data ?? [];
-  const cartBookIds = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
   const addingBookId = addToCartMutation.isPending
     ? (addToCartMutation.variables?.bookId ?? null)
     : null;
@@ -162,6 +167,7 @@ export default function CategoriesPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-10">
+      <ToastViewport toast={toast} />
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-xs text-text-muted">
         <Link to="/" className="hover:text-text-primary transition-colors">
@@ -228,6 +234,7 @@ export default function CategoriesPage() {
                           onAddToCart={handleAddToCart}
                           isAddingToCart={addingBookId === b.id}
                           isInCart={cartBookIds.has(b.id)}
+                          cartQuantity={cartBookIds.get(b.id) ?? 0}
                         />
                       ))}
                     </div>

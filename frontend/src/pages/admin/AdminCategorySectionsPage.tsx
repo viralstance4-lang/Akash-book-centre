@@ -133,6 +133,16 @@ export default function AdminCategorySectionsPage() {
     mutationFn: adminReorderCategorySections,
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["admin-category-sections"] }),
+    onError: (e: any) => {
+      // Revert the optimistic drag/button order back to the last server-confirmed
+      // order — `sections` was never touched by the optimistic update, so it's
+      // still the last known-good state.
+      setOrderedSections(sections);
+      showToast(
+        false,
+        e?.response?.data?.message ?? "Failed to save new order. Reverted to the last saved order.",
+      );
+    },
   });
 
   // ── panel helpers ──────────────────────────────────────────────────────────

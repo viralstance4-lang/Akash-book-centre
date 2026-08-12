@@ -10,12 +10,19 @@ const isLocalDb =
   env.DATABASE_URL.includes("localhost") ||
   env.DATABASE_URL.includes("127.0.0.1");
 
+// DATABASE_SSL, when set, explicitly overrides the default heuristic below —
+// used for local Docker Postgres, which doesn't support SSL at all.
+const useSsl =
+  env.DATABASE_SSL !== undefined
+    ? env.DATABASE_SSL === "true"
+    : isProduction && !isLocalDb;
+
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
   max: isProduction ? 5 : 3,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 60_000,
-  ssl: isProduction && !isLocalDb ? { rejectUnauthorized: false } : undefined,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
 });
 
 pool.on("error", (err) => {

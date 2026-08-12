@@ -7,6 +7,7 @@ import { addToCart, getCart } from "../../api/cart.api";
 import { getCategories, type Category } from "../../api/categories.api";
 import CategorySidebar from "../../components/ui/CategorySidebar";
 import ProductListingGrid from "../../components/ui/ProductListingGrid";
+import { getErrorMessage, useToast, ToastViewport } from "../../components/ui/Toast";
 import { useAuthStore } from "../../store/auth.store";
 import type { Book } from "../../types";
 
@@ -15,6 +16,7 @@ export default function CategoryPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const queryClient     = useQueryClient();
   const navigate        = useNavigate();
+  const { toast, showToast } = useToast();
 
   const [selectedSubSlug, setSelectedSubSlug] = useState<string | null>(null);
 
@@ -33,12 +35,13 @@ export default function CategoryPage() {
     mutationFn: ({ bookId, quantity }: { bookId: string; quantity: number }) =>
       addToCart(bookId, quantity),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cart"] }),
+    onError:   (e) => showToast(false, getErrorMessage(e, "Couldn't add to cart. Please try again.")),
   });
 
   const categories: Category[] = catsData?.data ?? [];
   const category = categories.find((c) => c.slug === slug);
   const subcategories = category?.subcategories.filter((s) => s.isActive) ?? [];
-  const cartBookIds   = new Set(cartData?.data?.items.map((i) => i.bookId) ?? []);
+  const cartBookIds   = new Map(cartData?.data?.items.map((i) => [i.bookId, i.quantity]) ?? []);
   const addingBookId  = addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null;
 
   useEffect(() => {
@@ -158,6 +161,7 @@ export default function CategoryPage() {
   // ── With subcategories (Blinkit 3-panel layout) ───────────────────────────────
   return (
     <div className={outerClass}>
+      <ToastViewport toast={toast} />
       <CategorySidebar activeCategorySlug={slug} />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -184,7 +188,7 @@ export default function CategoryPage() {
                 >
                   <div className="h-11 w-11 rounded-xl overflow-hidden bg-[#f4efe7] shrink-0 flex items-center justify-center">
                     {sub.imageUrl ? (
-                      <img src={sub.imageUrl} alt={sub.name} className="h-full w-full object-cover" />
+                      <img src={sub.imageUrl} alt={sub.name} loading="lazy" className="h-full w-full object-cover" />
                     ) : (
                       <Layers3 size={16} className="text-text-muted/50" strokeWidth={1.4} />
                     )}

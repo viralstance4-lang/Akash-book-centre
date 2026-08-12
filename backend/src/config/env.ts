@@ -5,6 +5,12 @@ dotenv.config();
 
 const schema = z.object({
   DATABASE_URL:           z.string().min(1),
+  /**
+   * Explicitly controls whether Postgres connections use SSL.
+   * Set "false" for local Docker Postgres (no SSL support).
+   * Leave unset in production to keep the default (SSL on) for managed DBs.
+   */
+  DATABASE_SSL:           z.enum(["true", "false"]).optional(),
   PORT:                   z.string().min(1).transform((v) => parseInt(v, 10)),
   NODE_ENV:               z.enum(["development", "production", "test"]),
   JWT_ACCESS_SECRET:      z.string().min(1),
@@ -26,6 +32,19 @@ const schema = z.object({
     .optional()
     .default("http://localhost:5173")
     .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+
+  // ── Store location & distance calculation ────────────────────────────────────
+  /** Google Maps API key (Distance Matrix API) — optional; falls back to Haversine when unset */
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+  /** Fixed store address used as the delivery-distance origin */
+  STORE_ADDRESS: z
+    .string()
+    .optional()
+    .default("3026/5A, Ranjeet Nagar, Hanuman Chowk, Near Hanuman Mandir & Shiv Chowk, South Patel Nagar, New Delhi – 110008"),
+  /** Store latitude — defaults to the geocoded coordinates of STORE_ADDRESS */
+  STORE_LATITUDE: z.string().optional().default("28.646457").transform((v) => parseFloat(v)),
+  /** Store longitude — defaults to the geocoded coordinates of STORE_ADDRESS */
+  STORE_LONGITUDE: z.string().optional().default("77.158939").transform((v) => parseFloat(v)),
 
   // ── Shipmozo (optional – for shipment creation and tracking) ────────────────
   /** Shipmozo API public key — from dashboard → API Documentation */
@@ -85,6 +104,16 @@ const schema = z.object({
     .transform((v) =>
       v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [],
     ),
+}).superRefine((data, ctx) => {
+  // Without this secret, payments.controller.ts cannot verify webhook signatures,
+  // so anyone could POST a fake Razorpay webhook and flip payment status.
+  if (data.NODE_ENV === "production" && !data.RAZORPAY_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["RAZORPAY_WEBHOOK_SECRET"],
+      message: "RAZORPAY_WEBHOOK_SECRET is required when NODE_ENV=production (Razorpay webhook signature verification would otherwise be skipped)",
+    });
+  }
 });
 
 let env: z.infer<typeof schema>;

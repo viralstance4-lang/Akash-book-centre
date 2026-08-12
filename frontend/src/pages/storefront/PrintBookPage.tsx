@@ -1,19 +1,27 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, Check, CheckCircle, Clock, CreditCard, Eye,
-  FileText, Loader2, Locate, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
+  FileText, Loader2, Locate, LocateFixed, Minus, Plus, ShieldCheck, Trash2, Truck, Upload, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { getPrintSettings, createPrintOrder, verifyPrintPayment } from "../../api/print.api";
 import type { PrintOrderInitiated } from "../../api/print.api";
 import { getShippingSettings } from "../../api/shipping.api";
 import {
   getDeliveryFromGeolocation,
   getDeliveryFromPincode,
+  getDeliveryFromCoords,
+  getCoordsForPincode,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
+import { reverseGeocode } from "../../components/checkout/AddressAutocomplete";
+import MapPinPicker from "../../components/checkout/MapPinPicker";
 import { useAuthStore } from "../../store/auth.store";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 declare global { interface Window { Razorpay?: new (options: any) => { open: () => void }; } }
 
@@ -50,55 +58,21 @@ function generateId(): string {
 }
 
 /**
- * Count pages in a PDF by scanning the full file content.
- *
- * Method 1 — /Count N (Pages tree root):
- *   The root /Pages dictionary stores total leaf pages as /Count N.
- *   Taking the maximum across all /Count occurrences gives the root value.
- *   Works for both compressed and uncompressed PDFs as long as the dictionary
- *   itself is not inside a compressed object stream.
- *
- * Method 2 — /Type /Page entries:
- *   Each page object in an uncompressed PDF contains /Type /Page.
- *   Used as a fallback / cross-check.
- *
- * Returns 0 when neither method detects any pages (encrypted / corrupted PDF).
- * IMPORTANT: reads the ENTIRE file — must not use file.slice().
+ * Count pages in a PDF using pdf.js, which fully parses the page tree
+ * (including compressed object streams that a raw byte/regex scan can't see).
+ * Returns 0 when the file can't be parsed (encrypted / corrupted PDF).
  */
 async function autoDetectPageCount(file: File): Promise<number> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const bytes = e.target?.result as ArrayBuffer | null;
-      if (!bytes || bytes.byteLength === 0) { resolve(0); return; }
-
-      const content = new TextDecoder("latin1").decode(bytes);
-
-      // Method 1: /Count N — highest value is the root page tree count
-      const countMatches: number[] = [];
-      const countRe = /\/Count\s+(\d+)/g;
-      let m: RegExpExecArray | null;
-      // eslint-disable-next-line no-cond-assign
-      while ((m = countRe.exec(content)) !== null) {
-        const n = parseInt(m[1], 10);
-        if (Number.isFinite(n) && n > 0) countMatches.push(n);
-      }
-      const maxCount = countMatches.length > 0 ? Math.max(...countMatches) : 0;
-
-      // Method 2: explicit /Type /Page dictionary entries
-      const directPages = (content.match(/\/Type[\s\0]*\/Page[^s]/g) ?? []).length;
-
-      const detected = Math.max(maxCount, directPages);
-
-      console.log(
-        `[PDF DETECT] ${file.name} | /Count max=${maxCount} | /Type/Page count=${directPages} | final=${detected}`,
-      );
-
-      resolve(detected > 0 ? detected : 0);
-    };
-    reader.onerror = () => { console.warn(`[PDF DETECT] FileReader error for ${file.name}`); resolve(0); };
-    reader.readAsArrayBuffer(file); // Read full file — no slice
-  });
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const count = doc.numPages;
+    await doc.destroy();
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  } catch (err) {
+    console.warn(`[PDF DETECT] Failed to parse ${file.name}`, err);
+    return 0;
+  }
 }
 
 // ─── Pricing engine (mirrors backend getPricePerPage) ────────────────────────
@@ -195,6 +169,13 @@ export default function PrintBookPage() {
   const [geoLoading,  setGeoLoading]  = useState(false);
   const [geoError,    setGeoError]    = useState("");
 
+  // ── Precise (GPS) location for the delivery rider ─────────────────────────
+  const [preciseLocation,       setPreciseLocation]       = useState<{ lat: number; lng: number } | null>(null);
+  const [usingCurrentLocation,  setUsingCurrentLocation]  = useState(false);
+  const [locatingCurrent,       setLocatingCurrent]       = useState(false);
+  const [currentLocationError,  setCurrentLocationError]  = useState("");
+  const [placeSelectionKey,     setPlaceSelectionKey]     = useState(0);
+
   // ── Payment state ──────────────────────────────────────────────────────────
   const [paymentError,  setPaymentError]  = useState("");
   const [verifying,     setVerifying]     = useState(false);
@@ -205,10 +186,19 @@ export default function PrintBookPage() {
     if (user?.name)  setName(user.name);
   }, [user]);
 
-  // Auto-detect delivery from pincode (6 digits)
+  // Auto-detect delivery from pincode (6 digits). Also derives coordinates from the
+  // pincode (when no more precise GPS/autocomplete location is already set) so the
+  // server can compute an authoritative distance for pincode-only checkouts.
   useEffect(() => {
     const pin = pincode.trim();
-    if (pin.length === 6) setDelivery(getDeliveryFromPincode(pin));
+    if (pin.length === 6) {
+      setDelivery(getDeliveryFromPincode(pin));
+      if (!preciseLocation) {
+        const coords = getCoordsForPincode(pin);
+        if (coords) setPreciseLocation(coords);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pincode]);
 
   const handleUseMyLocation = async () => {
@@ -222,6 +212,39 @@ export default function PrintBookPage() {
     } finally {
       setGeoLoading(false);
     }
+  };
+
+  const handleShareCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setCurrentLocationError("Geolocation is not supported by your browser.");
+      return;
+    }
+    setLocatingCurrent(true);
+    setCurrentLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const place = await reverseGeocode(coords.latitude, coords.longitude);
+          const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
+          setAddress(fullAddress || place.line1);
+          setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
+          if (place.pincode) setPincode(place.pincode);
+          setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+          setPlaceSelectionKey((k) => k + 1);
+          setUsingCurrentLocation(true);
+          setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
+        } catch {
+          setCurrentLocationError("Could not determine your address from your location. Please enter it manually.");
+        } finally {
+          setLocatingCurrent(false);
+        }
+      },
+      () => {
+        setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
+        setLocatingCurrent(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true },
+    );
   };
 
   // ── Delivery charge calculation (mirrors backend ShippingService logic) ──────
@@ -239,9 +262,10 @@ export default function PrintBookPage() {
           ).total
         : 0;
       if (printCostForThreshold >= shippingSettings.freeDeliveryThreshold) return 0;
-      return Math.round(distance * Number(shippingSettings.perKmCharge));
+      // Round distance UP to the next whole km before billing (2.9km & 3.0km bill as 3km; 3.2km bills as 4km)
+      return Math.ceil(distance) * Number(shippingSettings.perKmCharge);
     }
-    return null; // unknown / outside radius → backend decides
+    return null; // unknown / outside range → backend decides
   })();
 
   // useMutation must be declared before any conditional return (Rules of Hooks)
@@ -425,12 +449,17 @@ export default function PrintBookPage() {
     fd.append("customerPhone",    phone.trim());
     fd.append("customerAddress",  address.trim());
     if (delivery?.distanceKm != null) fd.append("deliveryDistance", String(delivery.distanceKm));
+    if (preciseLocation) {
+      fd.append("customerLatitude",  String(preciseLocation.lat));
+      fd.append("customerLongitude", String(preciseLocation.lng));
+    }
     initiateMut.mutate(fd);
   };
 
   const resetForm = () => {
     setPdfs([]); setPhone(""); setAddress(""); setPincode(""); setDelivery(null);
     setGeoError(""); setFieldErrors({}); setFileError(""); setPaymentError("");
+    setPreciseLocation(null); setUsingCurrentLocation(false); setCurrentLocationError("");
   };
 
   // ── Not logged in ──────────────────────────────────────────────────────────
@@ -880,11 +909,46 @@ export default function PrintBookPage() {
           <label className="block">
             <span className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Address *</span>
             <input type="text" value={address}
-              onChange={(e) => { setAddress(e.target.value); setFieldErrors((p) => { const n = {...p}; delete n.address; return n; }); }}
+              onChange={(e) => {
+                setAddress(e.target.value);
+                setFieldErrors((p) => { const n = {...p}; delete n.address; return n; });
+                if (usingCurrentLocation) { setUsingCurrentLocation(false); setPreciseLocation(null); }
+              }}
               placeholder="Your pickup / delivery address"
               className={`h-11 w-full rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.address ? "border-red-300" : "border-black/10 focus:border-black/25"}`} />
             {fieldErrors.address && <p className="mt-1 text-xs text-red-500">{fieldErrors.address}</p>}
           </label>
+
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              onClick={handleShareCurrentLocation}
+              disabled={locatingCurrent}
+              className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-[#f8f4ee] px-4 py-2 text-xs font-medium text-text-primary transition-all hover:border-black/20 hover:bg-white disabled:opacity-50"
+            >
+              <LocateFixed size={14} className={locatingCurrent ? "animate-spin" : ""} />
+              {locatingCurrent ? "Getting your location…" : "Share your current location"}
+            </button>
+            {currentLocationError && <p className="mt-1.5 text-xs text-amber-600">{currentLocationError}</p>}
+            {usingCurrentLocation && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                <CheckCircle size={12} className="shrink-0" /> Using your current location — clear it by editing the address manually.
+              </p>
+            )}
+          </div>
+
+          {preciseLocation && (
+            <div className="sm:col-span-2">
+              <span className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Confirm exact location</span>
+              <MapPinPicker
+                key={placeSelectionKey}
+                lat={preciseLocation.lat}
+                lng={preciseLocation.lng}
+                onPositionChange={(lat, lng) => setPreciseLocation({ lat, lng })}
+              />
+              <p className="mt-1.5 text-[11px] text-text-muted">Drag the pin to fine-tune your exact location for the delivery rider.</p>
+            </div>
+          )}
         </div>
 
         {/* Payment error / cancellation notice */}

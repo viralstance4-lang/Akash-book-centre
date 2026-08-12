@@ -1,7 +1,14 @@
 import prisma from "../../lib/prisma";
 import { uploadImage, deleteImage } from "../../lib/cloudinary";
 
-export const getSettings = async () => prisma.siteSettings.findFirst();
+/**
+ * SiteSettings is a singleton table — every read/write targets this fixed id
+ * (set by migration 20260812000000_singleton_homepage_config_site_settings)
+ * so concurrent saves upsert the same row instead of racing to create two.
+ */
+const SITE_SETTINGS_ID = "00000000-0000-0000-0000-000000000002";
+
+export const getSettings = async () => prisma.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID } });
 
 export const updateLogoSettings = async (
   data: {
@@ -14,14 +21,13 @@ export const updateLogoSettings = async (
   },
   file?: any
 ) => {
-  console.log("[DEBUG] updateLogoSettings called with data:", data);
-  const existing = await prisma.siteSettings.findFirst();
+  const existing = await prisma.siteSettings.findUnique({ where: { id: SITE_SETTINGS_ID } });
   const updateData: any = {};
 
   if (data.storeName !== undefined) updateData.storeName = data.storeName;
   if (data.tagline !== undefined) updateData.tagline = data.tagline;
-  if (data.logoWidth) updateData.logoWidth = Number(data.logoWidth);
-  if (data.logoHeight) updateData.logoHeight = Number(data.logoHeight);
+  if (data.logoWidth !== undefined) updateData.logoWidth = Number(data.logoWidth);
+  if (data.logoHeight !== undefined) updateData.logoHeight = Number(data.logoHeight);
   if (data.spiralBindingPrice !== undefined)
     updateData.spiralBindingPrice = Number(data.spiralBindingPrice);
 
@@ -38,23 +44,22 @@ export const updateLogoSettings = async (
     updateData.logoPublicId = uploaded.publicId;
   }
 
-  let result;
-  if (existing) {
-    console.log("[DEBUG] Updating existing settings with:", updateData);
-    result = await prisma.siteSettings.update({ where: { id: existing.id }, data: updateData });
-  } else {
-    console.log("[DEBUG] Creating new settings with:", { storeName: data.storeName, tagline: data.tagline, ...updateData });
-    result = await prisma.siteSettings.create({
-      data: {
-        storeName: data.storeName ?? "Akash Book Centre",
-        tagline: data.tagline ?? "",
-        logoWidth: Number(data.logoWidth ?? 120),
-        logoHeight: Number(data.logoHeight ?? 40),
-        spiralBindingPrice: Number(data.spiralBindingPrice ?? 30),
-        ...updateData,
-      },
-    });
-  }
-  console.log("[DEBUG] Settings saved to DB:", result);
+  // Atomic at the DB level (INSERT ... ON CONFLICT (id) DO UPDATE) — two
+  // concurrent saves (e.g. a logo upload racing a text-field save) both upsert
+  // the same fixed-id row instead of one creating a duplicate that shadows
+  // the other's changes.
+  const result = await prisma.siteSettings.upsert({
+    where:  { id: SITE_SETTINGS_ID },
+    update: updateData,
+    create: {
+      id: SITE_SETTINGS_ID,
+      storeName: data.storeName ?? "Akash Book Centre",
+      tagline: data.tagline ?? "",
+      logoWidth: Number(data.logoWidth ?? 120),
+      logoHeight: Number(data.logoHeight ?? 40),
+      spiralBindingPrice: Number(data.spiralBindingPrice ?? 30),
+      ...updateData,
+    },
+  });
   return result;
 };

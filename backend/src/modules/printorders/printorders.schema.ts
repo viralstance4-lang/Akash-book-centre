@@ -56,6 +56,9 @@ export const createPrintOrderSchema = z.object({
   fileSizes:      z.string().optional(),
   /** Distance in km from Patel Nagar — used to calculate delivery charge */
   deliveryDistance: z.union([z.number(), z.string()]).transform(Number).optional(),
+  /** GPS coordinates, captured only if the customer opts to share their current location */
+  customerLatitude:  z.union([z.number(), z.string()]).transform(Number).optional(),
+  customerLongitude: z.union([z.number(), z.string()]).transform(Number).optional(),
 });
 
 export type CreatePrintOrderInput = z.infer<typeof createPrintOrderSchema>;

@@ -43,6 +43,12 @@ export const getSubcategories = async (categoryId: string) => {
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
+/** Includes inactive categories/subcategories — use only on the admin category-management page. */
+export const getAdminCategories = async () => {
+  const r = await api.get<ApiSuccessResponse<Category[]>>("/admin/categories");
+  return r.data;
+};
+
 export const createCategory = async (data: { name: string; imageFile?: File; isActive?: boolean; order?: number }) => {
   const form = new FormData();
   form.append("name", data.name);

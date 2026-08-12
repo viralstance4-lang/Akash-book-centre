@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle, Loader2, Mail } from "lucide-react";
@@ -18,13 +18,31 @@ export default function VerifyEmailPage() {
   const [errorMsg,    setErrorMsg]    = useState("");
   const [successMsg,  setSuccessMsg]  = useState("");
   const [cooldown,    setCooldown]    = useState(0);
+  // Tracks whichever cooldown interval is currently running (mount-time or a
+  // later resend) so it can always be cleared — on unmount, or before a new
+  // one starts — instead of leaking a background timer.
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startCooldown = (seconds: number) => {
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    let s = seconds;
+    setCooldown(s);
+    cooldownTimerRef.current = setInterval(() => {
+      s -= 1;
+      setCooldown(s);
+      if (s <= 0 && cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+    }, 1000);
+  };
 
   // Start resend cooldown on mount so user can't spam immediately
   useEffect(() => {
-    let s = 30;
-    setCooldown(s);
-    const t = setInterval(() => { s -= 1; setCooldown(s); if (s <= 0) clearInterval(t); }, 1000);
-    return () => clearInterval(t);
+    startCooldown(30);
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
   }, []);
 
   const verifyMut = useMutation({
@@ -41,9 +59,7 @@ export default function VerifyEmailPage() {
     onSuccess: (data) => {
       setErrorMsg("");
       setSuccessMsg(`New code sent! Valid for ${data.data.expiresInMinutes} minutes.`);
-      let s = 60;
-      setCooldown(s);
-      const t = setInterval(() => { s -= 1; setCooldown(s); if (s <= 0) clearInterval(t); }, 1000);
+      startCooldown(60);
     },
     onError: (e: any) => setErrorMsg(e.response?.data?.message ?? "Failed to resend code."),
   });

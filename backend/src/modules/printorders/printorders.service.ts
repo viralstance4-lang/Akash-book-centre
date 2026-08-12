@@ -5,6 +5,7 @@ import AppError from "../../lib/AppError";
 import razorpay from "../../config/razorpay";
 import env from "../../config/env";
 import { ShippingService, PACKAGING_WEIGHT_KG } from "../shipping/shipping.service";
+import { DistanceService, STORE_LOCATION } from "../shipping/distance.service";
 import {
   sendAdminPrintOrderNotification,
   sendInvoiceNotification,
@@ -198,10 +199,24 @@ export const createPrintOrder = async (
   );
 
   // ── Delivery charge (same rules as regular orders) ───────────────────
+  // Server-side authoritative distance calculation — never trust a client-supplied
+  // distance (a tampered request could otherwise claim 0km for free delivery).
+  let deliveryDistance: number | undefined;
+  let calculationMethod = "UNAVAILABLE";
+  if (typeof data.customerLatitude === "number" && typeof data.customerLongitude === "number") {
+    try {
+      const distanceResult = await DistanceService.calculateDistance(data.customerLatitude, data.customerLongitude);
+      deliveryDistance = Math.round(distanceResult.distanceKm * 100) / 100;
+      calculationMethod = distanceResult.method;
+    } catch (err) {
+      console.error("[PRINT ORDER] Distance calculation failed, falling back to zone-based shipping:", (err as Error).message);
+    }
+  }
+
   // Estimate weight: ~5 g per page + packaging; minimum 1 kg billable
   const estimatedWeightKg = Math.max(1, (totalWeightedPages * 0.005) + PACKAGING_WEIGHT_KG);
   const deliveryResult    = await ShippingService.calculateDeliveryCharge({
-    distanceInKm: data.deliveryDistance ?? 99_999,
+    distanceInKm: deliveryDistance ?? 99_999,
     orderValue:   totalPrice,
     weightInKg:   estimatedWeightKg,
   });
@@ -244,7 +259,11 @@ export const createPrintOrder = async (
       totalPrice,
       deliveryCharge,
       deliveryType,
-      deliveryDistance: data.deliveryDistance ?? null,
+      deliveryDistance: deliveryDistance ?? null,
+      customerLatitude:  data.customerLatitude ?? null,
+      customerLongitude: data.customerLongitude ?? null,
+      calculationMethod,
+      storeLocation: STORE_LOCATION as any,
       estimatedMinutes,
       status:           "AWAITING_PAYMENT",
       paymentMethod:    "ONLINE",

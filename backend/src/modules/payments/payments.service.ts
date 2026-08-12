@@ -7,6 +7,58 @@ import { sendAdminOrderNotification, sendInvoiceNotification, sendOrderInvoice }
 import { generateInvoicePdf } from "../../lib/invoice";
 import prisma from "../../lib/prisma";
 
+// Webhook-driven confirmation for the `payment.captured` event — the safety net for
+// when a customer's browser/connection drops after Razorpay captures the charge but
+// before the client calls /payments/verify. Purely a status flip (payment SUCCESS,
+// order/print-order CONFIRMED) — no emails are sent here, since /verify remains the
+// primary path and already sends invoices in the common case.
+//
+// Idempotent: Razorpay may redeliver the same webhook, and /verify may also race with
+// it. Every write is a conditional updateMany guarded by the row's current status, so
+// a repeat delivery (or a delivery that loses the race to /verify) finds count === 0
+// and safely no-ops instead of double-processing.
+export const confirmCapturedPayment = async (razorpayOrderId: string, razorpayPaymentId: string) => {
+  let confirmedOrderId: string | undefined;
+
+  await prisma.$transaction(async (tx) => {
+    const paymentUpdate = await tx.payment.updateMany({
+      where: { razorpayOrderId, status: { not: "SUCCESS" } },
+      data:  { status: "SUCCESS", razorpayPaymentId },
+    });
+
+    if (paymentUpdate.count === 0) return;
+
+    const payment = await tx.payment.findFirst({ where: { razorpayOrderId } });
+    if (!payment) return;
+
+    const orderUpdate = await tx.order.updateMany({
+      where: { id: payment.orderId, status: "PENDING" },
+      data:  { status: "CONFIRMED" },
+    });
+
+    if (orderUpdate.count > 0) confirmedOrderId = payment.orderId;
+  });
+
+  if (confirmedOrderId) {
+    logger.info({ razorpayOrderId, orderId: confirmedOrderId }, "[WEBHOOK] Order confirmed via payment.captured");
+    return;
+  }
+
+  // Not a regular book order (or already finalized) — check print orders, which store
+  // their own razorpayOrderId directly (no separate Payment row).
+  const printOrderUpdate = await prisma.printOrder.updateMany({
+    where: { razorpayOrderId, status: "AWAITING_PAYMENT" },
+    data:  { status: "CONFIRMED", razorpayPaymentId },
+  });
+
+  if (printOrderUpdate.count > 0) {
+    logger.info({ razorpayOrderId }, "[WEBHOOK] Print order confirmed via payment.captured");
+    return;
+  }
+
+  logger.info({ razorpayOrderId }, "[WEBHOOK] payment.captured — nothing to update (already confirmed or unknown order)");
+};
+
 export const verifyPayment = async (
   userId: string,
   razorpayOrderId: string,

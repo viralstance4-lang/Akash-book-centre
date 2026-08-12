@@ -4,16 +4,14 @@ services:
     container_name: bookstore-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: bookstore
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mydb
+      POSTGRES_USER: akashadmin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a root .env file — see .env.example}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d bookstore"]
+      test: ["CMD-SHELL", "pg_isready -U akashadmin -d mydb"]
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -29,7 +27,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bookstore
+      DATABASE_URL: postgresql://akashadmin:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a root .env file — see .env.example}@postgres:5432/mydb
     ports:
       - "3000:3000"
 
@@ -38,14 +36,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:3000/api/v1
-        VITE_RAZORPAY_KEY_ID: ${VITE_RAZORPAY_KEY_ID:-}
+        VITE_API_URL: https://akashbookcentre.com/api/v1
     container_name: bookstore-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "127.0.0.1:8080:80"
 
 volumes:
   postgres_data:

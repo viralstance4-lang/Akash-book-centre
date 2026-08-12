@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router, type RequestHandler } from "express";
 import { Resend } from "resend";
 import env from "../../config/env";
@@ -5,11 +6,25 @@ import logger from "../../config/logger";
 
 const diagRouter = Router();
 
-// GET /api/v1/diag/email?secret=YOUR_SECRET
+const DIAGNOSTIC_SECRET_HEADER = "x-diagnostic-secret";
+
+// GET /api/v1/diag/email — requires an "X-Diagnostic-Secret: YOUR_SECRET" header
+// (not a query param — query strings end up in access logs, browser history, and
+// Referer headers).
 const emailDiag: RequestHandler = async (req, res) => {
   const secret = env.DIAGNOSTIC_SECRET;
   if (!secret) { res.status(404).json({ message: "Not found" }); return; }
-  if (req.query.secret !== secret) { res.status(403).json({ message: "Forbidden" }); return; }
+
+  const providedHeader = req.headers[DIAGNOSTIC_SECRET_HEADER];
+  const provided = Array.isArray(providedHeader) ? providedHeader[0] : providedHeader;
+
+  const expected = Buffer.from(secret);
+  const actual   = Buffer.from(provided ?? "");
+  // Buffers must be equal length for timingSafeEqual — a length check short-circuits
+  // safely since it only leaks the secret's length, not any of its content.
+  const isValid  = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+
+  if (!isValid) { res.status(403).json({ message: "Forbidden" }); return; }
 
   const to = env.ADMIN_OTP_EMAIL ?? env.ADMIN_EMAIL ?? "";
 

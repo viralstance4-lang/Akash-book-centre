@@ -31,7 +31,7 @@ export default function CategorySidebar({ activeCategorySlug }: Props) {
           >
             <div className="h-10 w-10 rounded-xl overflow-hidden bg-[#f4efe7] shrink-0 flex items-center justify-center">
               {cat.imageUrl ? (
-                <img src={cat.imageUrl} alt={cat.name} className="h-full w-full object-cover" />
+                <img src={cat.imageUrl} alt={cat.name} loading="lazy" className="h-full w-full object-cover" />
               ) : (
                 <Layers3 size={15} className="text-text-muted/50" strokeWidth={1.4} />
               )}

@@ -193,7 +193,7 @@ export default function AdminPagesPage() {
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-text-muted hover:text-text-primary transition-colors">
                   <Pencil size={14} />
                 </button>
-                <button type="button" onClick={() => deleteMutation.mutate(page.id)} disabled={deleteMutation.isPending}
+                <button type="button" onClick={() => { if (window.confirm(`Delete page "${page.title}"? It will immediately stop being reachable on the storefront.`)) deleteMutation.mutate(page.id); }} disabled={deleteMutation.isPending}
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50">
                   <Trash2 size={14} />
                 </button>

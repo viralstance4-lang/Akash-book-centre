@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ExternalLink, FileText, Loader2, Package, Truck, X } from "lucide-react";
+import { ExternalLink, FileText, Loader2, MapPin, Package, Share2, Truck, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -492,6 +492,47 @@ export default function AdminOrdersPage() {
               )}
             </div>
 
+            {/* Customer Location (opt-in GPS, only shown if customer shared it) */}
+            {(selectedOrder as any).customerLatitude != null && (selectedOrder as any).customerLongitude != null && (() => {
+              const lat = (selectedOrder as any).customerLatitude as number;
+              const lng = (selectedOrder as any).customerLongitude as number;
+              const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+              const whatsappText = `Order #${selectedOrder.id} delivery location: ${mapsLink}`;
+              return (
+                <div className="mt-5 rounded-[1.1rem] bg-white p-4">
+                  <p className="mb-2 text-[0.68rem] uppercase tracking-[0.2em] text-text-muted">Customer Location</p>
+                  <a href={mapsLink} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-black/10">
+                    <iframe
+                      title="Customer location"
+                      width="100%"
+                      height="160"
+                      style={{ border: 0, display: "block" }}
+                      loading="lazy"
+                      src={`https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`}
+                    />
+                  </a>
+                  <div className="mt-3 flex gap-2">
+                    <a
+                      href={mapsLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-black/10 bg-[#f8f4ee] py-2 text-xs font-medium text-text-primary hover:border-black/20"
+                    >
+                      <MapPin size={13} /> View on Map
+                    </a>
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(whatsappText)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-emerald-600 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                    >
+                      <Share2 size={13} /> Share Location with Rider
+                    </a>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Items */}
             <div className="mt-5 space-y-3">
               <p className="text-[0.68rem] uppercase tracking-[0.2em] text-text-muted">
@@ -524,6 +565,9 @@ export default function AdminOrdersPage() {
                   </span>
                   {(selectedOrder as any).deliveryDistance != null && (
                     <span className="text-text-muted">{Number((selectedOrder as any).deliveryDistance).toFixed(1)} km</span>
+                  )}
+                  {(selectedOrder as any).calculationMethod && (
+                    <span className="text-[10px] text-text-muted/70">({(selectedOrder as any).calculationMethod})</span>
                   )}
                 </span>
               </div>

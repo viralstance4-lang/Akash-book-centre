@@ -18,11 +18,24 @@ import { requestOtp } from "./otp/otp.service";
 
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
+// Secure must be off in local dev (plain HTTP) but on in production (HTTPS-only) —
+// browsers silently drop Secure cookies over HTTP, so hardcoding either value breaks
+// one of the two environments.
+const IS_PRODUCTION = env.NODE_ENV === "production";
+
+// httpOnly: blocks JS/XSS access to the token. sameSite "lax": frontend and backend
+// are served from the same origin in production (akashbookcentre.com, proxied via
+// nginx — see frontend/nginx.conf) and are same-site in local dev (localhost on
+// different ports), so "lax" covers both without needing cross-site cookie exceptions.
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: IS_PRODUCTION,
+  sameSite: "lax" as const,
+};
+
 const setRefreshCookie = (res: Parameters<RequestHandler>[1], token: string) => {
   res.cookie("refreshToken", token, {
-    httpOnly: true,
-    secure: false,
-    sameSite: "lax",
+    ...REFRESH_COOKIE_OPTIONS,
     maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
   });
 };
@@ -135,11 +148,7 @@ export const logout: RequestHandler = async (req, res, next) => {
 
     await logoutUser(refreshToken);
 
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-    });
+    res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
 
     res.status(200).json({ success: true, message: "Logout successful", data: null });
   } catch (error) {

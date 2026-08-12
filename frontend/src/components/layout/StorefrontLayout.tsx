@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, Menu, Printer, Receipt, RefreshCw, Search, ShoppingBag, User, X } from "lucide-react";
+import { LayoutDashboard, LogOut, Mail, Menu, Printer, Receipt, RefreshCw, Search, ShoppingBag, User, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -87,7 +87,7 @@ export default function StorefrontLayout() {
   ];
 
   return (
-    <div className="min-h-screen font-sans text-text-primary flex flex-col pb-[62px] md:pb-0" style={{ background: "linear-gradient(to bottom, #ffd6d6 0px, #ffffff 520px)" }}>
+    <div className="min-h-screen font-sans text-text-primary flex flex-col pb-[62px] md:pb-0" style={{ background: "linear-gradient(to bottom, #ff8080 0px, #ffffff 520px)" }}>
       {/* Top Navbar */}
       <header className={`sticky top-0 z-40 w-full bg-white border-b border-border transition-shadow duration-300 ${isScrolled ? "shadow-md" : ""}`}>
         <div className="mx-auto flex flex-nowrap h-16 max-w-screen-2xl items-center gap-1 sm:gap-3 px-3 sm:px-6 lg:px-8">
@@ -120,7 +120,7 @@ export default function StorefrontLayout() {
                 value={topSearch}
                 onChange={(e) => handleSearch(e.target.value)}
                 placeholder="Search books, authors..."
-                className="h-11 w-full rounded-full border-2 border-red-200 bg-red-50/60 pl-10 pr-20 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:border-red-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(239,68,68,0.18)]"
+                className="h-11 w-full rounded-full border-2 border-red-400 bg-white pl-10 pr-20 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.18)]"
               />
               <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4">
                 <kbd className="rounded-md border border-black/10 bg-white px-1.5 py-0.5 text-[10px] font-medium text-text-muted shadow-sm">Ctrl K</kbd>
@@ -159,6 +159,12 @@ export default function StorefrontLayout() {
                       <p className="text-[0.68rem] uppercase tracking-[0.22em] text-text-muted">Signed in</p>
                       <p className="mt-1.5 font-serif text-xl text-text-primary">{user.name}</p>
                       <p className="mt-0.5 break-all text-xs text-text-muted">{user.email}</p>
+                      {!user.isVerified && (
+                        <Link to={`/verify-email?email=${encodeURIComponent(user.email)}`} onClick={() => setIsProfileOpen(false)}
+                          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 hover:-translate-y-0.5 transition-all">
+                          <Mail size={14} /> Verify your email
+                        </Link>
+                      )}
                       {user.role === "ADMIN" && (
                         <Link to="/admin" onClick={() => setIsProfileOpen(false)}
                           className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm text-text-primary hover:-translate-y-0.5 transition-all">
@@ -197,7 +203,7 @@ export default function StorefrontLayout() {
               <Search className="h-4 w-4 text-red-500 transition-colors group-focus-within:text-red-600" />
             </span>
             <input type="text" value={topSearch} onChange={(e) => handleSearch(e.target.value)} placeholder="Search books..."
-              className="h-10 w-full rounded-full border-2 border-red-200 bg-red-50/60 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:border-red-400 focus:bg-white focus:shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
+              className="h-10 w-full rounded-full border-2 border-red-400 bg-white pl-10 pr-4 text-sm outline-none transition-all placeholder:text-text-muted/60 focus:shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
           </label>
         </div>
       </header>
@@ -237,6 +243,12 @@ export default function StorefrontLayout() {
               <>
                 <p className="text-xs text-text-muted">Signed in as</p>
                 <p className="mt-1 truncate font-serif text-lg text-text-primary">{user.name}</p>
+                {!user.isVerified && (
+                  <Link to={`/verify-email?email=${encodeURIComponent(user.email)}`} onClick={() => setIsMobileMenuOpen(false)}
+                    className="mt-3 flex items-center justify-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+                    <Mail size={14} /> Verify your email
+                  </Link>
+                )}
                 <button type="button" onClick={handleLogout} disabled={isLoggingOut}
                   className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#1d1a17] px-4 py-2.5 text-sm text-white hover:bg-black disabled:opacity-60 transition-all">
                   <LogOut size={14} />{isLoggingOut ? "Logging out..." : "Logout"}
@@ -271,7 +283,7 @@ export default function StorefrontLayout() {
                 <a href="https://www.instagram.com/akash_books_centre_abc?igsh=MXFreGF0ZWc5eWxyYg%3D%3D" target="_blank" rel="noopener noreferrer" className="hover:text-pink-500 transition"><IconInstagram /></a>
                 <a href="https://www.facebook.com/people/Akash-Book-Centre/pfbid02aQV79LPCAg9nvSGVnYmUE53skzXTo71L8DF1Cd7HqR6hFjZk7CvMFAfCpPEJkSnpl/?rdid=ligYbmRxIurPn6V7&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1FdzyHsz5X%2F" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition"><IconFacebook /></a>
                 <a href="https://www.youtube.com/@akashbookcentre9255" target="_blank" rel="noopener noreferrer" className="hover:text-red-500 transition"><IconYoutube /></a>
-                <a href="https://wa.me//+918810285500" target="_blank" rel="noopener noreferrer" className="hover:text-green-500 transition"><IconWhatsapp /></a>
+                <a href="https://wa.me/919990018434" target="_blank" rel="noopener noreferrer" className="hover:text-green-500 transition"><IconWhatsapp /></a>
               </div>
             </div>
 

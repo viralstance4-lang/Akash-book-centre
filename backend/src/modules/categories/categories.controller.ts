@@ -23,6 +23,17 @@ export const listCategories: RequestHandler = async (_req, res, next) => {
   }
 };
 
+// Admin-only: includes inactive categories/subcategories so they can be managed
+// (and re-activated) from the admin panel. Route MUST stay behind admin auth.
+export const listAdminCategories: RequestHandler = async (_req, res, next) => {
+  try {
+    const data = await getAllCategories(true);
+    res.status(200).json({ success: true, message: "Categories fetched", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getCategoryBySlug: RequestHandler = async (req, res, next) => {
   try {
     const data = await getCategoryBySlugService(String(req.params["slug"]));
