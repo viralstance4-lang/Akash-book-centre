@@ -145,24 +145,54 @@ export function getCoordsForPincode(pincode: string): { lat: number; lng: number
 }
 
 /**
- * Resolves the device's raw GPS coordinates alongside the delivery estimate —
- * callers need the coordinates themselves (not just the estimate) to store as
- * the order's precise delivery location.
+ * getCurrentPosition's first fix is often a coarse/cached estimate — mobile
+ * GPS chips typically refine to a much tighter accuracy over the next few
+ * seconds as they lock onto more satellites. This watches for updates for a
+ * short window and returns the most accurate reading seen (resolving early
+ * once accuracy is already good), instead of settling for whatever arrives
+ * first.
  */
-export async function getDeliveryFromGeolocation(): Promise<{ delivery: DeliveryResult; lat: number; lng: number }> {
+export async function getBestPosition(timeoutMs = 8000): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error("Geolocation not supported by this browser"));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => resolve({
-        delivery: getDeliveryFromCoords(coords.latitude, coords.longitude),
-        lat: coords.latitude,
-        lng: coords.longitude,
-      }),
-      (err) => reject(err),
-      { timeout: 10000 },
+    let best: GeolocationPosition | null = null;
+    let settled = false;
+
+    const finish = (pos: GeolocationPosition | null, err?: unknown) => {
+      if (settled) return;
+      settled = true;
+      navigator.geolocation.clearWatch(watchId);
+      if (pos) resolve(pos);
+      else reject(err instanceof Error ? err : new Error("Unable to determine location"));
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+        // Good enough — no need to keep waiting out the full window.
+        if (pos.coords.accuracy <= 20) finish(pos);
+      },
+      (err) => finish(best, err),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
     );
+
+    setTimeout(() => finish(best, new Error("Timed out waiting for a location fix")), timeoutMs);
   });
+}
+
+/**
+ * Resolves the device's raw GPS coordinates alongside the delivery estimate —
+ * callers need the coordinates themselves (not just the estimate) to store as
+ * the order's precise delivery location.
+ */
+export async function getDeliveryFromGeolocation(): Promise<{ delivery: DeliveryResult; lat: number; lng: number }> {
+  const { coords } = await getBestPosition();
+  return {
+    delivery: getDeliveryFromCoords(coords.latitude, coords.longitude),
+    lat: coords.latitude,
+    lng: coords.longitude,
+  };
 }

@@ -15,6 +15,7 @@ import {
   getDeliveryFromGeolocation,
   getDeliveryFromCoords,
   getCoordsForPincode,
+  getBestPosition,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
 import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
@@ -138,46 +139,38 @@ export default function CheckoutPage() {
     setCurrentLocationAccuracy(null);
   };
 
-  const handleShareCurrentLocation = () => {
+  const handleShareCurrentLocation = async () => {
     if (!navigator.geolocation) {
       setCurrentLocationError("Geolocation is not supported by your browser.");
       return;
     }
     setCurrentLocationLoading(true);
     setCurrentLocationError("");
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        try {
-          const place = await reverseGeocode(coords.latitude, coords.longitude);
-          setForm((c) => ({
-            ...c,
-            line1: place.line1,
-            city: place.city ?? "",
-            state: place.state ?? "",
-            pincode: place.pincode ?? "",
-          }));
-          setFieldErrors((c) => {
-            const n = { ...c };
-            delete n.line1; delete n.city; delete n.state; delete n.pincode;
-            return n;
-          });
-          setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
-          setCurrentLocationAccuracy(coords.accuracy ?? null);
-          setPlaceSelectionKey((k) => k + 1);
-          setUsingCurrentLocation(true);
-          setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
-        } catch {
-          setCurrentLocationError("Could not determine your address from your location. Please enter it manually.");
-        } finally {
-          setCurrentLocationLoading(false);
-        }
-      },
-      () => {
-        setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
-        setCurrentLocationLoading(false);
-      },
-      { timeout: 10000, enableHighAccuracy: true },
-    );
+    try {
+      const { coords } = await getBestPosition();
+      const place = await reverseGeocode(coords.latitude, coords.longitude);
+      setForm((c) => ({
+        ...c,
+        line1: place.line1,
+        city: place.city ?? "",
+        state: place.state ?? "",
+        pincode: place.pincode ?? "",
+      }));
+      setFieldErrors((c) => {
+        const n = { ...c };
+        delete n.line1; delete n.city; delete n.state; delete n.pincode;
+        return n;
+      });
+      setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+      setCurrentLocationAccuracy(coords.accuracy ?? null);
+      setPlaceSelectionKey((k) => k + 1);
+      setUsingCurrentLocation(true);
+      setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
+    } catch {
+      setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
+    } finally {
+      setCurrentLocationLoading(false);
+    }
   };
 
   const verifyPaymentMutation = useMutation({

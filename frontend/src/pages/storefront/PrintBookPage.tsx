@@ -15,6 +15,7 @@ import {
   getDeliveryFromPincode,
   getDeliveryFromCoords,
   getCoordsForPincode,
+  getBestPosition,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
 import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
@@ -219,38 +220,30 @@ export default function PrintBookPage() {
     }
   };
 
-  const handleShareCurrentLocation = () => {
+  const handleShareCurrentLocation = async () => {
     if (!navigator.geolocation) {
       setCurrentLocationError("Geolocation is not supported by your browser.");
       return;
     }
     setLocatingCurrent(true);
     setCurrentLocationError("");
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        try {
-          const place = await reverseGeocode(coords.latitude, coords.longitude);
-          const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
-          setAddress(fullAddress || place.line1);
-          setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
-          if (place.pincode) setPincode(place.pincode);
-          setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
-          setCurrentLocationAccuracy(coords.accuracy ?? null);
-          setPlaceSelectionKey((k) => k + 1);
-          setUsingCurrentLocation(true);
-          setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
-        } catch {
-          setCurrentLocationError("Could not determine your address from your location. Please enter it manually.");
-        } finally {
-          setLocatingCurrent(false);
-        }
-      },
-      () => {
-        setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
-        setLocatingCurrent(false);
-      },
-      { timeout: 10000, enableHighAccuracy: true },
-    );
+    try {
+      const { coords } = await getBestPosition();
+      const place = await reverseGeocode(coords.latitude, coords.longitude);
+      const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
+      setAddress(fullAddress || place.line1);
+      setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
+      if (place.pincode) setPincode(place.pincode);
+      setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
+      setCurrentLocationAccuracy(coords.accuracy ?? null);
+      setPlaceSelectionKey((k) => k + 1);
+      setUsingCurrentLocation(true);
+      setDelivery(getDeliveryFromCoords(coords.latitude, coords.longitude));
+    } catch {
+      setCurrentLocationError("Unable to access your location. Please allow location access or enter your address manually.");
+    } finally {
+      setLocatingCurrent(false);
+    }
   };
 
   const handlePlaceSelected = (place: PlaceSelection) => {
