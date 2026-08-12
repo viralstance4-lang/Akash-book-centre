@@ -17,7 +17,7 @@ import {
   getCoordsForPincode,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
-import { reverseGeocode } from "../../components/checkout/AddressAutocomplete";
+import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
 import { useAuthStore } from "../../store/auth.store";
 
@@ -205,8 +205,9 @@ export default function PrintBookPage() {
     setGeoLoading(true);
     setGeoError("");
     try {
-      const result = await getDeliveryFromGeolocation();
+      const { delivery: result, lat, lng } = await getDeliveryFromGeolocation();
       setDelivery(result);
+      setPreciseLocation({ lat, lng });
     } catch {
       setGeoError("Unable to access your location. Please enter your pincode.");
     } finally {
@@ -245,6 +246,18 @@ export default function PrintBookPage() {
       },
       { timeout: 10000, enableHighAccuracy: true },
     );
+  };
+
+  const handlePlaceSelected = (place: PlaceSelection) => {
+    const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
+    setAddress(fullAddress || place.line1);
+    setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
+    if (place.pincode) setPincode(place.pincode);
+    if (place.lat != null && place.lng != null) {
+      setPreciseLocation({ lat: place.lat, lng: place.lng });
+      setPlaceSelectionKey((k) => k + 1);
+    }
+    setUsingCurrentLocation(false);
   };
 
   // ── Delivery charge calculation (mirrors backend ShippingService logic) ──────
@@ -908,12 +921,14 @@ export default function PrintBookPage() {
 
           <label className="block">
             <span className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Address *</span>
-            <input type="text" value={address}
-              onChange={(e) => {
-                setAddress(e.target.value);
+            <AddressAutocomplete
+              value={address}
+              onChange={(v) => {
+                setAddress(v);
                 setFieldErrors((p) => { const n = {...p}; delete n.address; return n; });
                 if (usingCurrentLocation) { setUsingCurrentLocation(false); setPreciseLocation(null); }
               }}
+              onPlaceSelected={handlePlaceSelected}
               placeholder="Your pickup / delivery address"
               className={`h-11 w-full rounded-xl border bg-[#f8f4ee] px-4 text-sm outline-none focus:bg-white transition-all ${fieldErrors.address ? "border-red-300" : "border-black/10 focus:border-black/25"}`} />
             {fieldErrors.address && <p className="mt-1 text-xs text-red-500">{fieldErrors.address}</p>}

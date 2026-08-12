@@ -144,14 +144,23 @@ export function getCoordsForPincode(pincode: string): { lat: number; lng: number
   return coords ? { lat: coords[0], lng: coords[1] } : null;
 }
 
-export async function getDeliveryFromGeolocation(): Promise<DeliveryResult> {
+/**
+ * Resolves the device's raw GPS coordinates alongside the delivery estimate —
+ * callers need the coordinates themselves (not just the estimate) to store as
+ * the order's precise delivery location.
+ */
+export async function getDeliveryFromGeolocation(): Promise<{ delivery: DeliveryResult; lat: number; lng: number }> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error("Geolocation not supported by this browser"));
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => resolve(getDeliveryFromCoords(coords.latitude, coords.longitude)),
+      ({ coords }) => resolve({
+        delivery: getDeliveryFromCoords(coords.latitude, coords.longitude),
+        lat: coords.latitude,
+        lng: coords.longitude,
+      }),
       (err) => reject(err),
       { timeout: 10000 },
     );

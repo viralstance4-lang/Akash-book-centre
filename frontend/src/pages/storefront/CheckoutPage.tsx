@@ -103,8 +103,9 @@ export default function CheckoutPage() {
     setGeoLoading(true);
     setGeoError("");
     try {
-      const result = await getDeliveryFromGeolocation();
+      const { delivery: result, lat, lng } = await getDeliveryFromGeolocation();
       setDelivery(result);
+      setPreciseLocation({ lat, lng });
     } catch {
       setGeoError("Unable to access your location. Please enter your pincode.");
     } finally {
