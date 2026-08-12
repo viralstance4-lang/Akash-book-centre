@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { loadGoogleMaps, isGoogleMapsConfigured } from "../../utils/googleMaps";
 
 export type PlaceSelection = {
   line1: string;
@@ -17,84 +18,68 @@ interface AddressAutocompleteProps {
   className?: string;
 }
 
-type NominatimResult = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  address?: {
-    house_number?: string;
-    road?: string;
-    neighbourhood?: string;
-    suburb?: string;
-    city?: string;
-    town?: string;
-    village?: string;
-    county?: string;
-    state?: string;
-    postcode?: string;
-    "ISO3166-2-lvl4"?: string;
-  };
-};
+const DEBOUNCE_MS = 300;
+const MIN_QUERY_LENGTH = 3;
 
-const DEBOUNCE_MS = 500;
-// Nominatim's usage policy caps unauthenticated clients at 1 request/second;
-// the 500ms debounce already keeps us well under that.
-const MIN_QUERY_LENGTH = 4;
+function getComponent(
+  components: google.maps.GeocoderAddressComponent[] | undefined,
+  type: string,
+): string | undefined {
+  return components?.find((c) => c.types.includes(type))?.long_name;
+}
 
-// Nominatim frequently omits `address.state` for Union Territories (Delhi,
-// Chandigarh, Puducherry, ...) and sometimes for other results too — it still
-// gives the ISO 3166-2 subdivision code, so fall back to that.
-const INDIA_ISO_STATE: Record<string, string> = {
-  AN: "Andaman and Nicobar Islands", AP: "Andhra Pradesh", AR: "Arunachal Pradesh",
-  AS: "Assam", BR: "Bihar", CH: "Chandigarh", CT: "Chhattisgarh",
-  DN: "Dadra and Nagar Haveli and Daman and Diu", DL: "Delhi", GA: "Goa",
-  GJ: "Gujarat", HR: "Haryana", HP: "Himachal Pradesh", JK: "Jammu and Kashmir",
-  JH: "Jharkhand", KA: "Karnataka", KL: "Kerala", LA: "Ladakh", LD: "Lakshadweep",
-  MP: "Madhya Pradesh", MH: "Maharashtra", MN: "Manipur", ML: "Meghalaya",
-  MZ: "Mizoram", NL: "Nagaland", OR: "Odisha", PY: "Puducherry", PB: "Punjab",
-  RJ: "Rajasthan", SK: "Sikkim", TN: "Tamil Nadu", TG: "Telangana",
-  TR: "Tripura", UP: "Uttar Pradesh", UT: "Uttarakhand", WB: "West Bengal",
-};
-
-export function toPlaceSelection(result: NominatimResult): PlaceSelection {
-  const addr = result.address ?? {};
-  const line1Parts = [addr.house_number, addr.road, addr.neighbourhood ?? addr.suburb].filter(Boolean);
-  const isoState = addr["ISO3166-2-lvl4"]?.startsWith("IN-")
-    ? INDIA_ISO_STATE[addr["ISO3166-2-lvl4"].slice(3)]
-    : undefined;
+function toPlaceSelection(place: {
+  address_components?: google.maps.GeocoderAddressComponent[];
+  formatted_address?: string;
+  name?: string;
+  geometry?: { location?: google.maps.LatLng | null };
+}): PlaceSelection {
+  const components = place.address_components;
+  const line1Parts = [
+    getComponent(components, "street_number"),
+    getComponent(components, "route"),
+    getComponent(components, "sublocality") ?? getComponent(components, "sublocality_level_1"),
+  ].filter(Boolean);
+  const loc = place.geometry?.location;
   return {
-    line1: line1Parts.join(", ") || result.display_name,
-    city: addr.city ?? addr.town ?? addr.village ?? addr.county,
-    state: addr.state ?? isoState,
-    pincode: addr.postcode,
-    lat: parseFloat(result.lat),
-    lng: parseFloat(result.lon),
+    line1: line1Parts.join(", ") || place.formatted_address || place.name || "",
+    city: getComponent(components, "locality") ?? getComponent(components, "administrative_area_level_2"),
+    state: getComponent(components, "administrative_area_level_1"),
+    pincode: getComponent(components, "postal_code"),
+    lat: loc?.lat(),
+    lng: loc?.lng(),
   };
 }
 
-/** Reverse-geocodes GPS coordinates into a postal address via Nominatim. */
+/** Reverse-geocodes GPS coordinates into a postal address via the Google Geocoding API. */
 export async function reverseGeocode(lat: number, lng: number): Promise<PlaceSelection> {
-  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error("Reverse geocoding failed");
-  const data: NominatimResult = await res.json();
-  // Keep the device's exact coordinates rather than Nominatim's (possibly rounded) ones.
-  return { ...toPlaceSelection(data), lat, lng };
+  const g = await loadGoogleMaps();
+  const geocoder = new g.maps.Geocoder();
+  const { results } = await geocoder.geocode({ location: { lat, lng } });
+  const result = results[0];
+  if (!result) throw new Error("Reverse geocoding failed");
+  // Keep the device's exact coordinates rather than the geocoder's (possibly rounded) ones.
+  return { ...toPlaceSelection(result), lat, lng };
 }
 
-// Falls back to a plain text input with no suggestions if Nominatim is
-// unreachable — manual entry always keeps working either way.
+// Falls back to a plain text input with no suggestions if Google Maps isn't
+// configured or unreachable — manual entry always keeps working either way.
 export default function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, className }: AddressAutocompleteProps) {
-  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [predictions, setPredictions] = useState<google.maps.places.AutocompletePrediction[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Distinct from "no results" so a blocked/failed request (ad-blocker,
-  // network filter, offline) is visible instead of looking like silence.
+  // Distinct from "no results" so a missing/invalid API key or network issue
+  // is visible instead of looking like silence.
   const [fetchError, setFetchError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const skipNextSearchRef = useRef(false);
+  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
+  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
+  // Google bills autocomplete session-based (predictions + the details fetch
+  // that follows) rather than per-keystroke — reusing one token per "session"
+  // (until a place is picked) keeps cost down.
+  const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -102,6 +87,21 @@ export default function AddressAutocomplete({ value, onChange, onPlaceSelected, 
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!isGoogleMapsConfigured) {
+      setFetchError(true);
+      return;
+    }
+    loadGoogleMaps()
+      .then((g) => {
+        autocompleteServiceRef.current = new g.maps.places.AutocompleteService();
+        // PlacesService needs a map or DOM node to attach to, but never renders
+        // one visibly — an off-DOM div is the standard way to use it headlessly.
+        placesServiceRef.current = new g.maps.places.PlacesService(document.createElement("div"));
+      })
+      .catch(() => setFetchError(true));
   }, []);
 
   useEffect(() => {
@@ -113,39 +113,37 @@ export default function AddressAutocomplete({ value, onChange, onPlaceSelected, 
 
     const query = value.trim();
     if (query.length < MIN_QUERY_LENGTH) {
-      setResults([]);
+      setPredictions([]);
       setOpen(false);
-      setFetchError(false);
       return;
     }
 
-    debounceRef.current = setTimeout(async () => {
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+    debounceRef.current = setTimeout(() => {
+      const service = autocompleteServiceRef.current;
+      if (!service) return;
       setLoading(true);
-      setFetchError(false);
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=in&addressdetails=1&limit=5`;
-        const res = await fetch(url, {
-          signal: controller.signal,
-          // Browsers won't let JS override User-Agent; Nominatim's usage
-          // policy accepts the browser's own Referer header as identification
-          // for client-side apps instead.
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error("Nominatim request failed");
-        const data: NominatimResult[] = await res.json();
-        setResults(data);
-        setOpen(data.length > 0);
-      } catch (err) {
-        // Aborted requests (superseded by a newer keystroke) aren't errors.
-        if ((err as Error).name !== "AbortError") setFetchError(true);
-        setResults([]);
-        setOpen(false);
-      } finally {
-        setLoading(false);
+      if (!sessionTokenRef.current) {
+        sessionTokenRef.current = new google.maps.places.AutocompleteSessionToken();
       }
+      service.getPlacePredictions(
+        {
+          input: query,
+          componentRestrictions: { country: "in" },
+          sessionToken: sessionTokenRef.current,
+        },
+        (results, status) => {
+          setLoading(false);
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+            if (status !== google.maps.places.PlacesServiceStatus.ZERO_RESULTS) setFetchError(true);
+            setPredictions([]);
+            setOpen(false);
+            return;
+          }
+          setFetchError(false);
+          setPredictions(results);
+          setOpen(results.length > 0);
+        },
+      );
     }, DEBOUNCE_MS);
 
     return () => {
@@ -153,13 +151,26 @@ export default function AddressAutocomplete({ value, onChange, onPlaceSelected, 
     };
   }, [value]);
 
-  const handleSelect = (result: NominatimResult) => {
-    const place = toPlaceSelection(result);
-    skipNextSearchRef.current = true;
-    setResults([]);
-    setOpen(false);
-    onChange(place.line1);
-    onPlaceSelected(place);
+  const handleSelect = (prediction: google.maps.places.AutocompletePrediction) => {
+    const service = placesServiceRef.current;
+    if (!service) return;
+    service.getDetails(
+      {
+        placeId: prediction.place_id,
+        fields: ["address_components", "formatted_address", "geometry", "name"],
+        sessionToken: sessionTokenRef.current ?? undefined,
+      },
+      (place, status) => {
+        sessionTokenRef.current = null; // session ends once details are fetched
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !place) return;
+        const selection = toPlaceSelection(place);
+        skipNextSearchRef.current = true;
+        setPredictions([]);
+        setOpen(false);
+        onChange(selection.line1);
+        onPlaceSelected(selection);
+      },
+    );
   };
 
   return (
@@ -168,21 +179,21 @@ export default function AddressAutocomplete({ value, onChange, onPlaceSelected, 
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={() => results.length > 0 && setOpen(true)}
+        onFocus={() => predictions.length > 0 && setOpen(true)}
         placeholder={placeholder}
         autoComplete="off"
         className={className}
       />
-      {open && results.length > 0 && (
+      {open && predictions.length > 0 && (
         <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-black/10 bg-white py-1 text-sm shadow-lg">
-          {results.map((r, i) => (
-            <li key={i}>
+          {predictions.map((p) => (
+            <li key={p.place_id}>
               <button
                 type="button"
-                onClick={() => handleSelect(r)}
+                onClick={() => handleSelect(p)}
                 className="block w-full px-4 py-2.5 text-left text-text-primary hover:bg-[#f8f4ee]"
               >
-                {r.display_name}
+                {p.description}
               </button>
             </li>
           ))}
@@ -195,7 +206,7 @@ export default function AddressAutocomplete({ value, onChange, onPlaceSelected, 
       )}
       {fetchError && !loading && (
         <p className="absolute z-20 mt-1 w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700">
-          Couldn't fetch address suggestions (network/ad-blocker?) — you can still type your full address manually.
+          Couldn't fetch address suggestions — you can still type your full address manually.
         </p>
       )}
     </div>

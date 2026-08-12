@@ -1,21 +1,5 @@
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import { useRef } from "react";
-import { MapContainer, Marker, TileLayer } from "react-leaflet";
-import type { Marker as LeafletMarker } from "leaflet";
-
-// Leaflet's default marker icon paths break under bundlers (Vite included)
-// because they're resolved relative to the CSS file, not the JS bundle.
-// Point them at the bundled asset URLs instead.
-delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
+import { useEffect, useRef, useState } from "react";
+import { loadGoogleMaps, isGoogleMapsConfigured } from "../../utils/googleMaps";
 
 interface MapPinPickerProps {
   lat: number;
@@ -26,45 +10,56 @@ interface MapPinPickerProps {
 // Remounted (via a `key` on the parent) whenever the customer picks a new
 // address suggestion, so it always re-centers on the freshly selected place.
 export default function MapPinPicker({ lat, lng, onPositionChange }: MapPinPickerProps) {
-  const markerRef = useRef<LeafletMarker>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loadError, setLoadError] = useState(false);
 
-  return (
-    <div className="relative h-48 w-full overflow-hidden rounded-xl border border-black/10">
-      <MapContainer
-        center={[lat, lng]}
-        zoom={17}
-        scrollWheelZoom={false}
-        zoomControl={true}
-        style={{ height: "100%", width: "100%" }}
-      >
-        {/*
-         * CARTO's basemap CDN, not the bare tile.openstreetmap.org server —
-         * the raw OSM tile server explicitly discourages production/commercial
-         * use without heavy caching and can rate-limit or block under normal
-         * customer traffic, which showed up as a blank/grey map. CARTO serves
-         * the same OSM data via a CDN meant for exactly this kind of app, with
-         * no API key required.
-         */}
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          maxZoom={19}
-        />
-        <Marker
-          position={[lat, lng]}
-          draggable
-          ref={markerRef}
-          eventHandlers={{
-            dragend: () => {
-              const marker = markerRef.current;
-              if (!marker) return;
-              const position = marker.getLatLng();
-              onPositionChange(position.lat, position.lng);
-            },
-          }}
-        />
-      </MapContainer>
-    </div>
-  );
+  useEffect(() => {
+    if (!isGoogleMapsConfigured) return;
+    let cancelled = false;
+
+    loadGoogleMaps()
+      .then((g) => {
+        if (cancelled || !containerRef.current) return;
+
+        const map = new g.maps.Map(containerRef.current, {
+          center: { lat, lng },
+          zoom: 17,
+          disableDefaultUI: true,
+          zoomControl: true,
+          gestureHandling: "greedy",
+        });
+
+        const marker = new g.maps.Marker({
+          position: { lat, lng },
+          map,
+          draggable: true,
+        });
+
+        marker.addListener("dragend", () => {
+          const position = marker.getPosition();
+          if (position) onPositionChange(position.lat(), position.lng());
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally mount-once: `lat`/`lng` only seed the initial center/marker
+    // position. Re-running this on every position change would fight the
+    // customer's own drag and reset the map underneath them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!isGoogleMapsConfigured || loadError) {
+    return (
+      <div className="flex h-48 w-full items-center justify-center rounded-xl border border-black/10 bg-[#f8f4ee] px-4 text-center text-xs text-text-muted">
+        Map preview unavailable right now — your address and pincode are still used to calculate delivery.
+      </div>
+    );
+  }
+
+  return <div ref={containerRef} className="h-48 w-full overflow-hidden rounded-xl border border-black/10" />;
 }
