@@ -291,6 +291,12 @@ export default function PrintBookPage() {
     const threshold  = shippingSettings?.freeRadius ?? 3;
     if (!shippingSettings?.isShippingEnabled || distanceKm === null || distanceKm <= threshold) {
       setRemoteDeliveryCharge(null);
+      // A prior invocation may have left this true (e.g. it was cancelled
+      // mid-flight when `delivery` got cleared by a pincode change) — this
+      // invocation has nothing in flight, so it must explicitly clear it too,
+      // otherwise the Pay button/cost row can get stuck on "Calculating…"
+      // forever if no later invocation ever completes successfully.
+      setDeliveryChargeLoading(false);
       return;
     }
 
