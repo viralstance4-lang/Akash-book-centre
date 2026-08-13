@@ -1,23 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle, CreditCard, LocateFixed, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, CreditCard, Loader2, LocateFixed, MapPin, ShoppingBag, Tag, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCart } from "../../api/cart.api";
 import { placeOrder, verifyPayment } from "../../api/orders.api";
 import { validateCoupon, type CouponValidation } from "../../api/coupons.api";
 import { getSettings } from "../../api/settings.api";
-import { getShippingSettings } from "../../api/shipping.api";
+import { getShippingSettings, previewShippingCharge } from "../../api/shipping.api";
 import { useAuthStore } from "../../store/auth.store";
 import type { ShippingAddress } from "../../types";
 import {
   SHOP,
-  getDeliveryFromPincode,
   getDeliveryFromCoords,
-  getCoordsForPincode,
   getBestPosition,
+  haversineKm,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
-import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
+import AddressAutocomplete, { reverseGeocode, geocodePincode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
 
 type ShippingField = keyof ShippingAddress;
@@ -67,6 +66,8 @@ export default function CheckoutPage() {
   // and weak-signal phones can be off by hundreds of meters, so this drives a
   // warning nudging the customer to drag the map pin instead of trusting it blindly.
   const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState<number | null>(null);
+  // True while the fallback-pincode path is geocoding + previewing a delivery charge.
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
   const { data: settingsData } = useQuery({ queryKey: ["site-settings"], queryFn: getSettings });
@@ -87,22 +88,6 @@ export default function CheckoutPage() {
       setPaymentMethod(isRazorpayConfigured ? "ONLINE" : "COD");
     }
   }, [codBlocked, paymentMethod]);
-
-  // Auto-calculate delivery when pincode reaches 6 digits.
-  // Also derive coordinates from the pincode so the server can compute an
-  // authoritative distance for pincode-only checkouts (no GPS/autocomplete used).
-  // Skipped when a more precise location is already set (GPS or autocomplete).
-  useEffect(() => {
-    const pin = form.pincode.trim();
-    if (pin.length === 6 && /^\d{6}$/.test(pin)) {
-      setDelivery(getDeliveryFromPincode(pin));
-      if (!preciseLocation) {
-        const coords = getCoordsForPincode(pin);
-        if (coords) setPreciseLocation(coords);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.pincode]);
 
   const handlePlaceSelected = (place: PlaceSelection) => {
     setForm((c) => ({
@@ -249,6 +234,67 @@ export default function CheckoutPage() {
     () => Math.max(1, items.reduce((sum, item) => sum + (Number((item.book as any).weight) || 0) * item.quantity, 0) + PACKAGING_KG),
     [items],
   );
+
+  // Auto-calculate delivery when pincode reaches 6 digits. Reuses an
+  // already-known precise location (GPS/autocomplete) when one exists — more
+  // accurate than a pincode's area centroid, and avoids a redundant geocode
+  // call. Otherwise geocodes the pincode itself (works for any pincode in
+  // India, not just a hardcoded local table) and previews the charge through
+  // the same backend ShippingService logic used at real order-creation time,
+  // so this estimate can never drift from what the customer is actually charged.
+  useEffect(() => {
+    const pin = form.pincode.trim();
+    if (pin.length !== 6 || !/^\d{6}$/.test(pin)) return;
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPincodeLookupLoading(true);
+      try {
+        let lat: number, lng: number, city: string, state: string;
+        if (preciseLocation) {
+          lat = preciseLocation.lat; lng = preciseLocation.lng;
+          city = form.city; state = form.state;
+        } else {
+          const place = await geocodePincode(pin);
+          if (cancelled) return;
+          if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
+          lat = place.lat; lng = place.lng;
+          city = place.city ?? ""; state = place.state ?? "";
+          setForm((c) => ({ ...c, city: place.city || c.city, state: place.state || c.state }));
+          setPreciseLocation({ lat, lng });
+        }
+
+        const distanceKm = haversineKm(SHOP.lat, SHOP.lng, lat, lng);
+        const result = await previewShippingCharge({
+          distanceInKm: distanceKm,
+          orderValue:   totalAmount,
+          weightInKg:   totalWeightKg,
+          city, state,
+        });
+        if (cancelled) return;
+
+        const km = Math.round(distanceKm * 10) / 10;
+        setDelivery(
+          result.type === "FREE" || result.type === "DISABLED"
+            ? { type: "FREE", distanceKm: km, label: "Free Delivery Available", sublabel: `You are ${km} km from our store` }
+            : { type: "PAID", distanceKm: km, label: "Delivery Charges May Apply", sublabel: `You are ${km} km from our store` },
+        );
+      } catch {
+        if (!cancelled) {
+          setDelivery({
+            type: "UNKNOWN", distanceKm: null,
+            label: "Delivery availability unknown",
+            sublabel: "We couldn't calculate delivery for this pincode — please confirm your address on the map, or contact us to check.",
+          });
+        }
+      } finally {
+        if (!cancelled) setPincodeLookupLoading(false);
+      }
+    }, 400);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.pincode]);
 
   // Zone rate from public config
   const zoneRate = useMemo(() => {
@@ -594,6 +640,14 @@ export default function CheckoutPage() {
                     onPositionChange={(lat, lng) => setPreciseLocation({ lat, lng })}
                   />
                   <p className="mt-1.5 text-[11px] text-text-muted">Drag the pin to fine-tune your exact location for the delivery rider.</p>
+                </div>
+              )}
+
+              {/* Delivery lookup loading state (fallback-pincode path only) */}
+              {pincodeLookupLoading && !delivery && (
+                <div className="sm:col-span-2 flex items-center gap-2.5 rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5">
+                  <Loader2 size={15} className="shrink-0 animate-spin text-text-muted" />
+                  <p className="text-xs text-text-muted">Checking delivery for this pincode…</p>
                 </div>
               )}
 

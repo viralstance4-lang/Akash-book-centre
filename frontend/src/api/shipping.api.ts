@@ -115,3 +115,20 @@ export const testShippingCalculation = async (input: {
   const r = await api.post<ShippingResult>("/admin/shipping/calculate", input);
   return r.data;
 };
+
+/**
+ * Public, unauthenticated preview — runs the exact same ShippingService logic
+ * used at real order-creation time (orders.service.ts / printorders.service.ts),
+ * so an estimate shown here can never drift from what the customer is actually
+ * charged. No order is created; read-only.
+ */
+export const previewShippingCharge = async (input: {
+  distanceInKm: number;
+  orderValue:   number;
+  weightInKg:   number;
+  state?:       string;
+  city?:        string;
+}): Promise<ShippingResult> => {
+  const r = await api.post<ShippingResult>("/shipping/calculate", input);
+  return r.data;
+};

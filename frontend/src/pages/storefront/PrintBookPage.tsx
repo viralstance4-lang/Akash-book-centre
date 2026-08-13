@@ -9,15 +9,15 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { getPrintSettings, createPrintOrder, verifyPrintPayment } from "../../api/print.api";
 import type { PrintOrderInitiated } from "../../api/print.api";
-import { getShippingSettings } from "../../api/shipping.api";
+import { getShippingSettings, previewShippingCharge } from "../../api/shipping.api";
 import {
-  getDeliveryFromPincode,
+  SHOP,
   getDeliveryFromCoords,
-  getCoordsForPincode,
   getBestPosition,
+  haversineKm,
   type DeliveryResult,
 } from "../../utils/deliveryUtils";
-import AddressAutocomplete, { reverseGeocode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
+import AddressAutocomplete, { reverseGeocode, geocodePincode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
 import { useAuthStore } from "../../store/auth.store";
 
@@ -190,6 +190,8 @@ export default function PrintBookPage() {
   // and weak-signal phones can be off by hundreds of meters, so this drives a
   // warning nudging the customer to drag the map pin instead of trusting it blindly.
   const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState<number | null>(null);
+  // True while the fallback-pincode path is geocoding + previewing a delivery charge.
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
 
   // ── Payment state ──────────────────────────────────────────────────────────
   const [paymentError,  setPaymentError]  = useState("");
@@ -201,18 +203,72 @@ export default function PrintBookPage() {
     if (user?.name)  setName(user.name);
   }, [user]);
 
-  // Auto-detect delivery from pincode (6 digits). Also derives coordinates from the
-  // pincode (when no more precise GPS/autocomplete location is already set) so the
-  // server can compute an authoritative distance for pincode-only checkouts.
+  // Auto-calculate delivery when pincode reaches 6 digits. Reuses an
+  // already-known precise location (GPS/autocomplete) when one exists — more
+  // accurate than a pincode's area centroid, and avoids a redundant geocode
+  // call. Otherwise geocodes the pincode itself (works for any pincode in
+  // India, not just a hardcoded local table) and previews the charge through
+  // the same backend ShippingService logic used at real print-order creation
+  // time (printorders.service.ts), so this estimate can never drift from what
+  // the customer is actually charged. Deliberately omits city/state from the
+  // preview call — print orders have no structured address fields and the
+  // real backend flow doesn't pass them either, so leaving them out here keeps
+  // the preview byte-for-byte consistent with the real charge.
   useEffect(() => {
     const pin = pincode.trim();
-    if (pin.length === 6) {
-      setDelivery(getDeliveryFromPincode(pin));
-      if (!preciseLocation) {
-        const coords = getCoordsForPincode(pin);
-        if (coords) setPreciseLocation(coords);
+    if (pin.length !== 6 || !/^\d{6}$/.test(pin)) return;
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPincodeLookupLoading(true);
+      try {
+        let lat: number, lng: number;
+        if (preciseLocation) {
+          lat = preciseLocation.lat; lng = preciseLocation.lng;
+        } else {
+          const place = await geocodePincode(pin);
+          if (cancelled) return;
+          if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
+          lat = place.lat; lng = place.lng;
+          setPreciseLocation({ lat, lng });
+        }
+
+        const distanceKm     = haversineKm(SHOP.lat, SHOP.lng, lat, lng);
+        const totalRawPages  = pdfs.reduce((sum, p) => sum + p.pageCount, 0);
+        const weightedPages  = pdfs.reduce((sum, p) => sum + p.pageCount * p.copies, 0);
+        const orderValue     = pdfs.length > 0
+          ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
+          : 0;
+        // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
+        const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
+
+        const result = await previewShippingCharge({
+          distanceInKm: distanceKm,
+          orderValue,
+          weightInKg:   estimatedWeightKg,
+        });
+        if (cancelled) return;
+
+        const km = Math.round(distanceKm * 10) / 10;
+        setDelivery(
+          result.type === "FREE" || result.type === "DISABLED"
+            ? { type: "FREE", distanceKm: km, label: "Free Delivery Available", sublabel: `You are ${km} km from our store` }
+            : { type: "PAID", distanceKm: km, label: "Delivery Charges May Apply", sublabel: `You are ${km} km from our store` },
+        );
+      } catch {
+        if (!cancelled) {
+          setDelivery({
+            type: "UNKNOWN", distanceKm: null,
+            label: "Delivery availability unknown",
+            sublabel: "We couldn't calculate delivery for this pincode — please confirm your address on the map, or contact us to check.",
+          });
+        }
+      } finally {
+        if (!cancelled) setPincodeLookupLoading(false);
       }
-    }
+    }, 400);
+
+    return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pincode]);
 
@@ -994,6 +1050,14 @@ export default function PrintBookPage() {
             </div>
           )}
 
+          {/* Delivery lookup loading state (fallback-pincode path only) */}
+          {pincodeLookupLoading && !delivery && (
+            <div className="sm:col-span-2 flex items-center gap-2.5 rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5">
+              <Loader2 size={15} className="shrink-0 animate-spin text-text-muted" />
+              <p className="text-xs text-text-muted">Checking delivery for this pincode…</p>
+            </div>
+          )}
+
           {/* Delivery status card */}
           {delivery && (
             <div className={`sm:col-span-2 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 ${
@@ -1013,7 +1077,7 @@ export default function PrintBookPage() {
               </div>
             </div>
           )}
-          {!delivery && (
+          {!delivery && !pincodeLookupLoading && (
             <p className="sm:col-span-2 text-xs text-text-muted">
               Free delivery within {shippingSettings?.freeRadius ?? 3} km on orders ₹{shippingSettings?.freeDeliveryThreshold ?? 199}+ — add your address above to check.
             </p>

@@ -62,6 +62,22 @@ export async function reverseGeocode(lat: number, lng: number): Promise<PlaceSel
   return { ...toPlaceSelection(result), lat, lng };
 }
 
+/**
+ * Forward-geocodes a 6-digit Indian PIN code to an approximate address + coordinates,
+ * via the same Google Geocoding API used by reverseGeocode — works for any valid
+ * pincode in India, not just a hardcoded local table.
+ */
+export async function geocodePincode(pincode: string): Promise<PlaceSelection> {
+  const g = await loadGoogleMaps();
+  const geocoder = new g.maps.Geocoder();
+  const { results } = await geocoder.geocode({
+    componentRestrictions: { country: "in", postalCode: pincode },
+  });
+  const result = results[0];
+  if (!result) throw new Error("Pincode geocoding failed");
+  return toPlaceSelection(result);
+}
+
 // Falls back to a plain text input with no suggestions if Google Maps isn't
 // configured or unreachable — manual entry always keeps working either way.
 export default function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, className }: AddressAutocompleteProps) {
