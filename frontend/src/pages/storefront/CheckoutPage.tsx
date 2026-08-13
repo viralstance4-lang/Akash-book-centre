@@ -244,6 +244,10 @@ export default function CheckoutPage() {
   // so this estimate can never drift from what the customer is actually charged.
   useEffect(() => {
     const pin = form.pincode.trim();
+    // Clear any previously-resolved delivery estimate immediately whenever the
+    // pincode changes — a stale ₹ amount must never stay displayed/payable
+    // while the field is mid-edit or a new lookup is in flight.
+    setDelivery(null);
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) return;
 
     let cancelled = false;
@@ -308,19 +312,24 @@ export default function CheckoutPage() {
   // pricing switches to weight/zone-based (mirrors backend distanceThreshold).
   const isLocalDelivery = delivery?.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3);
 
-  // Flat area charge per zone (only for weight-based, beyond the local radius)
+  // Flat area charge per zone (only for weight-based, beyond the local radius).
+  // delivery?.distanceKm == null (nothing resolved yet, or a new pincode
+  // lookup just cleared the previous result) must NOT fall into the
+  // "beyond radius" branch below — that would silently charge a real
+  // weight-based fee with no location actually resolved.
   const areaCharge = useMemo(() => {
-    if (!shippingSettings || !shippingSettings.isShippingEnabled || isLocalDelivery) return 0;
+    if (!shippingSettings || !shippingSettings.isShippingEnabled || isLocalDelivery || delivery?.distanceKm == null) return 0;
     if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneAreaCharge ?? 0;
     if (shippingZone === "NORTH_EAST")      return shippingSettings.northEastAreaCharge ?? 0;
     return shippingSettings.defaultAreaCharge ?? 0;
-  }, [isLocalDelivery, shippingSettings, shippingZone]);
+  }, [isLocalDelivery, delivery?.distanceKm, shippingSettings, shippingZone]);
 
   // Weight-based charge component (weight × zone rate, or distance × perKmRate for local)
   const weightCharge = useMemo(() => {
     if (!shippingSettings || !shippingSettings.isShippingEnabled) return 0;
     const distance = delivery?.distanceKm ?? null;
-    if (distance !== null && distance <= (shippingSettings.freeRadius ?? 3)) {
+    if (distance === null) return 0; // unresolved — nothing to charge yet
+    if (distance <= (shippingSettings.freeRadius ?? 3)) {
       if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
       // Round distance UP to the next whole km before billing (2.9km & 3.0km bill as 3km; 3.2km bills as 4km)
       return Math.ceil(distance) * Number(shippingSettings.perKmCharge);
@@ -395,6 +404,7 @@ export default function CheckoutPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
+    if (pincodeLookupLoading) { setSubmitError("Please wait — calculating your delivery charge."); return; }
     setSubmitError("");
     placeOrderMutation.mutate({ address: form, method: paymentMethod, customerEmail: email });
   };
@@ -708,11 +718,13 @@ export default function CheckoutPage() {
               {submitError && <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{submitError}</div>}
 
               <div className="sm:col-span-2">
-                <button type="submit" disabled={placeOrderMutation.isPending || verifyPaymentMutation.isPending}
+                <button type="submit" disabled={placeOrderMutation.isPending || verifyPaymentMutation.isPending || pincodeLookupLoading}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#1d1a17] py-3.5 text-sm font-medium text-white transition-all hover:bg-black disabled:opacity-60">
                   {placeOrderMutation.isPending || verifyPaymentMutation.isPending
                     ? "Processing..."
-                    : paymentMethod === "COD" ? "Place Order (Pay on Delivery)" : "Proceed to Payment"}
+                    : pincodeLookupLoading
+                      ? "Calculating delivery charge…"
+                      : paymentMethod === "COD" ? "Place Order (Pay on Delivery)" : "Proceed to Payment"}
                 </button>
               </div>
             </form>
@@ -781,7 +793,7 @@ export default function CheckoutPage() {
                 <span>Binding Charges</span><span>+{fmt(bindingTotal)}</span>
               </div>
             )}
-            {shippingSettings?.isShippingEnabled && (
+            {shippingSettings?.isShippingEnabled && delivery?.distanceKm != null && (
               deliveryCharge === 0
                 ? <div className="flex justify-between text-sm text-emerald-600"><span>Delivery</span><span>Free Delivery</span></div>
                 : !isLocalDelivery
