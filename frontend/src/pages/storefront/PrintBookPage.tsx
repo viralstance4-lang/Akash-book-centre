@@ -617,7 +617,7 @@ export default function PrintBookPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,application/pdf"
+          accept="application/pdf"
           multiple
           className="hidden"
           onChange={(e) => { handleFileAdd(e.target.files); e.target.value = ""; }}
