@@ -192,6 +192,10 @@ export default function PrintBookPage() {
   const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState<number | null>(null);
   // True while the fallback-pincode path is geocoding + previewing a delivery charge.
   const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
+  // Beyond-3km delivery charge, previewed via the real backend ShippingService
+  // logic (null while unknown/loading — see the effect below).
+  const [remoteDeliveryCharge, setRemoteDeliveryCharge] = useState<number | null>(null);
+  const [deliveryChargeLoading, setDeliveryChargeLoading] = useState(false);
 
   // ── Payment state ──────────────────────────────────────────────────────────
   const [paymentError,  setPaymentError]  = useState("");
@@ -216,6 +220,11 @@ export default function PrintBookPage() {
   // the preview byte-for-byte consistent with the real charge.
   useEffect(() => {
     const pin = pincode.trim();
+    // Clear any previously-resolved delivery estimate immediately whenever the
+    // pincode changes — a stale ₹ amount must never stay displayed/payable
+    // while the field is mid-edit or a new lookup is in flight.
+    setDelivery(null);
+    setRemoteDeliveryCharge(null);
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) return;
 
     let cancelled = false;
@@ -271,6 +280,39 @@ export default function PrintBookPage() {
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pincode]);
+
+  // Preview the beyond-3km delivery charge via the same backend ShippingService
+  // logic used at real print-order creation time (printorders.service.ts) —
+  // that call omits city/state entirely (print orders have no structured
+  // address fields), so this preview deliberately omits them too, to stay
+  // byte-for-byte consistent with what the customer will actually be charged.
+  useEffect(() => {
+    const distanceKm = delivery?.distanceKm ?? null;
+    const threshold  = shippingSettings?.freeRadius ?? 3;
+    if (!shippingSettings?.isShippingEnabled || distanceKm === null || distanceKm <= threshold) {
+      setRemoteDeliveryCharge(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDeliveryChargeLoading(true);
+
+    const totalRawPages = pdfs.reduce((s, p) => s + p.pageCount, 0);
+    const weightedPages = pdfs.reduce((s, p) => s + p.pageCount * p.copies, 0);
+    const orderValue    = pdfs.length > 0
+      ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
+      : 0;
+    // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
+    const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
+
+    previewShippingCharge({ distanceInKm: distanceKm, orderValue, weightInKg: estimatedWeightKg })
+      .then((result) => { if (!cancelled) setRemoteDeliveryCharge(result.charge); })
+      .catch(() => { if (!cancelled) setRemoteDeliveryCharge(null); })
+      .finally(() => { if (!cancelled) setDeliveryChargeLoading(false); });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delivery?.distanceKm, shippingSettings?.isShippingEnabled, shippingSettings?.freeRadius, pdfs]);
 
   const handleShareCurrentLocation = async () => {
     if (!navigator.geolocation) {
@@ -331,7 +373,8 @@ export default function PrintBookPage() {
       // Round distance UP to the next whole km before billing (2.9km & 3.0km bill as 3km; 3.2km bills as 4km)
       return Math.ceil(distance) * Number(shippingSettings.perKmCharge);
     }
-    return null; // unknown / outside range → backend decides
+    if (distance !== null) return remoteDeliveryCharge; // beyond threshold — null while the preview loads/fails
+    return null; // no location entered yet
   })();
 
   // useMutation must be declared before any conditional return (Rules of Hooks)
@@ -499,6 +542,7 @@ export default function PrintBookPage() {
     if (pdfs.length === 0)                                                    { setFileError("Please upload at least one PDF."); return; }
     if (pdfs.some((p) => p.detecting))                                        { setFileError("Please wait for all files to finish loading."); return; }
     if (pdfs.some((p) => p.pageCount === 0))                                  { setFileError("Enter the page count manually for all highlighted files."); return; }
+    if (pincodeLookupLoading || deliveryChargeLoading)                        { setFileError("Please wait — calculating your delivery charge."); return; }
     if (!name.trim())                                                          errs.name    = "Full name is required";
     if (!email.trim())                                                         errs.email   = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))                       errs.email   = "Enter a valid email address";
@@ -904,9 +948,13 @@ export default function PrintBookPage() {
               <span className="font-medium text-text-primary">
                 {deliveryCharge === 0
                   ? <span className="text-emerald-600 font-semibold">Free</span>
-                  : deliveryCharge === null
-                  ? <span className="text-text-muted italic">Enter location below</span>
-                  : `+${fmt(deliveryCharge)}`}
+                  : deliveryCharge !== null
+                  ? `+${fmt(deliveryCharge)}`
+                  : (pincodeLookupLoading || deliveryChargeLoading)
+                  ? <span className="text-text-muted italic">Calculating…</span>
+                  : delivery?.distanceKm != null
+                  ? <span className="text-amber-600 italic">Couldn't calculate — try again below</span>
+                  : <span className="text-text-muted italic">Enter location below</span>}
               </span>
             </div>
             <div className="flex justify-between border-t border-black/10 pt-2.5">
@@ -1102,14 +1150,16 @@ export default function PrintBookPage() {
 
         <button
           onClick={validateAndSubmit}
-          disabled={pdfs.length === 0 || initiateMut.isPending || !isRazorpayConfigured}
+          disabled={pdfs.length === 0 || initiateMut.isPending || !isRazorpayConfigured || pincodeLookupLoading || deliveryChargeLoading}
           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#1d1a17] py-3.5 text-sm font-medium text-white transition-all hover:bg-black disabled:opacity-50"
         >
           {initiateMut.isPending
             ? <><Loader2 size={15} className="animate-spin" /> Uploading & Preparing Payment…</>
-            : pdfs.length > 0
-              ? <><CreditCard size={15} /> Pay {fmt(pricing.total + (deliveryCharge ?? 0))} — Secure Razorpay</>
-              : "Upload PDFs to continue"}
+            : (pincodeLookupLoading || deliveryChargeLoading)
+              ? <><Loader2 size={15} className="animate-spin" /> Calculating delivery charge…</>
+              : pdfs.length > 0
+                ? <><CreditCard size={15} /> Pay {fmt(pricing.total + (deliveryCharge ?? 0))} — Secure Razorpay</>
+                : "Upload PDFs to continue"}
         </button>
 
         <p className="text-center text-xs text-text-muted">
