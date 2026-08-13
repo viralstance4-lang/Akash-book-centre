@@ -2,7 +2,7 @@ import { useState } from "react";
 import SiteLogo from "../../components/ui/SiteLogo";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 import { register } from "../../api/auth.api";
 import authBackground from "../../assets/bg-loginpage.jpg";
@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const navigate  = useNavigate();
   const location  = useLocation();
   const from      = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
@@ -107,16 +108,27 @@ export default function RegisterPage() {
                   <label htmlFor="password" className="mb-2 block text-xs uppercase tracking-widest text-text-muted">
                     Password
                   </label>
-                  <input
-                    id="password"
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3.5 text-text-primary outline-none transition-all duration-200 placeholder:text-text-muted/70 focus:-translate-y-0.5 focus:border-black/25 focus:shadow-[0_12px_30px_rgba(70,52,36,0.08)]"
-                    disabled={mutation.isPending}
-                  />
+                  <div className="relative">
+                    <input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="At least 8 characters"
+                      className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3.5 pr-12 text-text-primary outline-none transition-all duration-200 placeholder:text-text-muted/70 focus:-translate-y-0.5 focus:border-black/25 focus:shadow-[0_12px_30px_rgba(70,52,36,0.08)]"
+                      disabled={mutation.isPending}
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors hover:text-text-primary"
+                    >
+                      {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import SiteLogo from "../../components/ui/SiteLogo";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle, Eye, EyeOff, Loader2, Mail, ShieldCheck } from "lucide-react";
 
 import { login, requestOtp, resendAdminOtp, verifyAdminOtp, verifyOtp } from "../../api/auth.api";
 import authBackground from "../../assets/bg-loginpage.jpg";
@@ -58,6 +58,7 @@ export default function LoginPage() {
   // ── Password login ────────────────────────────────────────────────────────
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // ── Customer OTP ──────────────────────────────────────────────────────────
   const [otpTarget,  setOtpTarget]  = useState("");
@@ -418,11 +419,22 @@ export default function LoginPage() {
                     </div>
                     <div>
                       <label htmlFor="password" className="mb-2 block text-xs uppercase tracking-[0.24em] text-text-muted">Password</label>
-                      <input id="password" type="password" required value={password}
-                        onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password"
-                        disabled={isPending}
-                        className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3.5 text-text-primary outline-none transition-all placeholder:text-text-muted/70 focus:-translate-y-0.5 focus:border-black/25 focus:shadow-[0_12px_30px_rgba(70,52,36,0.08)]"
-                      />
+                      <div className="relative">
+                        <input id="password" type={showPassword ? "text" : "password"} required value={password}
+                          onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password"
+                          disabled={isPending}
+                          className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3.5 pr-12 text-text-primary outline-none transition-all placeholder:text-text-muted/70 focus:-translate-y-0.5 focus:border-black/25 focus:shadow-[0_12px_30px_rgba(70,52,36,0.08)]"
+                        />
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors hover:text-text-primary"
+                        >
+                          {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                        </button>
+                      </div>
                     </div>
                     <button type="submit" disabled={isPending}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-3.5 text-sm font-medium tracking-wide text-white transition-all hover:-translate-y-0.5 hover:bg-black hover:shadow-lg disabled:translate-y-0 disabled:opacity-70">
