@@ -235,54 +235,26 @@ export default function CheckoutPage() {
     [items],
   );
 
-  // Auto-calculate delivery when pincode reaches 6 digits. Reuses an
-  // already-known precise location (GPS/autocomplete) when one exists — more
-  // accurate than a pincode's area centroid, and avoids a redundant geocode
-  // call. Otherwise geocodes the pincode itself (works for any pincode in
-  // India, not just a hardcoded local table) and previews the charge through
-  // the same backend ShippingService logic used at real order-creation time,
-  // so this estimate can never drift from what the customer is actually charged.
+  // Geocodes a manually-typed pincode into coordinates — but ONLY as a
+  // fallback, when we don't already have a precise location from autocomplete
+  // or GPS. Debounced so it doesn't fire on every keystroke. This effect's
+  // only job is to resolve `preciseLocation` (and backfill city/state); the
+  // effect below is what actually computes the delivery estimate from it,
+  // regardless of how it was obtained.
   useEffect(() => {
+    if (preciseLocation) return; // already have coordinates from a better source
     const pin = form.pincode.trim();
-    // Clear any previously-resolved delivery estimate immediately whenever the
-    // pincode changes — a stale ₹ amount must never stay displayed/payable
-    // while the field is mid-edit or a new lookup is in flight.
-    setDelivery(null);
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) return;
 
     let cancelled = false;
     const timer = setTimeout(async () => {
       setPincodeLookupLoading(true);
       try {
-        let lat: number, lng: number, city: string, state: string;
-        if (preciseLocation) {
-          lat = preciseLocation.lat; lng = preciseLocation.lng;
-          city = form.city; state = form.state;
-        } else {
-          const place = await geocodePincode(pin);
-          if (cancelled) return;
-          if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
-          lat = place.lat; lng = place.lng;
-          city = place.city ?? ""; state = place.state ?? "";
-          setForm((c) => ({ ...c, city: place.city || c.city, state: place.state || c.state }));
-          setPreciseLocation({ lat, lng });
-        }
-
-        const distanceKm = haversineKm(SHOP.lat, SHOP.lng, lat, lng);
-        const result = await previewShippingCharge({
-          distanceInKm: distanceKm,
-          orderValue:   totalAmount,
-          weightInKg:   totalWeightKg,
-          city, state,
-        });
+        const place = await geocodePincode(pin);
         if (cancelled) return;
-
-        const km = Math.round(distanceKm * 10) / 10;
-        setDelivery(
-          result.type === "FREE" || result.type === "DISABLED"
-            ? { type: "FREE", distanceKm: km, label: "Free Delivery Available", sublabel: `You are ${km} km from our store` }
-            : { type: "PAID", distanceKm: km, label: "Delivery Charges May Apply", sublabel: `You are ${km} km from our store` },
-        );
+        if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
+        setForm((c) => ({ ...c, city: place.city || c.city, state: place.state || c.state }));
+        setPreciseLocation({ lat: place.lat, lng: place.lng });
       } catch {
         if (!cancelled) {
           setDelivery({
@@ -297,8 +269,59 @@ export default function CheckoutPage() {
     }, 400);
 
     return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.pincode, preciseLocation]);
+
+  // Resolves the delivery estimate directly from preciseLocation — the actual
+  // required input for distance calculation — whenever it's set, regardless
+  // of source (autocomplete selection, GPS, or the pincode geocode above).
+  // Autocomplete selections for broad localities (e.g. picking "Janakpuri,
+  // New Delhi" with no house number) often carry coordinates but no postal
+  // code component, so this must not depend on pincode ever being populated.
+  // Previews the charge through the same backend ShippingService logic used
+  // at real order-creation time, so this estimate can never drift from what
+  // the customer is actually charged.
+  useEffect(() => {
+    // Clear any previously-resolved delivery estimate immediately whenever the
+    // location changes — a stale ₹ amount must never stay displayed/payable
+    // while a new lookup is in flight.
+    setDelivery(null);
+    if (!preciseLocation) return;
+
+    let cancelled = false;
+    (async () => {
+      setPincodeLookupLoading(true);
+      try {
+        const distanceKm = haversineKm(SHOP.lat, SHOP.lng, preciseLocation.lat, preciseLocation.lng);
+        const result = await previewShippingCharge({
+          distanceInKm: distanceKm,
+          orderValue:   totalAmount,
+          weightInKg:   totalWeightKg,
+          city: form.city, state: form.state,
+        });
+        if (cancelled) return;
+
+        const km = Math.round(distanceKm * 10) / 10;
+        setDelivery(
+          result.type === "FREE" || result.type === "DISABLED"
+            ? { type: "FREE", distanceKm: km, label: "Free Delivery Available", sublabel: `You are ${km} km from our store` }
+            : { type: "PAID", distanceKm: km, label: "Delivery Charges May Apply", sublabel: `You are ${km} km from our store` },
+        );
+      } catch {
+        if (!cancelled) {
+          setDelivery({
+            type: "UNKNOWN", distanceKm: null,
+            label: "Delivery availability unknown",
+            sublabel: "We couldn't calculate delivery for this location — please try again, or contact us to check.",
+          });
+        }
+      } finally {
+        if (!cancelled) setPincodeLookupLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.pincode]);
+  }, [preciseLocation]);
 
   // Zone rate from public config
   const zoneRate = useMemo(() => {
