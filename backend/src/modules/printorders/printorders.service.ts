@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import prisma from "../../lib/prisma";
-import { uploadImage, deleteImage } from "../../lib/cloudinary";
+import { deleteImage } from "../../lib/cloudinary";
+import { uploadFile, deleteFile } from "../../lib/s3";
 import AppError from "../../lib/AppError";
 import razorpay from "../../config/razorpay";
 import env from "../../config/env";
@@ -19,6 +20,18 @@ import {
   type CreatePrintOrderInput,
   type PricingSettings,
 } from "./printorders.schema";
+
+/**
+ * Deletes a stored print-order file from whichever provider it actually lives
+ * on. Shared by this module's own delete/cleanup paths and by
+ * users.service.ts's account-deletion cleanup, so both stay in sync as new
+ * files start landing on S3 instead of Cloudinary.
+ */
+export const deleteStoredFile = async (storageProvider: string, publicId: string): Promise<void> => {
+  if (!publicId) return;
+  if (storageProvider === "S3") await deleteFile(publicId);
+  else await deleteImage(publicId);
+};
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -183,17 +196,18 @@ export const createPrintOrder = async (
   console.log(`[PRINT PRICING] Grand total    : ₹${totalPrice}`);
   console.log("[PRINT PRICING] ─────────────────────────────────────────");
 
-  // ── Upload all PDFs to Cloudinary ────────────────────────────────────────
+  // ── Upload all PDFs to S3 (product images stay on Cloudinary — see s3.ts) ──
   const uploadedFiles = await Promise.all(
     files.map((file, idx) =>
-      uploadImage(file, "print-orders").then((r) => ({
-        fileUrl:      r.url,
-        filePublicId: r.publicId,
-        originalName: fileNames[idx] ?? file.originalname,
-        fileSize:     fileSizes[idx]  ?? `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-        pageCount:    filePageCounts[idx] ?? 1,
-        copies:       fileCopies[idx]     ?? 1,
-        order:        idx,
+      uploadFile(file, "print-orders").then((r) => ({
+        fileUrl:         r.url,
+        filePublicId:    r.publicId,
+        storageProvider: "S3",
+        originalName:    fileNames[idx] ?? file.originalname,
+        fileSize:        fileSizes[idx]  ?? `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        pageCount:       filePageCounts[idx] ?? 1,
+        copies:          fileCopies[idx]     ?? 1,
+        order:           idx,
       })),
     ),
   );
@@ -235,8 +249,8 @@ export const createPrintOrder = async (
       receipt:  `print_${Date.now()}`,
     });
   } catch (err: any) {
-    // Clean up uploaded Cloudinary files so we don't leak assets
-    await Promise.allSettled(uploadedFiles.map((f) => deleteImage(f.filePublicId)));
+    // Clean up just-uploaded S3 files so we don't leak assets
+    await Promise.allSettled(uploadedFiles.map((f) => deleteFile(f.filePublicId)));
     throw new AppError(
       "Payment gateway is unavailable. Please try again.",
       502,
@@ -250,6 +264,7 @@ export const createPrintOrder = async (
       userId,
       fileUrl:          uploadedFiles[0]?.fileUrl      ?? "",
       filePublicId:     uploadedFiles[0]?.filePublicId ?? "",
+      storageProvider:  "S3",
       colorType:        data.colorType,
       printSide:        data.printSide,
       orientation:      data.orientation,
@@ -469,11 +484,11 @@ export const deletePrintOrder = async (id: string) => {
   });
   if (!order) throw new AppError("Print order not found", 404, "NOT_FOUND");
 
-  const cloudinaryDeletes = [
-    order.filePublicId ? deleteImage(order.filePublicId) : Promise.resolve(),
-    ...order.files.map((f) => (f.filePublicId ? deleteImage(f.filePublicId) : Promise.resolve())),
+  const storageDeletes = [
+    deleteStoredFile(order.storageProvider, order.filePublicId),
+    ...order.files.map((f) => deleteStoredFile(f.storageProvider, f.filePublicId)),
   ];
-  await Promise.allSettled(cloudinaryDeletes);
+  await Promise.allSettled(storageDeletes);
   await prisma.printOrder.delete({ where: { id } });
 };
 

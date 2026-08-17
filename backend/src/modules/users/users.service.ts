@@ -1,5 +1,6 @@
 import prisma from "../../lib/prisma";
 import AppError from "../../lib/AppError";
+import { deleteStoredFile } from "../printorders/printorders.service";
 
 export const getUsers = async (page: number, limit: number, search?: string) => {
   const where = search
@@ -140,10 +141,29 @@ export const deleteUser = async (id: string, requestingAdminId: string) => {
     );
   }
 
+  // Fetch print-order files before deleting the DB rows so we know what to
+  // clean up from storage — deleteMany doesn't return the rows it removed.
+  const printOrders = await prisma.printOrder.findMany({
+    where:   { userId: id },
+    include: { files: true },
+  });
+
   await prisma.$transaction(async (tx) => {
     await tx.refreshToken.deleteMany({ where: { userId: id } });
     await tx.otpCode.deleteMany({ where: { userId: id } });
     await tx.printOrder.deleteMany({ where: { userId: id } });
     await tx.user.delete({ where: { id } });
   });
+
+  // Best-effort storage cleanup after the transaction commits — the account
+  // deletion itself must not fail or hang because Cloudinary/S3 is slow or
+  // unreachable. Previously this step was missing entirely, silently
+  // orphaning every deleted user's print-order PDFs on Cloudinary; now that
+  // new uploads go to S3 (a paid, per-byte service), leaving orphans behind
+  // indefinitely is a real ongoing cost, not just clutter.
+  const storageDeletes = printOrders.flatMap((order) => [
+    deleteStoredFile(order.storageProvider, order.filePublicId),
+    ...order.files.map((f) => deleteStoredFile(f.storageProvider, f.filePublicId)),
+  ]);
+  await Promise.allSettled(storageDeletes);
 };

@@ -1,16 +1,19 @@
 import { type RequestHandler } from "express";
 import prisma from "../../lib/prisma";
 import AppError from "../../lib/AppError";
+import { getFile } from "../../lib/s3";
 
 type Disposition = "inline" | "attachment";
 
 /**
- * Fetches a PrintFile from Cloudinary (using the stored URL) and pipes it
- * to the client with proper Content-Type and Content-Disposition headers.
+ * Fetches a PrintFile's bytes — from S3 (authenticated GetObjectCommand, the
+ * bucket is private) or from Cloudinary (legacy pre-migration orders, plain
+ * fetch of the stored URL) depending on storageProvider — and pipes it to the
+ * client with proper Content-Type and Content-Disposition headers.
  *
  * The Cloudinary raw/image URL alone often serves the file as
  * application/octet-stream (no extension), causing browsers to download
- * it as ".file". By proxying here we can force application/pdf.
+ * it as ".file". By proxying here we can force application/pdf either way.
  */
 const serveFile = async (
   fileId: string,
@@ -34,13 +37,17 @@ const serveFile = async (
       throw new AppError("Forbidden", 403, "FORBIDDEN");
     }
 
-    // Fetch the file from Cloudinary — follow redirects, buffer whole body
-    const cloudRes = await fetch(file.fileUrl, { redirect: "follow" });
-    if (!cloudRes.ok) {
-      throw new AppError("Could not retrieve file from storage", 502, "FETCH_FAILED");
+    // Fetch the file's bytes from wherever it actually lives
+    let buffer: Buffer;
+    if (file.storageProvider === "S3") {
+      buffer = await getFile(file.filePublicId);
+    } else {
+      const cloudRes = await fetch(file.fileUrl, { redirect: "follow" });
+      if (!cloudRes.ok) {
+        throw new AppError("Could not retrieve file from storage", 502, "FETCH_FAILED");
+      }
+      buffer = Buffer.from(await cloudRes.arrayBuffer());
     }
-
-    const buffer = Buffer.from(await cloudRes.arrayBuffer());
 
     // Sanitize filename: ensure .pdf extension
     const rawName   = file.originalName.trim() || "document";

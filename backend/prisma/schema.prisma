@@ -377,6 +377,10 @@ model PrintFile {
   printOrderId String     @db.Uuid
   fileUrl      String
   filePublicId String
+  /// Where this file actually lives — CLOUDINARY (legacy, pre-S3-migration) or S3.
+  /// Existing rows default to CLOUDINARY since that's where they were uploaded;
+  /// new uploads are written with S3 explicitly.
+  storageProvider String  @default("CLOUDINARY")
   originalName String     @db.VarChar(255)
   fileSize     String     @default("") @db.VarChar(100)
   pageCount    Int        @default(0)
@@ -394,6 +398,8 @@ model PrintOrder {
   /// Legacy single-file URL (kept for backward compat)
   fileUrl       String        @default("")
   filePublicId  String        @default("")
+  /// Where the legacy fileUrl/filePublicId above actually live — CLOUDINARY or S3.
+  storageProvider String      @default("CLOUDINARY")
   colorType     String
   printSide     String
   orientation   String
