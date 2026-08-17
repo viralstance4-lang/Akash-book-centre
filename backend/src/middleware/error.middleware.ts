@@ -46,10 +46,14 @@ const errorMiddleware: ErrorRequestHandler = (err, req, res, _next) => {
 
   // ── Multer file-upload errors ─────────────────────────────────────────────────
   if (err instanceof multer.MulterError) {
+    // Only printorders.routes.ts sets a fileSize limit (70MB) today — every
+    // other multer() upload in this app is unlimited, so this message only
+    // fires from print-order uploads. Keep this number in sync with that
+    // route's `limits.fileSize` if it ever changes.
     res.status(400).json({
       success: false,
       message: err.code === "LIMIT_FILE_SIZE"
-        ? "File too large. Maximum 50 MB per file."
+        ? "File too large. Maximum 70 MB per file."
         : err.message,
       code: err.code,
     });
