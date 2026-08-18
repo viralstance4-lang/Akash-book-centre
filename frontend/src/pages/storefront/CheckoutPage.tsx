@@ -828,7 +828,7 @@ export default function CheckoutPage() {
                         </div>
                       )}
                       <div className="flex justify-between text-sm text-amber-600">
-                        <span>Weight Charge <span className="text-xs font-normal text-text-muted">({totalWeightKg} kg × ₹{zoneRate}/kg)</span></span>
+                        <span>Shipping Charge <span className="text-xs font-normal text-text-muted">({totalWeightKg} kg × ₹{zoneRate}/kg)</span></span>
                         <span>+{fmt(weightCharge)}</span>
                       </div>
                     </>
