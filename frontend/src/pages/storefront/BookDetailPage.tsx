@@ -7,6 +7,9 @@ import { getBook, getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
 import { createReview, getBookReviews } from "../../api/reviews.api";
 import { getSettings } from "../../api/settings.api";
+import { previewShippingCharge } from "../../api/shipping.api";
+import { geocodePincode } from "../../components/checkout/AddressAutocomplete";
+import { SHOP, haversineKm } from "../../utils/deliveryUtils";
 import { useAuthStore } from "../../store/auth.store";
 import BookCard from "../../components/ui/BookCard";
 import type { ApiErrorResponse } from "../../types";
@@ -32,6 +35,7 @@ export default function BookDetailPage() {
 
   const [pincode, setPincode] = useState("");
   const [pincodeMsg, setPincodeMsg] = useState("");
+  const [pincodeChecking, setPincodeChecking] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "reviews">("details");
   const [qty, setQty] = useState(1);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -125,9 +129,33 @@ export default function BookDetailPage() {
     } catch { /* error shown via addToCartMutation.error */ }
   };
 
-  const checkPincode = () => {
-    if (pincode.length !== 6) { setPincodeMsg("Please enter a valid 6-digit pincode"); return; }
-    setPincodeMsg(`✅ Delivery available to ${pincode} in 3-5 business days`);
+  const checkPincode = async () => {
+    if (!/^[1-9]\d{5}$/.test(pincode)) { setPincodeMsg("Please enter a valid 6-digit pincode"); return; }
+    setPincodeChecking(true);
+    setPincodeMsg("");
+    try {
+      const place = await geocodePincode(pincode);
+      if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
+      const distanceKm = haversineKm(SHOP.lat, SHOP.lng, place.lat, place.lng);
+      const weightKg = Math.max(1, Number((book as any)?.weight) || 1);
+      const result = await previewShippingCharge({
+        distanceInKm: distanceKm,
+        orderValue: effectivePrice * qty,
+        weightInKg: weightKg,
+        city: place.city,
+        state: place.state,
+      });
+      const km = Math.round(distanceKm * 10) / 10;
+      setPincodeMsg(
+        result.charge > 0
+          ? `✅ Deliverable to ${pincode} (${km} km away) — ₹${result.charge} delivery charge, Cash on Delivery available.`
+          : `✅ Free delivery to ${pincode} (${km} km away) — Cash on Delivery available.`,
+      );
+    } catch {
+      setPincodeMsg("❌ We couldn't verify delivery for this pincode. Please check it or contact us.");
+    } finally {
+      setPincodeChecking(false);
+    }
   };
 
   if (isLoading) {
@@ -404,9 +432,9 @@ export default function BookDetailPage() {
               <input type="text" value={pincode} onChange={(e) => { setPincode(e.target.value.replace(/\D/g, "").slice(0, 6)); setPincodeMsg(""); }}
                 placeholder="Enter 6-digit pincode"
                 className="flex-1 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/20" />
-              <button type="button" onClick={checkPincode}
-                className="rounded-xl bg-[#1d1a17] px-4 py-2.5 text-sm font-medium text-white hover:bg-black transition-colors">
-                Check
+              <button type="button" onClick={checkPincode} disabled={pincodeChecking}
+                className="rounded-xl bg-[#1d1a17] px-4 py-2.5 text-sm font-medium text-white hover:bg-black transition-colors disabled:opacity-55">
+                {pincodeChecking ? "Checking..." : "Check"}
               </button>
             </div>
             {pincodeMsg && <p className="mt-2 text-xs text-text-muted">{pincodeMsg}</p>}

@@ -216,9 +216,19 @@ export const placeOrder = async (
       if (couponUpdate.count === 0) {
         throw new AppError("Coupon usage limit reached", 400, "COUPON_LIMIT_REACHED");
       }
-      await tx.couponUse.create({
-        data: { couponId: appliedCoupon.id, userId, orderId: order.id },
-      });
+      // Unique([couponId, userId]) constraint is the real guard against a
+      // concurrent double-submit both passing the earlier alreadyUsed check;
+      // this catches that race instead of letting the same coupon apply twice.
+      try {
+        await tx.couponUse.create({
+          data: { couponId: appliedCoupon.id, userId, orderId: order.id },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          throw new AppError("You have already used this coupon", 400, "COUPON_ALREADY_USED");
+        }
+        throw err;
+      }
     }
 
     // For COD orders the payment is final at this point — clear cart immediately.

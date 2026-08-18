@@ -327,6 +327,7 @@ model CouponUse {
   orderId   String   @db.Uuid
   createdAt DateTime @default(now())
   coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  @@unique([couponId, userId])
   @@index([couponId])
   @@index([userId])
 }
