@@ -96,7 +96,6 @@ export async function createShipment(orderId: string) {
     order_date:                order.createdAt.toISOString().split("T")[0],
     consignee_name:            addr.name,
     consignee_phone:           Number(addr.phone.replace(/\D/g, "").slice(-10)),
-    consignee_alternate_phone: Number(addr.phone.replace(/\D/g, "").slice(-10)),
     consignee_email:           order.customerEmail ?? "",
     consignee_address_line_one: addr.line1,
     consignee_address_line_two: addr.line2 ?? "",

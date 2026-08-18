@@ -411,6 +411,7 @@ export default function AdminBooksPage() {
   const [form,         setForm]         = useState<BookFormState>(initialForm);
   const [formError,    setFormError]    = useState("");
   const [managingImagesBook, setManagingImagesBook] = useState<Book | null>(null);
+  const { toast, showToast } = useToast();
 
   const { data: booksData, isLoading } = useQuery({
     queryKey: ["admin-books", search, filterCatId],
@@ -454,7 +455,12 @@ export default function AdminBooksPage() {
     },
     onError: (error) => {
       const apiError = error as AxiosError<ApiErrorResponse>;
-      setFormError(apiError.response?.data?.message ?? (error as Error).message ?? "Unable to save.");
+      const message = apiError.response?.data?.message ?? (error as Error).message ?? "Unable to save.";
+      setFormError(message);
+      // The form panel is independently scrollable and the admin is usually
+      // scrolled down near the submit button when this fires, so the inline
+      // error above can end up off-screen — a toast guarantees it's seen.
+      showToast(false, message);
     },
   });
 
@@ -504,6 +510,8 @@ export default function AdminBooksPage() {
 
   return (
     <>
+      <ToastViewport toast={toast} />
+
       {managingImagesBook && (
         <ImageManager
           bookId={managingImagesBook.id}
