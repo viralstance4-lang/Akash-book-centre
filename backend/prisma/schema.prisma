@@ -209,7 +209,9 @@ model Order {
   paymentMethod    PaymentMethod @default(ONLINE)
   customerEmail    String?
   deliveryType     String?       @default("PAID")
-  deliveryDistance Decimal?      @db.Decimal(5, 2)
+  /// Precision covers up to ~99999.99km — comfortably beyond India's ~3000km span
+  /// (previously Decimal(5,2), max 999.99, which overflowed for any order >~1000km away)
+  deliveryDistance Decimal?      @db.Decimal(7, 2)
   customerLatitude  Float?
   customerLongitude Float?
   /// How deliveryDistance was computed: GOOGLE_DISTANCE_MATRIX | HAVERSINE | UNAVAILABLE
@@ -424,7 +426,9 @@ model PrintOrder {
   customerAddress String?
   deliveryCharge   Decimal   @default(0) @db.Decimal(10, 2)
   deliveryType     String?   @default("PAID")
-  deliveryDistance Decimal?  @db.Decimal(5, 2)
+  /// Precision covers up to ~99999.99km — comfortably beyond India's ~3000km span
+  /// (previously Decimal(5,2), max 999.99, which overflowed for any order >~1000km away)
+  deliveryDistance Decimal?  @db.Decimal(7, 2)
   customerLatitude  Float?
   customerLongitude Float?
   /// How deliveryDistance was computed: GOOGLE_DISTANCE_MATRIX | HAVERSINE | UNAVAILABLE

@@ -25,6 +25,7 @@ export const calculateShippingSchema = z.object({
   weightInKg:   z.number().min(0, "Weight cannot be negative").max(10_000),
   state:        z.string().trim().optional(),
   city:         z.string().trim().optional(),
+  pincode:      z.string().trim().optional(),
   isPrintOrder: z.boolean().optional(),
 });
 

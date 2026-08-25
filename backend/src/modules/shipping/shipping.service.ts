@@ -17,6 +17,28 @@ const NORTH_EAST_STATES = new Set([
   "meghalaya", "mizoram", "nagaland", "tripura", "sikkim",
 ]);
 
+/**
+ * Pincode-based zone fallback — used when city/state text matching can't
+ * resolve a zone (e.g. Google reverse-geocoding a remote/rural coordinate
+ * returns only a Plus Code with no administrative_area_level_1 component).
+ * Indian PIN codes are geographically assigned, so the first 3 digits
+ * reliably identify the postal region regardless of what address text (if
+ * any) came back.
+ */
+const DELHI_NCR_PINCODE_PREFIXES = new Set([
+  "110", // Delhi (all Delhi PINs start 110)
+  "121", // Faridabad
+  "122", // Gurugram / Gurgaon
+  "201", // Ghaziabad, Noida, Greater Noida
+]);
+
+/** Assam, Arunachal Pradesh, Meghalaya, Manipur, Mizoram, Nagaland, Tripura all fall in the 780–799 range. */
+function isNorthEastPincodePrefix(prefix3: string): boolean {
+  if (prefix3 === "737") return true; // Sikkim — numerically under the West Bengal postal circle, geographically North East
+  const n = Number(prefix3);
+  return n >= 780 && n <= 799;
+}
+
 export type ShippingZone = "LOCAL_DELHI_NCR" | "NORTH_EAST" | "ALL_INDIA";
 
 export const ZONE_LABELS: Record<ShippingZone, string> = {
@@ -47,6 +69,8 @@ export interface ShippingInput {
   weightInKg:   number;
   state?:       string;
   city?:        string;  // used for Delhi NCR zone detection
+  /** Fallback zone signal, used when city/state can't be resolved (e.g. a remote-coordinate reverse-geocode with no administrative_area component). */
+  pincode?:     string;
   /**
    * Print orders bill weight in whole-kg slabs (ceil), unlike regular book
    * orders which bill exact fractional weight. Only affects the WEIGHT_BASED
@@ -108,17 +132,20 @@ const DEFAULT_SETTINGS = {
 
 export class ShippingService {
   /**
-   * Detect shipping zone from city/state strings.
+   * Detect shipping zone from city/state strings, falling back to pincode
+   * prefix when city/state don't resolve a zone (see DELHI_NCR_PINCODE_PREFIXES
+   * / isNorthEastPincodePrefix above).
    * Priority order: Delhi NCR → North East → All India
    */
-  static detectZone(city?: string, state?: string): ShippingZone {
-    const c = (city  ?? "").toLowerCase().trim();
-    const s = (state ?? "").toLowerCase().trim();
+  static detectZone(city?: string, state?: string, pincode?: string): ShippingZone {
+    const c  = (city    ?? "").toLowerCase().trim();
+    const s  = (state   ?? "").toLowerCase().trim();
+    const p3 = (pincode ?? "").trim().slice(0, 3);
 
-    if (DELHI_NCR_AREAS.has(c) || s === "delhi" || s === "new delhi" || s === "delhi ncr") {
+    if (DELHI_NCR_AREAS.has(c) || s === "delhi" || s === "new delhi" || s === "delhi ncr" || DELHI_NCR_PINCODE_PREFIXES.has(p3)) {
       return "LOCAL_DELHI_NCR";
     }
-    if (NORTH_EAST_STATES.has(s)) {
+    if (NORTH_EAST_STATES.has(s) || (p3.length === 3 && isNorthEastPincodePrefix(p3))) {
       return "NORTH_EAST";
     }
     return "ALL_INDIA";
@@ -141,7 +168,7 @@ export class ShippingService {
    */
   static calculateShipping(raw: ShippingInput, config: ShippingConfig): ShippingResult {
     const input = ShippingService.sanitize(raw);
-    const { distanceInKm, orderValue, weightInKg, city, state, isPrintOrder } = input;
+    const { distanceInKm, orderValue, weightInKg, city, state, pincode, isPrintOrder } = input;
 
     if (!config.isShippingEnabled) {
       return { charge: 0, type: "DISABLED", breakdown: {} };
@@ -171,7 +198,7 @@ export class ShippingService {
     }
 
     // ── Step 2: Beyond the radius → zone-based weight + area pricing ─────────
-    const zone      = ShippingService.detectZone(city, state);
+    const zone      = ShippingService.detectZone(city, state, pincode);
     const zoneLabel = ZONE_LABELS[zone];
 
     let rate:         number;
@@ -279,8 +306,9 @@ export class ShippingService {
       distanceInKm: Math.max(0, input.distanceInKm),
       orderValue:   Math.max(0, input.orderValue),
       weightInKg:   Math.max(1, input.weightInKg), // minimum billable weight: 1 kg
-      state:        input.state?.trim() ?? "",
-      city:         input.city?.trim()  ?? "",
+      state:        input.state?.trim()   ?? "",
+      city:         input.city?.trim()    ?? "",
+      pincode:      input.pincode?.trim() ?? "",
       isPrintOrder: input.isPrintOrder === true,
     };
   }

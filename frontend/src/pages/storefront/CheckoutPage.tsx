@@ -296,7 +296,7 @@ export default function CheckoutPage() {
           distanceInKm: distanceKm,
           orderValue:   totalAmount,
           weightInKg:   totalWeightKg,
-          city: form.city, state: form.state,
+          city: form.city, state: form.state, pincode: form.pincode,
         });
         if (cancelled) return;
 

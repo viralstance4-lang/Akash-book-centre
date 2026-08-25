@@ -92,6 +92,7 @@ export const placeOrder = async (
     weightInKg:   shippingWeightKg,
     city:         shippingAddress.city,
     state:        shippingAddress.state,
+    pincode:      shippingAddress.pincode,
   });
   const deliveryCharge         = new Prisma.Decimal(deliveryResult.charge);
   const calculatedDeliveryType = deliveryResult.type === "FREE" ? "FREE" : "PAID";

@@ -286,6 +286,7 @@ export default function PrintBookPage() {
           weightInKg:   estimatedWeightKg,
           city:         customerCity,
           state:        customerState,
+          pincode,
           isPrintOrder: true,
         });
         if (cancelled) return;
@@ -348,6 +349,7 @@ export default function PrintBookPage() {
       weightInKg: estimatedWeightKg,
       city: customerCity,
       state: customerState,
+      pincode,
       isPrintOrder: true,
     })
       .then((result) => { if (!cancelled) setRemoteDeliveryCharge(result.charge); })
@@ -621,6 +623,7 @@ export default function PrintBookPage() {
     fd.append("customerAddress",  [address.trim(), completeAddress.trim()].filter(Boolean).join(", "));
     if (customerCity.trim())  fd.append("customerCity",  customerCity.trim());
     if (customerState.trim()) fd.append("customerState", customerState.trim());
+    if (pincode.trim())       fd.append("customerPincode", pincode.trim());
     if (delivery?.distanceKm != null) fd.append("deliveryDistance", String(delivery.distanceKm));
     if (preciseLocation) {
       fd.append("customerLatitude",  String(preciseLocation.lat));

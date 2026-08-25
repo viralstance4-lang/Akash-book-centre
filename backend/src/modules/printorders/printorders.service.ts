@@ -235,6 +235,7 @@ export const createPrintOrder = async (
     weightInKg:   estimatedWeightKg,
     city:         data.customerCity,
     state:        data.customerState,
+    pincode:      data.customerPincode,
     isPrintOrder: true,
   });
   const deliveryCharge = deliveryResult.charge;

@@ -144,6 +144,7 @@ export default function BookDetailPage() {
         weightInKg: weightKg,
         city: place.city,
         state: place.state,
+        pincode,
       });
       const km = Math.round(distanceKm * 10) / 10;
       setPincodeMsg(

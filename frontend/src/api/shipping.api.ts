@@ -112,6 +112,7 @@ export const testShippingCalculation = async (input: {
   weightInKg:   number;
   state?:       string;
   city?:        string;
+  pincode?:     string;
 }): Promise<ShippingResult> => {
   const r = await api.post<ShippingResult>("/admin/shipping/calculate", input);
   return r.data;
@@ -129,6 +130,7 @@ export const previewShippingCharge = async (input: {
   weightInKg:   number;
   state?:       string;
   city?:        string;
+  pincode?:     string;
   /** Print orders bill weight in whole-kg slabs — see printorders.service.ts. */
   isPrintOrder?: boolean;
 }): Promise<ShippingResult> => {
