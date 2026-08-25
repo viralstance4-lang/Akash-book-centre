@@ -233,6 +233,7 @@ export const createPrintOrder = async (
     distanceInKm: deliveryDistance ?? 99_999,
     orderValue:   totalPrice,
     weightInKg:   estimatedWeightKg,
+    isPrintOrder: true,
   });
   const deliveryCharge = deliveryResult.charge;
   const deliveryType   = deliveryResult.type === "FREE" ? "FREE" : "PAID";

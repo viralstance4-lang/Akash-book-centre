@@ -81,15 +81,16 @@ export interface ShippingResult {
   type:          "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
   zone?:         string;
   breakdown: {
-    distance?:     number;
-    orderValue?:   number;
-    rate?:         number;
-    weight?:       number;
-    areaCharge?:   number;
-    weightCharge?: number;
-    usedFallback?: boolean;
-    matchedState?: string;
-    zone?:         string;
+    distance?:         number;
+    orderValue?:       number;
+    rate?:             number;
+    weight?:           number;
+    chargeableWeight?: number;
+    areaCharge?:       number;
+    weightCharge?:     number;
+    usedFallback?:     boolean;
+    matchedState?:     string;
+    zone?:             string;
   };
 }
 
@@ -128,6 +129,8 @@ export const previewShippingCharge = async (input: {
   weightInKg:   number;
   state?:       string;
   city?:        string;
+  /** Print orders bill weight in whole-kg slabs — see printorders.service.ts. */
+  isPrintOrder?: boolean;
 }): Promise<ShippingResult> => {
   const r = await api.post<ShippingResult>("/shipping/calculate", input);
   return r.data;

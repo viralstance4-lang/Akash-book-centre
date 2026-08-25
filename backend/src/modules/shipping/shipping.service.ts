@@ -47,6 +47,12 @@ export interface ShippingInput {
   weightInKg:   number;
   state?:       string;
   city?:        string;  // used for Delhi NCR zone detection
+  /**
+   * Print orders bill weight in whole-kg slabs (ceil), unlike regular book
+   * orders which bill exact fractional weight. Only affects the WEIGHT_BASED
+   * (beyond-threshold) path — distance-based/free delivery is unaffected.
+   */
+  isPrintOrder?: boolean;
 }
 
 export type ShippingType = "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
@@ -58,15 +64,16 @@ export interface ShippingResult {
   type:        ShippingType;
   zone?:       string;    // human-readable zone name for display
   breakdown: {
-    distance?:       number;
-    orderValue?:     number;
-    rate?:           number;
-    weight?:         number;
-    areaCharge?:     number;
-    weightCharge?:   number;
-    usedFallback?:   boolean;
-    matchedState?:   string;
-    zone?:           string;
+    distance?:         number;
+    orderValue?:       number;
+    rate?:             number;
+    weight?:           number;
+    chargeableWeight?: number;  // print orders only — weight after ceiling to whole kg
+    areaCharge?:       number;
+    weightCharge?:     number;
+    usedFallback?:     boolean;
+    matchedState?:     string;
+    zone?:             string;
   };
 }
 
@@ -134,7 +141,7 @@ export class ShippingService {
    */
   static calculateShipping(raw: ShippingInput, config: ShippingConfig): ShippingResult {
     const input = ShippingService.sanitize(raw);
-    const { distanceInKm, orderValue, weightInKg, city, state } = input;
+    const { distanceInKm, orderValue, weightInKg, city, state, isPrintOrder } = input;
 
     if (!config.isShippingEnabled) {
       return { charge: 0, type: "DISABLED", breakdown: {} };
@@ -191,7 +198,10 @@ export class ShippingService {
       matchedState = matched?.state;
     }
 
-    const weightCharge = Math.round(weightInKg * rate);
+    // Print orders bill in whole-kg slabs: 1g–1000g → 1kg, 1001g–2000g → 2kg, etc.
+    // Regular book orders keep billing exact fractional weight, unchanged.
+    const chargeableWeightKg = isPrintOrder ? Math.ceil(weightInKg) : weightInKg;
+    const weightCharge = Math.round(chargeableWeightKg * rate);
     const charge       = areaCharge + weightCharge;
 
     return {
@@ -201,13 +211,14 @@ export class ShippingService {
       type:      "WEIGHT_BASED",
       zone:      matchedState ?? zoneLabel,
       breakdown: {
-        weight:       weightInKg,
+        weight:           weightInKg,
+        chargeableWeight: isPrintOrder ? chargeableWeightKg : undefined,
         rate,
         areaCharge,
         weightCharge,
         usedFallback,
         matchedState,
-        zone:         zoneLabel,
+        zone:             zoneLabel,
       },
     };
   }
@@ -270,6 +281,7 @@ export class ShippingService {
       weightInKg:   Math.max(1, input.weightInKg), // minimum billable weight: 1 kg
       state:        input.state?.trim() ?? "",
       city:         input.city?.trim()  ?? "",
+      isPrintOrder: input.isPrintOrder === true,
     };
   }
 

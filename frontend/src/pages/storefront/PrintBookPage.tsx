@@ -279,6 +279,7 @@ export default function PrintBookPage() {
           distanceInKm: distanceKm,
           orderValue,
           weightInKg:   estimatedWeightKg,
+          isPrintOrder: true,
         });
         if (cancelled) return;
 
@@ -335,7 +336,7 @@ export default function PrintBookPage() {
     // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
     const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
 
-    previewShippingCharge({ distanceInKm: distanceKm, orderValue, weightInKg: estimatedWeightKg })
+    previewShippingCharge({ distanceInKm: distanceKm, orderValue, weightInKg: estimatedWeightKg, isPrintOrder: true })
       .then((result) => { if (!cancelled) setRemoteDeliveryCharge(result.charge); })
       .catch(() => { if (!cancelled) setRemoteDeliveryCharge(null); })
       .finally(() => { if (!cancelled) setDeliveryChargeLoading(false); });
