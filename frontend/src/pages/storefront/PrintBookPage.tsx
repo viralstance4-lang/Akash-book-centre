@@ -98,6 +98,25 @@ function getPricePerPage(totalRawPages: number, side: PrintSide, color: ColorTyp
   return totalRawPages < 20 ? s.colorBothSideUnder20 : s.colorBothSideAbove20;
 }
 
+/**
+ * B&W double-side prints 2 pages per physical sheet, so the billable quantity
+ * is ~half the page count — computed per file (ceil) before multiplying by
+ * copies, since each copy needs its own whole last sheet and can't share a
+ * partial sheet with another copy (e.g. 101 pages × 4 copies bills
+ * 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202). Every other
+ * combination bills the full page count, unchanged. Tier selection
+ * (getPricePerPage) always stays on the true page count regardless — only
+ * the quantity charged at that rate is halved here.
+ */
+function calcBillablePages(filePageCounts: number[], fileCopies: number[], side: PrintSide, color: ColorType): number {
+  const isBwDouble = color === "bw" && side === "both";
+  return filePageCounts.reduce((sum, pc, i) => {
+    const copies   = fileCopies[i] ?? 1;
+    const billable = isBwDouble ? Math.ceil(pc / 2) : pc;
+    return sum + billable * copies;
+  }, 0);
+}
+
 function calcPrice(
   totalRawPages: number,
   filePageCounts: number[],
@@ -108,14 +127,14 @@ function calcPrice(
   s: PricingSettings,
 ) {
   const ppp           = getPricePerPage(totalRawPages, side, color, s);
-  const weightedPages = filePageCounts.reduce((sum, pc, i) => sum + pc * (fileCopies[i] ?? 1), 0);
+  const billablePages = calcBillablePages(filePageCounts, fileCopies, side, color);
   const totalCopies   = fileCopies.reduce((acc, c) => acc + c, 0);
-  const printCost     = ppp * weightedPages;
+  const printCost     = ppp * billablePages;
   const bindingCost   = (binding === "spiral" ? s.spiralExtra : s.staplerExtra) * totalCopies;
-  return { ppp, printCost, bindingCost, weightedPages, totalCopies, total: Math.max(0, Math.round((printCost + bindingCost) * 100) / 100) };
+  return { ppp, printCost, bindingCost, billablePages, totalCopies, total: Math.max(0, Math.round((printCost + bindingCost) * 100) / 100) };
 }
 
-const estimateMins = (weightedPages: number) => Math.max(1, Math.ceil(weightedPages / 60));
+const estimateMins = (billablePages: number) => Math.max(1, Math.ceil(billablePages / 60));
 
 const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID as string | undefined;
 const isRazorpayConfigured = Boolean(razorpayKeyId && razorpayKeyId !== "your_razorpay_key_id" && razorpayKeyId?.startsWith("rzp_"));
@@ -273,12 +292,12 @@ export default function PrintBookPage() {
       try {
         const distanceKm     = haversineKm(SHOP.lat, SHOP.lng, preciseLocation.lat, preciseLocation.lng);
         const totalRawPages  = pdfs.reduce((sum, p) => sum + p.pageCount, 0);
-        const weightedPages  = pdfs.reduce((sum, p) => sum + p.pageCount * p.copies, 0);
+        const billablePages  = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType);
         const orderValue     = pdfs.length > 0
           ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
           : 0;
         // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
-        const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
+        const estimatedWeightKg = Math.max(1, billablePages * 0.005 + 0.15);
 
         const result = await previewShippingCharge({
           distanceInKm: distanceKm,
@@ -336,12 +355,12 @@ export default function PrintBookPage() {
     setDeliveryChargeLoading(true);
 
     const totalRawPages = pdfs.reduce((s, p) => s + p.pageCount, 0);
-    const weightedPages = pdfs.reduce((s, p) => s + p.pageCount * p.copies, 0);
+    const billablePages = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType);
     const orderValue    = pdfs.length > 0
       ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
       : 0;
     // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
-    const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
+    const estimatedWeightKg = Math.max(1, billablePages * 0.005 + 0.15);
 
     previewShippingCharge({
       distanceInKm: distanceKm,
@@ -454,7 +473,7 @@ export default function PrintBookPage() {
   const filePageCounts = pdfs.map((p) => p.pageCount);
   const fileCopies     = pdfs.map((p) => p.copies);
   const pricing        = calcPrice(totalRawPages, filePageCounts, fileCopies, printSide, colorType, bindingType, S);
-  const estimatedMins  = estimateMins(pricing.weightedPages);
+  const estimatedMins  = estimateMins(pricing.billablePages);
 
   // ── File handling ──────────────────────────────────────────────────────────
   const handleFileAdd = (incoming: FileList | null) => {
@@ -990,7 +1009,7 @@ export default function PrintBookPage() {
 
           <div className="rounded-xl bg-[#f8f4ee] p-4 space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-text-muted">Print cost ({pricing.weightedPages} total pages × {fmt(pricing.ppp)})</span>
+              <span className="text-text-muted">Print cost ({pricing.billablePages} total pages × {fmt(pricing.ppp)})</span>
               <span className="font-medium text-text-primary">{fmt(pricing.printCost)}</span>
             </div>
             <div className="flex justify-between text-sm">
