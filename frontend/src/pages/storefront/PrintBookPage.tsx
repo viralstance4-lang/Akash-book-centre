@@ -170,6 +170,11 @@ export default function PrintBookPage() {
   // at submit time (print orders have no structured line2 field).
   const [completeAddress, setCompleteAddress] = useState("");
   const [pincode,     setPincode]     = useState("");
+  // Structured city/state, resolved via Google Places reverse-geocode alongside
+  // `address` — used for delivery zone detection (Delhi NCR / North East / All
+  // India), same as CheckoutPage.tsx's shippingAddress.city/state.
+  const [customerCity,  setCustomerCity]  = useState("");
+  const [customerState, setCustomerState] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [fileError,   setFileError]   = useState("");
 
@@ -225,6 +230,8 @@ export default function PrintBookPage() {
         const place = await geocodePincode(pin);
         if (cancelled) return;
         if (place.lat == null || place.lng == null) throw new Error("No coordinates for pincode");
+        if (place.city)  setCustomerCity(place.city);
+        if (place.state) setCustomerState(place.state);
         setPreciseLocation({ lat: place.lat, lng: place.lng });
       } catch {
         if (!cancelled) {
@@ -251,10 +258,8 @@ export default function PrintBookPage() {
   // Previews the charge through the same backend ShippingService logic used
   // at real print-order creation time (printorders.service.ts), so this
   // estimate can never drift from what the customer is actually charged.
-  // Deliberately omits city/state from the preview call — print orders have
-  // no structured address fields and the real backend flow doesn't pass them
-  // either, so leaving them out here keeps the preview byte-for-byte
-  // consistent with the real charge.
+  // Includes city/state (resolved via reverse-geocode) for zone detection —
+  // must match what createPrintOrder actually sends, below.
   useEffect(() => {
     // Clear any previously-resolved delivery estimate immediately whenever the
     // location changes — a stale ₹ amount must never stay displayed/payable
@@ -279,6 +284,8 @@ export default function PrintBookPage() {
           distanceInKm: distanceKm,
           orderValue,
           weightInKg:   estimatedWeightKg,
+          city:         customerCity,
+          state:        customerState,
           isPrintOrder: true,
         });
         if (cancelled) return;
@@ -308,9 +315,8 @@ export default function PrintBookPage() {
 
   // Preview the beyond-3km delivery charge via the same backend ShippingService
   // logic used at real print-order creation time (printorders.service.ts) —
-  // that call omits city/state entirely (print orders have no structured
-  // address fields), so this preview deliberately omits them too, to stay
-  // byte-for-byte consistent with what the customer will actually be charged.
+  // includes city/state so the zone-based rate matches what the customer will
+  // actually be charged.
   useEffect(() => {
     const distanceKm = delivery?.distanceKm ?? null;
     const threshold  = shippingSettings?.freeRadius ?? 3;
@@ -336,7 +342,14 @@ export default function PrintBookPage() {
     // Mirrors printorders.service.ts's estimatedWeightKg formula exactly.
     const estimatedWeightKg = Math.max(1, weightedPages * 0.005 + 0.15);
 
-    previewShippingCharge({ distanceInKm: distanceKm, orderValue, weightInKg: estimatedWeightKg, isPrintOrder: true })
+    previewShippingCharge({
+      distanceInKm: distanceKm,
+      orderValue,
+      weightInKg: estimatedWeightKg,
+      city: customerCity,
+      state: customerState,
+      isPrintOrder: true,
+    })
       .then((result) => { if (!cancelled) setRemoteDeliveryCharge(result.charge); })
       .catch(() => { if (!cancelled) setRemoteDeliveryCharge(null); })
       .finally(() => { if (!cancelled) setDeliveryChargeLoading(false); });
@@ -359,6 +372,8 @@ export default function PrintBookPage() {
       setAddress(fullAddress || place.line1);
       setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
       if (place.pincode) setPincode(place.pincode);
+      setCustomerCity(place.city ?? "");
+      setCustomerState(place.state ?? "");
       setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
       setCurrentLocationAccuracy(coords.accuracy ?? null);
       setPlaceSelectionKey((k) => k + 1);
@@ -377,6 +392,8 @@ export default function PrintBookPage() {
     setAddress(fullAddress || place.line1);
     setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
     if (place.pincode) setPincode(place.pincode);
+    setCustomerCity(place.city ?? "");
+    setCustomerState(place.state ?? "");
     if (place.lat != null && place.lng != null) {
       setPreciseLocation({ lat: place.lat, lng: place.lng });
       setPlaceSelectionKey((k) => k + 1);
@@ -602,6 +619,8 @@ export default function PrintBookPage() {
     fd.append("customerEmail",    email.trim());
     fd.append("customerPhone",    phone.trim());
     fd.append("customerAddress",  [address.trim(), completeAddress.trim()].filter(Boolean).join(", "));
+    if (customerCity.trim())  fd.append("customerCity",  customerCity.trim());
+    if (customerState.trim()) fd.append("customerState", customerState.trim());
     if (delivery?.distanceKm != null) fd.append("deliveryDistance", String(delivery.distanceKm));
     if (preciseLocation) {
       fd.append("customerLatitude",  String(preciseLocation.lat));
@@ -612,6 +631,7 @@ export default function PrintBookPage() {
 
   const resetForm = () => {
     setPdfs([]); setPhone(""); setAddress(""); setCompleteAddress(""); setPincode(""); setDelivery(null);
+    setCustomerCity(""); setCustomerState("");
     setFieldErrors({}); setFileError(""); setPaymentError("");
     setPreciseLocation(null); setUsingCurrentLocation(false); setCurrentLocationError("");
     setCurrentLocationAccuracy(null); setShowPincodeFallback(false);

@@ -42,6 +42,9 @@ export const createPrintOrderSchema = z.object({
   customerName:  z.string().min(1, "Full name is required"),
   customerPhone: z.string().regex(/^\d{10}$/, "Valid 10-digit phone number is required"),
   customerAddress: z.string().min(1, "Address is required"),
+  /** Structured city/state, resolved client-side via Google Places reverse-geocode — used for delivery zone detection (Delhi NCR / North East / All India). */
+  customerCity:  z.string().optional(),
+  customerState: z.string().optional(),
   colorPrice:    z.union([z.number(), z.string()]).transform(Number).optional(),
   bwPrice:       z.union([z.number(), z.string()]).transform(Number).optional(),
   bindingExtra:  z.union([z.number(), z.string()]).transform(Number).optional(),

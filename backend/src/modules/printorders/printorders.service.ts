@@ -233,6 +233,8 @@ export const createPrintOrder = async (
     distanceInKm: deliveryDistance ?? 99_999,
     orderValue:   totalPrice,
     weightInKg:   estimatedWeightKg,
+    city:         data.customerCity,
+    state:        data.customerState,
     isPrintOrder: true,
   });
   const deliveryCharge = deliveryResult.charge;
