@@ -466,7 +466,7 @@ export default function CheckoutPage() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,0.9fr)]">
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Payment Method */}
           <section className="rounded-2xl border border-black/8 bg-white p-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-text-muted">Payment Method</p>
@@ -724,7 +724,7 @@ export default function CheckoutPage() {
         </div>
 
         {/* Order Summary */}
-        <aside className="h-fit rounded-2xl border border-black/8 bg-white p-5">
+        <aside className="h-fit min-w-0 rounded-2xl border border-black/8 bg-white p-5">
           <p className="text-[0.72rem] uppercase tracking-[0.28em] text-text-muted">Order Summary</p>
           <h2 className="mt-2 font-serif text-2xl text-text-primary">Your Items</h2>
 
