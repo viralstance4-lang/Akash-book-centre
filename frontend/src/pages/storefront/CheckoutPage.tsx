@@ -18,12 +18,12 @@ import {
 } from "../../utils/deliveryUtils";
 import AddressAutocomplete, { reverseGeocode, geocodePincode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
+import { loadRazorpayScript } from "../../utils/loadRazorpay";
 
 type ShippingField = keyof ShippingAddress;
 type CheckoutOrder = { id: string; razorpayOrderId?: string };
 
 const ADDRESS_FIELDS: ShippingField[] = ["line1", "line2", "city", "state", "pincode"];
-declare global { interface Window { Razorpay?: new (options: any) => { open: () => void }; } }
 
 const fmt = (v: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
 const initialForm: ShippingAddress = { name: "", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" };
@@ -53,6 +53,14 @@ export default function CheckoutPage() {
   const [onlineSuccess, setOnlineSuccess] = useState(false);
   const [onlineOrderId, setOnlineOrderId] = useState("");
   const [delivery, setDelivery] = useState<DeliveryResult | null>(null);
+  // The full backend-computed shipping breakdown (charge, zone, rate, ...),
+  // captured directly from previewShippingCharge() so the displayed total can
+  // never drift from what the real order-creation call will actually charge —
+  // no client-side zone/rate recomputation, single source of truth.
+  const [remoteDelivery, setRemoteDelivery] = useState<{
+    charge: number; areaCharge: number; weightCharge: number; zone: string; rate: number;
+    type: "FREE" | "DISTANCE_BASED" | "WEIGHT_BASED" | "DISABLED";
+  } | null>(null);
   const [preciseLocation, setPreciseLocation] = useState<{ lat: number; lng: number } | null>(null);
   // Collapsed fallback for when the address autocomplete has no match / Google
   // Places is unreachable — keeps checkout unblockable without a prominent
@@ -88,6 +96,11 @@ export default function CheckoutPage() {
       setPaymentMethod(isRazorpayConfigured ? "ONLINE" : "COD");
     }
   }, [codBlocked, paymentMethod]);
+
+  // Start loading the Razorpay script in the background as soon as this page
+  // mounts, so it's very likely already ready by the time the customer
+  // actually reaches payment — without loading it globally on every page.
+  useEffect(() => { loadRazorpayScript().catch(() => {}); }, []);
 
   const handlePlaceSelected = (place: PlaceSelection) => {
     setForm((c) => ({
@@ -177,7 +190,17 @@ export default function CheckoutPage() {
         setCodSuccess(true);
         return;
       }
-      if (!window.Razorpay || !isRazorpayConfigured || !order.razorpayOrderId) {
+      if (!isRazorpayConfigured || !order.razorpayOrderId) {
+        setSubmitError("Payment gateway not configured. Please use Cash on Delivery.");
+        return;
+      }
+      try {
+        await loadRazorpayScript();
+      } catch {
+        setSubmitError("Couldn't load the payment gateway. Please check your connection and try again, or use Cash on Delivery.");
+        return;
+      }
+      if (!window.Razorpay) {
         setSubmitError("Payment gateway not configured. Please use Cash on Delivery.");
         return;
       }
@@ -203,29 +226,6 @@ export default function CheckoutPage() {
   );
   const totalAmount = subtotal + bindingTotal;
   const discount = appliedCoupon?.discount ?? 0;
-
-  // ── Shipping zone detection (mirrors backend logic) ────────────────────────
-  const DELHI_NCR_AREAS = new Set([
-    "delhi", "new delhi", "noida", "greater noida",
-    "gurugram", "gurgaon", "faridabad", "ghaziabad",
-  ]);
-  const NORTH_EAST_STATES = new Set([
-    "arunachal pradesh", "assam", "manipur",
-    "meghalaya", "mizoram", "nagaland", "tripura", "sikkim",
-  ]);
-
-  const shippingZone = useMemo(() => {
-    const c = form.city.toLowerCase().trim();
-    const s = form.state.toLowerCase().trim();
-    if (DELHI_NCR_AREAS.has(c) || s === "delhi" || s === "new delhi") return "LOCAL_DELHI_NCR";
-    if (NORTH_EAST_STATES.has(s)) return "NORTH_EAST";
-    return "ALL_INDIA";
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.city, form.state]);
-
-  const zoneLabel = shippingZone === "LOCAL_DELHI_NCR" ? "Delhi NCR"
-    : shippingZone === "NORTH_EAST" ? "North East"
-    : "All India";
 
   // Billing weight = book weights + 0.15 kg packaging (mirrors backend PACKAGING_WEIGHT_KG)
   // Minimum 1 kg enforced by ShippingService.sanitize
@@ -285,6 +285,7 @@ export default function CheckoutPage() {
     // location changes — a stale ₹ amount must never stay displayed/payable
     // while a new lookup is in flight.
     setDelivery(null);
+    setRemoteDelivery(null);
     if (!preciseLocation) return;
 
     let cancelled = false;
@@ -306,6 +307,14 @@ export default function CheckoutPage() {
             ? { type: "FREE", distanceKm: km, label: "Free Delivery Available", sublabel: `You are ${km} km from our store` }
             : { type: "PAID", distanceKm: km, label: "Delivery Charges May Apply", sublabel: `You are ${km} km from our store` },
         );
+        setRemoteDelivery({
+          charge:       result.charge,
+          areaCharge:   result.areaCharge   ?? 0,
+          weightCharge: result.weightCharge ?? 0,
+          zone:         result.zone ?? result.breakdown?.zone ?? "All India",
+          rate:         result.breakdown?.rate ?? 0,
+          type:         result.type,
+        });
       } catch {
         if (!cancelled) {
           setDelivery({
@@ -313,6 +322,7 @@ export default function CheckoutPage() {
             label: "Delivery availability unknown",
             sublabel: "We couldn't calculate delivery for this location — please try again, or contact us to check.",
           });
+          setRemoteDelivery(null);
         }
       } finally {
         if (!cancelled) setPincodeLookupLoading(false);
@@ -323,45 +333,15 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preciseLocation]);
 
-  // Zone rate from public config
-  const zoneRate = useMemo(() => {
-    if (!shippingSettings) return 0;
-    if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneRate ?? 50;
-    if (shippingZone === "NORTH_EAST")      return shippingSettings.northEastRate  ?? 80;
-    return shippingSettings.defaultKgRate ?? 70;
-  }, [shippingZone, shippingSettings]);
-
-  // Whether the customer is within the local distance-based radius — beyond this,
-  // pricing switches to weight/zone-based (mirrors backend distanceThreshold).
-  const isLocalDelivery = delivery?.distanceKm != null && delivery.distanceKm <= (shippingSettings?.freeRadius ?? 3);
-
-  // Flat area charge per zone (only for weight-based, beyond the local radius).
-  // delivery?.distanceKm == null (nothing resolved yet, or a new pincode
-  // lookup just cleared the previous result) must NOT fall into the
-  // "beyond radius" branch below — that would silently charge a real
-  // weight-based fee with no location actually resolved.
-  const areaCharge = useMemo(() => {
-    if (!shippingSettings || !shippingSettings.isShippingEnabled || isLocalDelivery || delivery?.distanceKm == null) return 0;
-    if (shippingZone === "LOCAL_DELHI_NCR") return shippingSettings.localZoneAreaCharge ?? 0;
-    if (shippingZone === "NORTH_EAST")      return shippingSettings.northEastAreaCharge ?? 0;
-    return shippingSettings.defaultAreaCharge ?? 0;
-  }, [isLocalDelivery, delivery?.distanceKm, shippingSettings, shippingZone]);
-
-  // Weight-based charge component (weight × zone rate, or distance × perKmRate for local)
-  const weightCharge = useMemo(() => {
-    if (!shippingSettings || !shippingSettings.isShippingEnabled) return 0;
-    const distance = delivery?.distanceKm ?? null;
-    if (distance === null) return 0; // unresolved — nothing to charge yet
-    if (distance <= (shippingSettings.freeRadius ?? 3)) {
-      if (totalAmount >= shippingSettings.freeDeliveryThreshold) return 0;
-      // Round distance UP to the next whole km before billing (2.9km & 3.0km bill as 3km; 3.2km bills as 4km)
-      return Math.ceil(distance) * Number(shippingSettings.perKmCharge);
-    }
-    return Math.round(totalWeightKg * zoneRate);
-  }, [delivery?.distanceKm, shippingSettings, totalAmount, totalWeightKg, zoneRate]);
-
-  // Total delivery = area charge (flat zone fee) + weight charge
-  const deliveryCharge = areaCharge + weightCharge;
+  // Every number below comes straight from the backend's previewShippingCharge()
+  // result (remoteDelivery) — no client-side zone/rate/threshold recomputation,
+  // so this can never drift from what the real order-creation call charges.
+  const zoneRate        = remoteDelivery?.rate ?? 0;
+  const zoneLabel       = remoteDelivery?.zone ?? "All India";
+  const isLocalDelivery = remoteDelivery?.type === "FREE" || remoteDelivery?.type === "DISTANCE_BASED";
+  const areaCharge      = remoteDelivery?.areaCharge   ?? 0;
+  const weightCharge    = remoteDelivery?.weightCharge ?? 0;
+  const deliveryCharge  = remoteDelivery?.charge ?? 0;
 
   // Derive actual delivery type for the status card — accounts for order value, not just distance
   const displayDeliveryType = useMemo(() => {
@@ -713,7 +693,7 @@ export default function CheckoutPage() {
                     <p className="text-[11px] text-text-muted">
                       {displayDeliveryType === "PAID" && deliveryCharge > 0
                         ? isLocalDelivery
-                          ? `${Math.ceil(delivery.distanceKm ?? 0)} km × ₹${shippingSettings?.perKmCharge}/km`
+                          ? `${Math.ceil(delivery.distanceKm ?? 0)} km × ₹${zoneRate}/km`
                           : `${totalWeightKg} kg × ₹${zoneRate}/kg · ${delivery.sublabel}`
                         : delivery.sublabel}
                     </p>
@@ -833,7 +813,7 @@ export default function CheckoutPage() {
                       </div>
                     </>
                   : <div className="flex justify-between text-sm text-amber-600">
-                      <span>Delivery Charge <span className="text-xs font-normal text-text-muted">({Math.ceil(delivery?.distanceKm ?? 0)} km × ₹{shippingSettings?.perKmCharge}/km)</span></span>
+                      <span>Delivery Charge <span className="text-xs font-normal text-text-muted">({Math.ceil(delivery?.distanceKm ?? 0)} km × ₹{zoneRate}/km)</span></span>
                       <span>+{fmt(deliveryCharge)}</span>
                     </div>
             )}
