@@ -41,7 +41,7 @@ type PdfFile = {
   previewUrl:      string;
 };
 
-const MAX_FILE_SIZE_BYTES = 70 * 1024 * 1024; // mirrors the backend's multer limit (printorders.routes.ts)
+const MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024; // mirrors the backend's multer limit (printorders.routes.ts)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -487,7 +487,7 @@ export default function PrintBookPage() {
     const sized = pdfsOnly.filter((f) => f.size <= MAX_FILE_SIZE_BYTES);
     if (oversized.length > 0) {
       errors.push(
-        `${oversized.map((f) => f.name).join(", ")} ${oversized.length > 1 ? "are" : "is"} over the 70 MB limit and ${oversized.length > 1 ? "were" : "was"} skipped.`,
+        `${oversized.map((f) => f.name).join(", ")} ${oversized.length > 1 ? "are" : "is"} over the 200 MB limit and ${oversized.length > 1 ? "were" : "was"} skipped.`,
       );
     }
     if (sized.length === 0) { setFileError(errors.join(" ")); return; }
@@ -814,7 +814,7 @@ export default function PrintBookPage() {
             className={`flex h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-colors ${dragOver ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/15 bg-[#f8f4ee] hover:border-black/30"}`}>
             <Upload size={28} className="text-text-muted" />
             <p className="mt-2 text-sm font-medium text-text-muted">{dragOver ? "Drop PDF files here" : "Click or drag PDF files here"}</p>
-            <p className="mt-0.5 text-xs text-text-muted/70">Up to {S.maxPdfsPerOrder} files · max 70 MB each</p>
+            <p className="mt-0.5 text-xs text-text-muted/70">Up to {S.maxPdfsPerOrder} files · max 200 MB each</p>
           </div>
         )}
 

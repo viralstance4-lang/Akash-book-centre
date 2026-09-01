@@ -10,7 +10,7 @@ const adminRouter = Router();
 // Multer: accept up to 50 files in memory; the service enforces the DB limit
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 70 * 1024 * 1024 },  // 70 MB per file
+  limits:  { fileSize: 200 * 1024 * 1024 },  // 200 MB per file
   fileFilter: (_req, file, cb) => {
     const isPdf = file.mimetype === "application/pdf"
       || file.mimetype === "application/x-pdf"
