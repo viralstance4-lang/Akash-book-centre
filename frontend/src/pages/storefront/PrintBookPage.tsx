@@ -390,7 +390,7 @@ export default function PrintBookPage() {
       const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
       setAddress(fullAddress || place.line1);
       setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
-      if (place.pincode) setPincode(place.pincode);
+      setPincode(place.pincode ?? "");
       setCustomerCity(place.city ?? "");
       setCustomerState(place.state ?? "");
       setPreciseLocation({ lat: coords.latitude, lng: coords.longitude });
@@ -410,7 +410,7 @@ export default function PrintBookPage() {
     const fullAddress = [place.line1, place.city, place.state, place.pincode].filter(Boolean).join(", ");
     setAddress(fullAddress || place.line1);
     setFieldErrors((p) => { const n = { ...p }; delete n.address; return n; });
-    if (place.pincode) setPincode(place.pincode);
+    setPincode(place.pincode ?? "");
     setCustomerCity(place.city ?? "");
     setCustomerState(place.state ?? "");
     if (place.lat != null && place.lng != null) {

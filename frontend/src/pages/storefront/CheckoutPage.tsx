@@ -106,9 +106,9 @@ export default function CheckoutPage() {
     setForm((c) => ({
       ...c,
       line1: place.line1 || c.line1,
-      city: place.city || c.city,
-      state: place.state || c.state,
-      pincode: place.pincode || c.pincode,
+      city: place.city ?? "",
+      state: place.state ?? "",
+      pincode: place.pincode ?? "",
     }));
     setFieldErrors((c) => {
       const n = { ...c };
