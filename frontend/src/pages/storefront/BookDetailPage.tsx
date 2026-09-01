@@ -205,7 +205,7 @@ export default function BookDetailPage() {
       {/* Main Product Layout */}
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left — Image Gallery */}
-        <div className="flex flex-col gap-3">
+        <div className="min-w-0 flex flex-col gap-3">
           {(() => {
             // Build full image list: cover first (if not already in BookImage records), then rest sorted by order
             const bookImages: { id: string; imageUrl: string; order: number }[] = (book as any).images ?? [];
@@ -320,7 +320,7 @@ export default function BookDetailPage() {
         </div>
 
         {/* Right — Info */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Category tag */}
           {book.category?.name && (
             <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
@@ -467,7 +467,7 @@ export default function BookDetailPage() {
       {activeTab === "details" ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Product Info Table */}
-          <div className="rounded-2xl border border-black/8 bg-white overflow-hidden">
+          <div className="min-w-0 rounded-2xl border border-black/8 bg-white overflow-hidden">
             <div className="border-b border-black/8 px-5 py-4">
               <h3 className="font-serif text-lg text-text-primary">Product Details</h3>
             </div>
@@ -487,22 +487,22 @@ export default function BookDetailPage() {
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start gap-4 px-5 py-3">
                   <span className="w-36 shrink-0 text-sm text-text-muted">{label}</span>
-                  <span className="text-sm font-medium text-text-primary">{value}</span>
+                  <span className="min-w-0 flex-1 break-words text-sm font-medium text-text-primary">{value}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Description */}
-          <div className="rounded-2xl border border-black/8 bg-white p-5">
+          <div className="min-w-0 rounded-2xl border border-black/8 bg-white p-5">
             <h3 className="font-serif text-lg text-text-primary mb-4">About this Book</h3>
             {book.description && book.description.trim().startsWith("<") ? (
               <div
-                className="prose prose-sm max-w-none text-text-muted leading-7"
+                className="prose prose-sm max-w-none break-words text-text-muted leading-7"
                 dangerouslySetInnerHTML={{ __html: book.description }}
               />
             ) : (
-              <p className="text-sm leading-7 text-text-muted">
+              <p className="break-words text-sm leading-7 text-text-muted">
                 {book.description || "A thoughtfully curated title from our collection. This book offers valuable insights and engaging content for readers of all levels."}
               </p>
             )}
