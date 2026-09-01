@@ -99,21 +99,15 @@ function getPricePerPage(totalRawPages: number, side: PrintSide, color: ColorTyp
 
 /**
  * Double-side (B&W or Color) prints 2 pages per physical sheet, so the
- * billable quantity is ~half the page count — computed per file (ceil)
- * before multiplying by copies, since each copy needs its own whole last
- * sheet and can't share a partial sheet with another copy (e.g. 101 pages ×
- * 4 copies bills 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202).
- * Single-side bills the full page count, unchanged. Tier selection
- * (getPricePerPage) always stays on the true page count regardless — only
- * the quantity charged at that rate is halved here.
+ * billable quantity is ~half the page count — computed on the order's
+ * combined total (sum of every file's pages × copies), ceiled ONCE, not
+ * per file. Single-side bills the full page count, unchanged. Tier
+ * selection (getPricePerPage) always stays on the true page count
+ * regardless — only the quantity charged at that rate is halved here.
  */
 function calcBillablePages(filePageCounts: number[], fileCopies: number[], side: PrintSide): number {
-  const isDoubleSide = side === "both";
-  return filePageCounts.reduce((sum, pc, i) => {
-    const copies   = fileCopies[i] ?? 1;
-    const billable = isDoubleSide ? Math.ceil(pc / 2) : pc;
-    return sum + billable * copies;
-  }, 0);
+  const totalWeightedPages = filePageCounts.reduce((sum, pc, i) => sum + pc * (fileCopies[i] ?? 1), 0);
+  return side === "both" ? Math.ceil(totalWeightedPages / 2) : totalWeightedPages;
 }
 
 function calcPrice(
