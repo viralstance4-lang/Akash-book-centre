@@ -505,7 +505,7 @@ export default function CheckoutPage() {
                     <p className="text-sm font-semibold text-text-primary">Online Payment</p>
                     <p className="text-xs text-text-muted">UPI, Card, NetBanking</p>
                     {prepaidDiscount > 0 && (
-                      <p className="text-xs text-emerald-600 font-medium">Save ₹{fmt(prepaidDiscount)}</p>
+                      <p className="text-xs text-emerald-600 font-medium">Save {fmt(prepaidDiscount)}</p>
                     )}
                   </div>
                 </button>
