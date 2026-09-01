@@ -20,10 +20,9 @@ import {
 import AddressAutocomplete, { reverseGeocode, geocodePincode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
 import { useAuthStore } from "../../store/auth.store";
+import { loadRazorpayScript } from "../../utils/loadRazorpay";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-
-declare global { interface Window { Razorpay?: new (options: any) => { open: () => void }; } }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ColorType   = "color" | "bw";
@@ -99,20 +98,20 @@ function getPricePerPage(totalRawPages: number, side: PrintSide, color: ColorTyp
 }
 
 /**
- * B&W double-side prints 2 pages per physical sheet, so the billable quantity
- * is ~half the page count — computed per file (ceil) before multiplying by
- * copies, since each copy needs its own whole last sheet and can't share a
- * partial sheet with another copy (e.g. 101 pages × 4 copies bills
- * 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202). Every other
- * combination bills the full page count, unchanged. Tier selection
+ * Double-side (B&W or Color) prints 2 pages per physical sheet, so the
+ * billable quantity is ~half the page count — computed per file (ceil)
+ * before multiplying by copies, since each copy needs its own whole last
+ * sheet and can't share a partial sheet with another copy (e.g. 101 pages ×
+ * 4 copies bills 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202).
+ * Single-side bills the full page count, unchanged. Tier selection
  * (getPricePerPage) always stays on the true page count regardless — only
  * the quantity charged at that rate is halved here.
  */
-function calcBillablePages(filePageCounts: number[], fileCopies: number[], side: PrintSide, color: ColorType): number {
-  const isBwDouble = color === "bw" && side === "both";
+function calcBillablePages(filePageCounts: number[], fileCopies: number[], side: PrintSide): number {
+  const isDoubleSide = side === "both";
   return filePageCounts.reduce((sum, pc, i) => {
     const copies   = fileCopies[i] ?? 1;
-    const billable = isBwDouble ? Math.ceil(pc / 2) : pc;
+    const billable = isDoubleSide ? Math.ceil(pc / 2) : pc;
     return sum + billable * copies;
   }, 0);
 }
@@ -127,7 +126,7 @@ function calcPrice(
   s: PricingSettings,
 ) {
   const ppp           = getPricePerPage(totalRawPages, side, color, s);
-  const billablePages = calcBillablePages(filePageCounts, fileCopies, side, color);
+  const billablePages = calcBillablePages(filePageCounts, fileCopies, side);
   const totalCopies   = fileCopies.reduce((acc, c) => acc + c, 0);
   const printCost     = ppp * billablePages;
   const bindingCost   = (binding === "spiral" ? s.spiralExtra : s.staplerExtra) * totalCopies;
@@ -231,6 +230,11 @@ export default function PrintBookPage() {
     if (user?.name)  setName(user.name);
   }, [user]);
 
+  // Start loading the Razorpay script in the background as soon as this page
+  // mounts, so it's very likely already ready by the time the customer
+  // actually reaches payment — without loading it globally on every page.
+  useEffect(() => { loadRazorpayScript().catch(() => {}); }, []);
+
   // Geocodes a manually-typed pincode into coordinates — but ONLY as a
   // fallback, when we don't already have a precise location from autocomplete
   // or GPS. Debounced so it doesn't fire on every keystroke. This effect's
@@ -292,7 +296,7 @@ export default function PrintBookPage() {
       try {
         const distanceKm     = haversineKm(SHOP.lat, SHOP.lng, preciseLocation.lat, preciseLocation.lng);
         const totalRawPages  = pdfs.reduce((sum, p) => sum + p.pageCount, 0);
-        const billablePages  = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType);
+        const billablePages  = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide);
         const orderValue     = pdfs.length > 0
           ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
           : 0;
@@ -355,7 +359,7 @@ export default function PrintBookPage() {
     setDeliveryChargeLoading(true);
 
     const totalRawPages = pdfs.reduce((s, p) => s + p.pageCount, 0);
-    const billablePages = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType);
+    const billablePages = calcBillablePages(pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide);
     const orderValue    = pdfs.length > 0
       ? calcPrice(totalRawPages, pdfs.map((p) => p.pageCount), pdfs.map((p) => p.copies), printSide, colorType, bindingType, S).total
       : 0;
@@ -550,10 +554,20 @@ export default function PrintBookPage() {
   // ── Phase 1: submit form → get Razorpay order (initiateMut declared above early-return) ──
 
   // ── Phase 2: open Razorpay, handle result ──────────────────────────────────
-  const openRazorpay = (initiated: PrintOrderInitiated) => {
+  const openRazorpay = async (initiated: PrintOrderInitiated) => {
     setPaymentError("");
 
-    if (!window.Razorpay || !isRazorpayConfigured) {
+    if (!isRazorpayConfigured) {
+      setPaymentError("Payment gateway is not configured. Please contact support.");
+      return;
+    }
+    try {
+      await loadRazorpayScript();
+    } catch {
+      setPaymentError("Couldn't load the payment gateway. Please check your connection and try again.");
+      return;
+    }
+    if (!window.Razorpay) {
       setPaymentError("Payment gateway is not configured. Please contact support.");
       return;
     }

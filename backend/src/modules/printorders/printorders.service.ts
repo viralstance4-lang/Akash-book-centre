@@ -74,12 +74,12 @@ const getSettings = async (): Promise<PricingSettings & { maxPdfsPerOrder: numbe
 };
 
 /**
- * B&W double-side prints 2 pages per physical sheet, so the billable quantity
- * is ~half the page count — computed per file (ceil) before multiplying by
- * copies, since each copy needs its own whole last sheet and can't share a
- * partial sheet with another copy (e.g. 101 pages × 4 copies bills
- * 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202). Every other
- * combination bills the full page count, unchanged. Tier selection
+ * Double-side (B&W or Color) prints 2 pages per physical sheet, so the
+ * billable quantity is ~half the page count — computed per file (ceil)
+ * before multiplying by copies, since each copy needs its own whole last
+ * sheet and can't share a partial sheet with another copy (e.g. 101 pages ×
+ * 4 copies bills 4 × ceil(101/2) = 204 sheets, not ceil((101×4)/2) = 202).
+ * Single-side bills the full page count, unchanged. Tier selection
  * (getPricePerPage) always stays on the true page count regardless — only
  * the quantity charged at that rate is halved here.
  */
@@ -87,12 +87,11 @@ function calcBillablePages(
   filePageCounts: number[],
   fileCopies:     number[],
   printSide:      "single" | "both",
-  colorType:      "color" | "bw",
 ): number {
-  const isBwDouble = colorType === "bw" && printSide === "both";
+  const isDoubleSide = printSide === "both";
   return filePageCounts.reduce((sum, pc, i) => {
     const copies   = fileCopies[i] ?? 1;
-    const billable = isBwDouble ? Math.ceil(pc / 2) : pc;
+    const billable = isDoubleSide ? Math.ceil(pc / 2) : pc;
     return sum + billable * copies;
   }, 0);
 }
@@ -109,7 +108,7 @@ function calcPerFilePricing(params: {
 
   const totalRawPages      = filePageCounts.reduce((s, n) => s + n, 0);
   const totalWeightedPages = filePageCounts.reduce((s, n, i) => s + n * (fileCopies[i] ?? 1), 0);
-  const billablePages      = calcBillablePages(filePageCounts, fileCopies, printSide, colorType);
+  const billablePages      = calcBillablePages(filePageCounts, fileCopies, printSide);
   const totalCopies        = fileCopies.reduce((s, c) => s + c, 0);
 
   const pricePerPage = getPricePerPage(totalRawPages, printSide, colorType, settings);
