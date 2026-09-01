@@ -108,7 +108,7 @@ export default function StorefrontLayout() {
           </nav>
 
           {/* Search */}
-          <div className="hidden flex-1 max-w-lg mx-auto sm:block">
+          <div className="hidden min-w-0 flex-1 max-w-lg mx-auto sm:block">
             <label className="relative block w-full group">
               <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
                 <Search className="h-4 w-4 text-red-500 transition-colors group-focus-within:text-red-600" />
