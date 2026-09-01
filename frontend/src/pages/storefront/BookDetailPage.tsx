@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, Zap } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, MapPin, Package, RefreshCw, Shield, ShoppingBag, Star, Truck, X, Zap, ZoomIn } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getBook, getBooks } from "../../api/books.api";
 import { addToCart, getCart } from "../../api/cart.api";
@@ -40,6 +40,8 @@ export default function BookDetailPage() {
   const [qty, setQty] = useState(1);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [coverBroken, setCoverBroken] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const touchStartXRef = useRef<number | null>(null);
   const [bindingType, setBindingType] = useState<"NONE" | "SPIRAL" | "STAPLE">("NONE");
   const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", comment: "" });
   const [reviewSuccess, setReviewSuccess] = useState(false);
@@ -107,6 +109,36 @@ export default function BookDetailPage() {
     if (bindingType === "STAPLE" && !allowStapleBinding) setBindingType("NONE");
     if (bindingType === "SPIRAL" && !allowSpiralBinding) setBindingType("NONE");
   }, [book?.id, showBindingSection, allowStapleBinding, allowSpiralBinding, bindingType]);
+
+  // Cover first (if not already in BookImage records), then the rest sorted by order —
+  // shared by the main gallery, the zoom overlay, and the keyboard-navigation effect below.
+  const allImages = useMemo(() => {
+    if (!book) return [];
+    const bookImages: { id: string; imageUrl: string; order: number }[] = (book as any).images ?? [];
+    const sorted = [...bookImages].sort((a, b) => a.order - b.order);
+    const coverAlreadyIncluded = sorted.some((img) => img.imageUrl === book.coverImageUrl);
+    return coverAlreadyIncluded ? sorted : [{ id: "cover", imageUrl: book.coverImageUrl, order: -1 }, ...sorted];
+  }, [book]);
+
+  // Escape/arrow-key navigation while the zoom overlay is open.
+  useEffect(() => {
+    if (!isZoomed) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsZoomed(false);
+      else if (e.key === "ArrowLeft") setCurrentIndex((i) => (i === 0 ? allImages.length - 1 : i - 1));
+      else if (e.key === "ArrowRight") setCurrentIndex((i) => (i === allImages.length - 1 ? 0 : i + 1));
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isZoomed, allImages.length]);
+
+  // Lock page scroll behind the zoom overlay while it's open.
+  useEffect(() => {
+    if (!isZoomed) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, [isZoomed]);
 
   const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
   const originalPrice = comparePrice;
@@ -207,14 +239,6 @@ export default function BookDetailPage() {
         {/* Left — Image Gallery */}
         <div className="min-w-0 flex flex-col gap-3">
           {(() => {
-            // Build full image list: cover first (if not already in BookImage records), then rest sorted by order
-            const bookImages: { id: string; imageUrl: string; order: number }[] = (book as any).images ?? [];
-            const sorted = [...bookImages].sort((a, b) => a.order - b.order);
-            const coverAlreadyIncluded = sorted.some((img) => img.imageUrl === book.coverImageUrl);
-            const allImages = coverAlreadyIncluded
-              ? sorted
-              : [{ id: "cover", imageUrl: book.coverImageUrl, order: -1 }, ...sorted];
-
             const safeIndex = Math.min(currentIndex, allImages.length - 1);
             const activeUrl = allImages[safeIndex]?.imageUrl ?? book.coverImageUrl;
 
@@ -234,7 +258,8 @@ export default function BookDetailPage() {
                       key={activeUrl}
                       src={activeUrl}
                       alt={book.title}
-                      className="mx-auto block aspect-[3/4] w-full max-w-[280px] object-cover transition-all duration-300 lg:max-w-full"
+                      className="mx-auto block aspect-[3/4] w-full max-w-[280px] cursor-zoom-in object-cover transition-all duration-300 lg:max-w-full"
+                      onClick={() => setIsZoomed(true)}
                       onError={() => setCoverBroken(true)}
                       onLoad={(e) => {
                         const img = e.currentTarget;
@@ -242,6 +267,11 @@ export default function BookDetailPage() {
                         else setCoverBroken(false);
                       }}
                     />
+                  )}
+                  {!coverBroken && (
+                    <div className="pointer-events-none absolute right-3 bottom-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 opacity-0 shadow-md backdrop-blur-sm transition-opacity group-hover:opacity-100">
+                      <ZoomIn size={13} className="text-[#1d1a17]" />
+                    </div>
                   )}
                   {discount > 0 && (
                     <div className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
@@ -297,6 +327,73 @@ export default function BookDetailPage() {
                         <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* Zoom overlay — click the main image to open, click backdrop/X/Escape to close,
+                    prev/next arrows + dots + arrow keys + touch-swipe to slide between images */}
+                {isZoomed && (
+                  <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+                    onClick={() => setIsZoomed(false)}
+                    onTouchStart={(e) => { touchStartXRef.current = e.touches[0].clientX; }}
+                    onTouchEnd={(e) => {
+                      if (touchStartXRef.current == null) return;
+                      const delta = e.changedTouches[0].clientX - touchStartXRef.current;
+                      touchStartXRef.current = null;
+                      if (Math.abs(delta) > 50) { if (delta > 0) prev(); else next(); }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
+                      className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                      aria-label="Close"
+                    >
+                      <X size={20} />
+                    </button>
+
+                    {allImages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); prev(); }}
+                        className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 sm:left-4"
+                        aria-label="Previous image"
+                      >
+                        <ChevronLeft size={22} />
+                      </button>
+                    )}
+
+                    <img
+                      src={activeUrl}
+                      alt={book.title}
+                      className="max-h-[85vh] max-w-[90vw] object-contain"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+
+                    {allImages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); next(); }}
+                        className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 sm:right-4"
+                        aria-label="Next image"
+                      >
+                        <ChevronRight size={22} />
+                      </button>
+                    )}
+
+                    {allImages.length > 1 && (
+                      <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-1.5">
+                        {allImages.map((_, i) => (
+                          <button
+                            key={i} type="button"
+                            onClick={(e) => { e.stopPropagation(); setCurrentIndex(i); }}
+                            className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "w-4 bg-white" : "w-1.5 bg-white/40 hover:bg-white/70"}`}
+                            aria-label={`Go to image ${i + 1}`}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
