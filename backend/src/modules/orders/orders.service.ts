@@ -117,11 +117,8 @@ export const placeOrder = async (
     couponDiscount = new Prisma.Decimal(couponResult.discount);
   }
 
-  // Calculate prepaid discount
-  let prepaidDiscount = new Prisma.Decimal(0);
-  if (paymentMethod === "ONLINE") {
-    prepaidDiscount = new Prisma.Decimal(await ShippingService.calculatePrepaidDiscount(totalAmount.toNumber()));
-  }
+  // No extra discount for paying online — customer pays exactly the billed total.
+  const prepaidDiscount = new Prisma.Decimal(0);
 
   const discountAmount = couponDiscount.plus(prepaidDiscount);
   const finalAmount = totalAmount.plus(deliveryCharge).minus(discountAmount);

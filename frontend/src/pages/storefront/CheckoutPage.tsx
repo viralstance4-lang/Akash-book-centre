@@ -353,16 +353,8 @@ export default function CheckoutPage() {
     return delivery.type;
   }, [delivery, deliveryCharge, shippingSettings]);
 
-  // Calculate prepaid discount
-  const prepaidDiscount = useMemo(() => {
-    if (paymentMethod !== "ONLINE" || !shippingSettings) return 0;
-    const amount = totalAmount;
-    if (shippingSettings.prepaidDiscountType === "PERCENT") {
-      return amount * (Number(shippingSettings.prepaidDiscountValue) / 100);
-    } else {
-      return Number(shippingSettings.prepaidDiscountValue);
-    }
-  }, [paymentMethod, totalAmount, shippingSettings]);
+  // No extra discount for paying online — customer pays exactly the billed total.
+  const prepaidDiscount = 0;
 
   const finalAmount = totalAmount + deliveryCharge - discount - prepaidDiscount;
 
@@ -504,9 +496,6 @@ export default function CheckoutPage() {
                   <div>
                     <p className="text-sm font-semibold text-text-primary">Online Payment</p>
                     <p className="text-xs text-text-muted">UPI, Card, NetBanking</p>
-                    {prepaidDiscount > 0 && (
-                      <p className="text-xs text-emerald-600 font-medium">Save {fmt(prepaidDiscount)}</p>
-                    )}
                   </div>
                 </button>
               )}
@@ -818,7 +807,6 @@ export default function CheckoutPage() {
                     </div>
             )}
             {discount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Coupon Discount</span><span>-{fmt(discount)}</span></div>}
-            {prepaidDiscount > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Prepaid Discount</span><span>-{fmt(prepaidDiscount)}</span></div>}
             <div className="flex justify-between text-sm">
               <span className="text-text-muted">Payment</span>
               <span className={`font-medium ${paymentMethod === "COD" ? "text-amber-600" : "text-blue-600"}`}>
