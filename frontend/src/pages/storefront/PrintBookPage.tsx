@@ -329,7 +329,7 @@ export default function PrintBookPage() {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preciseLocation]);
+  }, [preciseLocation, pdfs, printSide, colorType, bindingType, customerCity, customerState, pincode]);
 
   // Preview the beyond-3km delivery charge via the same backend ShippingService
   // logic used at real print-order creation time (printorders.service.ts) —
@@ -375,7 +375,7 @@ export default function PrintBookPage() {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delivery?.distanceKm, shippingSettings?.isShippingEnabled, shippingSettings?.freeRadius, pdfs]);
+  }, [delivery?.distanceKm, shippingSettings?.isShippingEnabled, shippingSettings?.freeRadius, pdfs, printSide, colorType, bindingType, customerCity, customerState, pincode]);
 
   const handleShareCurrentLocation = async () => {
     if (!navigator.geolocation) {
