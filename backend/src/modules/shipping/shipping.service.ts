@@ -72,9 +72,9 @@ export interface ShippingInput {
   /** Fallback zone signal, used when city/state can't be resolved (e.g. a remote-coordinate reverse-geocode with no administrative_area component). */
   pincode?:     string;
   /**
-   * Print orders bill weight in whole-kg slabs (ceil), unlike regular book
-   * orders which bill exact fractional weight. Only affects the WEIGHT_BASED
-   * (beyond-threshold) path — distance-based/free delivery is unaffected.
+   * Unused by calculateShipping() — whole-kg rounding now applies to every
+   * order type (previously print-order-only). Kept on the type for existing
+   * caller compatibility.
    */
   isPrintOrder?: boolean;
 }
@@ -92,7 +92,7 @@ export interface ShippingResult {
     orderValue?:       number;
     rate?:             number;
     weight?:           number;
-    chargeableWeight?: number;  // print orders only — weight after ceiling to whole kg
+    chargeableWeight?: number;  // weight after ceiling to whole kg (WEIGHT_BASED only)
     areaCharge?:       number;
     weightCharge?:     number;
     usedFallback?:     boolean;
@@ -168,7 +168,7 @@ export class ShippingService {
    */
   static calculateShipping(raw: ShippingInput, config: ShippingConfig): ShippingResult {
     const input = ShippingService.sanitize(raw);
-    const { distanceInKm, orderValue, weightInKg, city, state, pincode, isPrintOrder } = input;
+    const { distanceInKm, orderValue, weightInKg, city, state, pincode } = input;
 
     if (!config.isShippingEnabled) {
       return { charge: 0, type: "DISABLED", breakdown: {} };
@@ -225,9 +225,9 @@ export class ShippingService {
       matchedState = matched?.state;
     }
 
-    // Print orders bill in whole-kg slabs: 1g–1000g → 1kg, 1001g–2000g → 2kg, etc.
-    // Regular book orders keep billing exact fractional weight, unchanged.
-    const chargeableWeightKg = isPrintOrder ? Math.ceil(weightInKg) : weightInKg;
+    // All orders bill in whole-kg slabs: 1g–1000g → 1kg, 1001g–2000g → 2kg, etc.
+    // (Previously print-order-only; now applies to regular book orders too.)
+    const chargeableWeightKg = Math.ceil(weightInKg);
     const weightCharge = Math.round(chargeableWeightKg * rate);
     const charge       = areaCharge + weightCharge;
 
@@ -239,7 +239,7 @@ export class ShippingService {
       zone:      matchedState ?? zoneLabel,
       breakdown: {
         weight:           weightInKg,
-        chargeableWeight: isPrintOrder ? chargeableWeightKg : undefined,
+        chargeableWeight: chargeableWeightKg,
         rate,
         areaCharge,
         weightCharge,
