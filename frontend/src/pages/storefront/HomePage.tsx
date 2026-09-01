@@ -154,6 +154,92 @@ export default function HomePage() {
     return pool.slice(0, limit);
   };
 
+  // ── Search-results / "All Books" grid ────────────────────────────────────────
+  // Pulled out so it can render both in its configured homepage-section slot
+  // AND as a fallback when the admin's homepage layout has no "allBooks"
+  // section at all — otherwise every other section hides itself while
+  // searching (see the `deferredSearch` guards below) and search results
+  // would have nowhere to appear.
+  const renderAllBooksSection = (key: string, sectionTitle?: string) => (
+    <section key={key} id="books-grid" className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="font-serif text-xl text-text-primary sm:text-2xl">
+            {deferredSearch ? `Results for "${deferredSearch}"` : (sectionTitle?.trim() || "All Books")}
+          </h2>
+          <p className="mt-0.5 text-sm text-text-muted">{filteredBooks.length} titles</p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <Link to="/all-books"
+            className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors">
+            View all <ArrowRight size={13} />
+          </Link>
+          <div className="relative">
+            <button type="button" onClick={() => setIsFiltersOpen((c) => !c)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-black/10 bg-white px-3 text-sm text-text-primary hover:-translate-y-0.5 hover:border-black/20 transition-all">
+              <SlidersHorizontal size={13} /> Filters
+              {activeFilterCount > 0 && (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1d1a17] px-1.5 text-[11px] text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+            {isFiltersOpen && (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-2xl border border-black/10 bg-white p-4 shadow-xl">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="font-serif text-lg text-text-primary">Price Filter</p>
+                  <button type="button" onClick={() => setIsFiltersOpen(false)} className="rounded-full p-1.5 text-text-muted hover:bg-[#f4efe7]"><X size={14} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-sm text-text-muted mb-2"><span>Min</span><span>{formatPrice(minPrice ? Number(minPrice) : 0)}</span></div>
+                    <input type="range" min="0" max={maxPrice ? Number(maxPrice) : MAX_PRICE} step="100"
+                      value={minPrice ? Number(minPrice) : 0}
+                      onChange={(e) => handleMinPriceChange(e.target.value)}
+                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0]" />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-sm text-text-muted mb-2"><span>Max</span><span>{formatPrice(maxPrice ? Number(maxPrice) : MAX_PRICE)}</span></div>
+                    <input type="range" min={minPrice ? Number(minPrice) : 0} max={MAX_PRICE} step="100"
+                      value={maxPrice ? Number(maxPrice) : MAX_PRICE}
+                      onChange={(e) => handleMaxPriceChange(e.target.value)}
+                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0]" />
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-between">
+                  <button type="button" onClick={clearFilters} className="text-sm text-text-muted hover:text-text-primary">Clear all</button>
+                  <button type="button" onClick={() => setIsFiltersOpen(false)}
+                    className="rounded-full bg-[#1d1a17] px-4 py-2 text-sm text-white hover:bg-black">Apply</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {booksLoading ? (
+        <SkeletonGrid count={12} />
+      ) : filteredBooks.length > 0 ? (
+        <BookSlider
+          books={filteredBooks}
+          onAddToCart={(book) => handleAddToCart(book.id)}
+          cartBookIds={cartBookIds}
+          addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
+        />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-black/10 bg-white px-6 py-12 text-center">
+          <BookOpen size={32} className="mx-auto text-text-muted" />
+          <p className="mt-4 font-serif text-xl text-text-primary">No books found</p>
+          <p className="mt-2 text-sm text-text-muted">Try adjusting your search or filters.</p>
+          {activeFilterCount > 0 && (
+            <button type="button" onClick={clearFilters}
+              className="mt-4 rounded-full border border-black/10 px-4 py-2 text-sm hover:bg-[#f4efe7] transition-all">Clear filters</button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+
   // ── Section renderers ─────────────────────────────────────────────────────────
   const renderSection = (section: HomepageSection) => {
     const { type, id } = section;
@@ -202,85 +288,7 @@ export default function HomePage() {
 
       // ── All Books ─────────────────────────────────────────────────────────────
       case "allBooks":
-        return (
-          <section key={id} id="books-grid" className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="font-serif text-xl text-text-primary sm:text-2xl">
-                  {deferredSearch ? `Results for "${deferredSearch}"` : (section.title?.trim() || "All Books")}
-                </h2>
-                <p className="mt-0.5 text-sm text-text-muted">{filteredBooks.length} titles</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <Link to="/all-books"
-                  className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors">
-                  View all <ArrowRight size={13} />
-                </Link>
-                <div className="relative">
-                  <button type="button" onClick={() => setIsFiltersOpen((c) => !c)}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-black/10 bg-white px-3 text-sm text-text-primary hover:-translate-y-0.5 hover:border-black/20 transition-all">
-                    <SlidersHorizontal size={13} /> Filters
-                    {activeFilterCount > 0 && (
-                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1d1a17] px-1.5 text-[11px] text-white">
-                        {activeFilterCount}
-                      </span>
-                    )}
-                  </button>
-                  {isFiltersOpen && (
-                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-2xl border border-black/10 bg-white p-4 shadow-xl">
-                      <div className="flex items-center justify-between mb-4">
-                        <p className="font-serif text-lg text-text-primary">Price Filter</p>
-                        <button type="button" onClick={() => setIsFiltersOpen(false)} className="rounded-full p-1.5 text-text-muted hover:bg-[#f4efe7]"><X size={14} /></button>
-                      </div>
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex justify-between text-sm text-text-muted mb-2"><span>Min</span><span>{formatPrice(minPrice ? Number(minPrice) : 0)}</span></div>
-                          <input type="range" min="0" max={maxPrice ? Number(maxPrice) : MAX_PRICE} step="100"
-                            value={minPrice ? Number(minPrice) : 0}
-                            onChange={(e) => handleMinPriceChange(e.target.value)}
-                            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0]" />
-                        </div>
-                        <div>
-                          <div className="flex justify-between text-sm text-text-muted mb-2"><span>Max</span><span>{formatPrice(maxPrice ? Number(maxPrice) : MAX_PRICE)}</span></div>
-                          <input type="range" min={minPrice ? Number(minPrice) : 0} max={MAX_PRICE} step="100"
-                            value={maxPrice ? Number(maxPrice) : MAX_PRICE}
-                            onChange={(e) => handleMaxPriceChange(e.target.value)}
-                            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e6ddd0]" />
-                        </div>
-                      </div>
-                      <div className="mt-4 flex justify-between">
-                        <button type="button" onClick={clearFilters} className="text-sm text-text-muted hover:text-text-primary">Clear all</button>
-                        <button type="button" onClick={() => setIsFiltersOpen(false)}
-                          className="rounded-full bg-[#1d1a17] px-4 py-2 text-sm text-white hover:bg-black">Apply</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {booksLoading ? (
-              <SkeletonGrid count={12} />
-            ) : filteredBooks.length > 0 ? (
-              <BookSlider
-                books={filteredBooks}
-                onAddToCart={(book) => handleAddToCart(book.id)}
-                cartBookIds={cartBookIds}
-                addingBookId={addToCartMutation.isPending ? (addToCartMutation.variables?.bookId ?? null) : null}
-              />
-            ) : (
-              <div className="rounded-2xl border border-dashed border-black/10 bg-white px-6 py-12 text-center">
-                <BookOpen size={32} className="mx-auto text-text-muted" />
-                <p className="mt-4 font-serif text-xl text-text-primary">No books found</p>
-                <p className="mt-2 text-sm text-text-muted">Try adjusting your search or filters.</p>
-                {activeFilterCount > 0 && (
-                  <button type="button" onClick={clearFilters}
-                    className="mt-4 rounded-full border border-black/10 px-4 py-2 text-sm hover:bg-[#f4efe7] transition-all">Clear filters</button>
-                )}
-              </div>
-            )}
-          </section>
-        );
+        return renderAllBooksSection(id, section.title);
 
       // ── Dynamic Book Section (new HomepageSection) ──────────────────────────
       case "books": {
@@ -314,6 +322,12 @@ export default function HomePage() {
   };
 
   const activeSections = sections;
+  // The homepage's admin-configured section list may not include an "allBooks"
+  // section at all (it's optional, like any other section type) — without this
+  // fallback, searching would hide every other section (they all bail out via
+  // their own `deferredSearch` guards above) and leave nothing on the page to
+  // show results in.
+  const hasAllBooksSection = activeSections.some((s) => s.type === "allBooks");
 
   return (
     <div className="space-y-8 pb-8">
@@ -356,6 +370,7 @@ export default function HomePage() {
       <div className={`transition-opacity duration-500 ease-out ${showPageContent ? "opacity-100" : "opacity-0"}`}>
         <div className="space-y-8">
           {activeSections.map((section) => renderSection(section))}
+          {deferredSearch && !hasAllBooksSection && renderAllBooksSection("search-results-fallback")}
         </div>
       </div>
     </div>
