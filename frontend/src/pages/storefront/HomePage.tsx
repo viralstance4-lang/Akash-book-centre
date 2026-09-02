@@ -156,10 +156,10 @@ export default function HomePage() {
 
   // ── Search-results / "All Books" grid ────────────────────────────────────────
   // Pulled out so it can render both in its configured homepage-section slot
-  // AND as a fallback when the admin's homepage layout has no "allBooks"
-  // section at all — otherwise every other section hides itself while
-  // searching (see the `deferredSearch` guards below) and search results
-  // would have nowhere to appear.
+  // (when browsing normally) AND pinned to the top of the page while
+  // searching, regardless of where "allBooks" sits in the admin's configured
+  // order — see the top-of-page render below and the `deferredSearch` guard
+  // on the "allBooks" case.
   const renderAllBooksSection = (key: string, sectionTitle?: string) => (
     <section key={key} id="books-grid" className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -247,6 +247,7 @@ export default function HomePage() {
     switch (type) {
 
       case "banner":
+        if (deferredSearch) return null;
         return banners.length > 0 ? <BannerSlider key={id} banners={banners} /> : null;
 
       // ── Browse by Category ──────────────────────────────────────────────────
@@ -288,6 +289,9 @@ export default function HomePage() {
 
       // ── All Books ─────────────────────────────────────────────────────────────
       case "allBooks":
+        // While searching, results render at the top of the page instead
+        // (see below activeSections.map) so skip the in-place slot here.
+        if (deferredSearch) return null;
         return renderAllBooksSection(id, section.title);
 
       // ── Dynamic Book Section (new HomepageSection) ──────────────────────────
@@ -322,12 +326,6 @@ export default function HomePage() {
   };
 
   const activeSections = sections;
-  // The homepage's admin-configured section list may not include an "allBooks"
-  // section at all (it's optional, like any other section type) — without this
-  // fallback, searching would hide every other section (they all bail out via
-  // their own `deferredSearch` guards above) and leave nothing on the page to
-  // show results in.
-  const hasAllBooksSection = activeSections.some((s) => s.type === "allBooks");
 
   return (
     <div className="space-y-8 pb-8">
@@ -369,8 +367,8 @@ export default function HomePage() {
 
       <div className={`transition-opacity duration-500 ease-out ${showPageContent ? "opacity-100" : "opacity-0"}`}>
         <div className="space-y-8">
+          {deferredSearch && renderAllBooksSection("search-results-top")}
           {activeSections.map((section) => renderSection(section))}
-          {deferredSearch && !hasAllBooksSection && renderAllBooksSection("search-results-fallback")}
         </div>
       </div>
     </div>
