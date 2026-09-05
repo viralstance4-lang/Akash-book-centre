@@ -10,6 +10,7 @@ export async function getPublicShippingConfig(_req: Request, res: Response, next
     const row = await ShippingService.getShippingSettings();
     res.json({
       isShippingEnabled:     row.isShippingEnabled,
+      isCodEnabled:          row.isCodEnabled,
       distanceThreshold:     Number(row.distanceThreshold),
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
@@ -48,6 +49,7 @@ export async function getAdminShippingConfig(_req: Request, res: Response, next:
     res.json({
       id:                    row.id,
       isShippingEnabled:     row.isShippingEnabled,
+      isCodEnabled:          row.isCodEnabled,
       distanceThreshold:     Number(row.distanceThreshold),
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),
@@ -72,6 +74,7 @@ export async function updateAdminShippingConfig(req: Request, res: Response, nex
     res.json({
       id:                    row.id,
       isShippingEnabled:     row.isShippingEnabled,
+      isCodEnabled:          row.isCodEnabled,
       distanceThreshold:     Number(row.distanceThreshold),
       perKmRate:             Number(row.perKmRate),
       freeDeliveryThreshold: Number(row.freeDeliveryThreshold),

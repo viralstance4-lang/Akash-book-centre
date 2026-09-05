@@ -1,0 +1,1 @@
+ALTER TABLE "ShippingSettings" ADD COLUMN IF NOT EXISTS "isCodEnabled" BOOLEAN NOT NULL DEFAULT true;

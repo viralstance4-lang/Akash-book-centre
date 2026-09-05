@@ -78,6 +78,7 @@ export default function AdminShippingPage() {
 
   // ── form state ──────────────────────────────────────────────────────────────
   const [enabled,           setEnabled]           = useState(true);
+  const [codEnabled,        setCodEnabled]        = useState(true);
   const [distThreshold,     setDistThreshold]     = useState("3");
   const [perKmRate,         setPerKmRate]          = useState("8");
   const [freeThreshold,     setFreeThreshold]     = useState("199");
@@ -104,6 +105,7 @@ export default function AdminShippingPage() {
   useEffect(() => {
     if (!config) return;
     setEnabled(config.isShippingEnabled);
+    setCodEnabled(config.isCodEnabled ?? true);
     setDistThreshold(String(config.distanceThreshold));
     setPerKmRate(String(config.perKmRate));
     setFreeThreshold(String(config.freeDeliveryThreshold));
@@ -129,6 +131,7 @@ export default function AdminShippingPage() {
   const handleSave = () => {
     saveMutation.mutate({
       isShippingEnabled:     enabled,
+      isCodEnabled:          codEnabled,
       distanceThreshold:     Number(distThreshold),
       perKmRate:             Number(perKmRate),
       freeDeliveryThreshold: Number(freeThreshold),
@@ -243,6 +246,30 @@ export default function AdminShippingPage() {
           >
             <span
               className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${enabled ? "left-[calc(100%-1.625rem)]" : "left-1"}`}
+            />
+          </button>
+        </div>
+      </SectionCard>
+
+      {/* ── Cash on Delivery toggle ── */}
+      <SectionCard title="Cash on Delivery" subtitle="Disable to hide the COD option on checkout store-wide">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              {codEnabled ? "COD is Enabled" : "COD is Disabled"}
+            </p>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {codEnabled ? "Customers can choose Cash on Delivery at checkout." : "Cash on Delivery is hidden — customers must pay online."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCodEnabled((v) => !v)}
+            className={`relative h-7 w-13 rounded-full transition-colors ${codEnabled ? "bg-emerald-500" : "bg-gray-200"}`}
+            style={{ width: "3.25rem" }}
+          >
+            <span
+              className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${codEnabled ? "left-[calc(100%-1.625rem)]" : "left-1"}`}
             />
           </button>
         </div>

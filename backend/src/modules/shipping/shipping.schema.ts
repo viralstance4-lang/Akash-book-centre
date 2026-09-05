@@ -7,6 +7,7 @@ export const stateRateSchema = z.object({
 
 export const updateShippingConfigSchema = z.object({
   isShippingEnabled:     z.boolean().optional(),
+  isCodEnabled:          z.boolean().optional(),
   distanceThreshold:     z.number().min(0).max(500).optional(),
   perKmRate:             z.number().min(0).max(100_000).optional(),
   freeDeliveryThreshold: z.number().min(0).max(1_000_000).optional(),

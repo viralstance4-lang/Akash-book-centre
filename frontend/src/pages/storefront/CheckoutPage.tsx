@@ -88,7 +88,10 @@ export default function CheckoutPage() {
 
   const hasPrintBook     = useMemo(() => items.some((item) => item.book.isPrintBook === true), [items]);
   const hasSpiralBinding = useMemo(() => items.some((item) => item.bindingType === "SPIRAL"), [items]);
-  const codBlocked       = hasPrintBook || hasSpiralBinding;
+  // Defaults to enabled while settings are still loading, so the COD option doesn't
+  // flash blocked and then re-appear once the query resolves.
+  const codGloballyEnabled = shippingSettings ? shippingSettings.isCodEnabled !== false : true;
+  const codBlocked       = hasPrintBook || hasSpiralBinding || !codGloballyEnabled;
 
   // Auto-switch to ONLINE when COD is blocked
   useEffect(() => {
@@ -488,7 +491,7 @@ export default function CheckoutPage() {
               </div>
             )}
 
-            <div className={`grid gap-3 ${isRazorpayConfigured ? "grid-cols-2" : "grid-cols-1"}`}>
+            <div className={`grid gap-3 ${isRazorpayConfigured && codGloballyEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
               {isRazorpayConfigured && (
                 <button type="button" onClick={() => setPaymentMethod("ONLINE")}
                   className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${paymentMethod === "ONLINE" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"}`}>
@@ -499,36 +502,41 @@ export default function CheckoutPage() {
                   </div>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => !codBlocked && setPaymentMethod("COD")}
-                disabled={codBlocked}
-                title={
-                  hasPrintBook
-                    ? "Cash on Delivery is unavailable for Print Books"
-                    : hasSpiralBinding
-                    ? "COD not available for Spiral Binding orders"
-                    : undefined
-                }
-                className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${
-                  paymentMethod === "COD" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"
-                } ${codBlocked ? "cursor-not-allowed opacity-40" : ""}`}
-              >
-                <Truck size={20} className={paymentMethod === "COD" ? "text-[#1d1a17]" : "text-text-muted"} />
-                <div>
-                  <p className="text-sm font-semibold text-text-primary">Cash on Delivery</p>
-                  {codBlocked ? (
-                    <p className="text-xs text-red-500 font-medium">
-                      {hasPrintBook ? "Unavailable for Print Books" : "Unavailable for Spiral Binding"}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-emerald-600 font-medium">FREE · No extra charge</p>
-                  )}
-                </div>
-              </button>
+              {codGloballyEnabled && (
+                <button
+                  type="button"
+                  onClick={() => !codBlocked && setPaymentMethod("COD")}
+                  disabled={codBlocked}
+                  title={
+                    hasPrintBook
+                      ? "Cash on Delivery is unavailable for Print Books"
+                      : hasSpiralBinding
+                      ? "COD not available for Spiral Binding orders"
+                      : undefined
+                  }
+                  className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all ${
+                    paymentMethod === "COD" ? "border-[#1d1a17] bg-[#f4efe7]" : "border-black/10 hover:border-black/20"
+                  } ${codBlocked ? "cursor-not-allowed opacity-40" : ""}`}
+                >
+                  <Truck size={20} className={paymentMethod === "COD" ? "text-[#1d1a17]" : "text-text-muted"} />
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary">Cash on Delivery</p>
+                    {codBlocked ? (
+                      <p className="text-xs text-red-500 font-medium">
+                        {hasPrintBook ? "Unavailable for Print Books" : "Unavailable for Spiral Binding"}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-emerald-600 font-medium">FREE · No extra charge</p>
+                    )}
+                  </div>
+                </button>
+              )}
             </div>
-            {!isRazorpayConfigured && !codBlocked && (
+            {!isRazorpayConfigured && codGloballyEnabled && !codBlocked && (
               <p className="mt-2 text-xs text-text-muted">Online payment is currently unavailable. Cash on Delivery is available.</p>
+            )}
+            {!isRazorpayConfigured && !codGloballyEnabled && (
+              <p className="mt-2 text-xs text-red-500">No payment method is currently available. Please contact the store.</p>
             )}
           </section>
 

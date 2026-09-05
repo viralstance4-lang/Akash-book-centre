@@ -39,6 +39,13 @@ export const placeOrder = async (
   const hasPrintBook    = cart.items.some((item) => (item.book as any).isPrintBook === true);
   const hasSpiralBinding = cart.items.some((item) => item.bindingType === "SPIRAL");
 
+  if (paymentMethod === "COD") {
+    const shippingSettings = await ShippingService.getShippingSettings();
+    if (!shippingSettings.isCodEnabled) {
+      throw new AppError("Cash on Delivery is currently unavailable. Please use online payment.", 400, "COD_NOT_ALLOWED");
+    }
+  }
+
   if ((hasPrintBook || hasSpiralBinding) && paymentMethod === "COD") {
     const reason = hasPrintBook
       ? "Cash on Delivery is not available for Print Books. Please use online payment."
