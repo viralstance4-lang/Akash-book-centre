@@ -68,12 +68,18 @@ export default function HomePage() {
     return [...homepageSections].sort((a, b) => a.order - b.order).filter((s) => s.isEnabled);
   }, [homepageSections]);
 
-  // Featured manual products
-  const featuredSection   = useMemo(() => homepageSections.find((s) => s.bookFilter === "featured"), [homepageSections]);
+  // Manually-picked products — gathered across ALL sections (not just the first
+  // "featured" one) so each section renders its own picks instead of sharing
+  // whichever section happened to be found first.
   const manualProductIds: string[] = useMemo(() => {
-    if (!featuredSection?.config?.useManual) return [];
-    return featuredSection?.config?.selectedProductIds ?? [];
-  }, [featuredSection]);
+    const ids = new Set<string>();
+    for (const s of homepageSections) {
+      if (s.config?.useManual) {
+        for (const id of s.config?.selectedProductIds ?? []) ids.add(id);
+      }
+    }
+    return [...ids];
+  }, [homepageSections]);
   const manualFeaturedQueries = useQueries({
     queries: manualProductIds.map((id) => ({
       queryKey:  ["book", id],
@@ -82,9 +88,14 @@ export default function HomePage() {
       enabled:   manualProductIds.length > 0,
     })),
   });
-  const manualFeaturedBooks: Book[] = manualFeaturedQueries
-    .map((r) => r.data?.data)
-    .filter((b): b is Book => !!b);
+  const manualBooksById = useMemo(() => {
+    const map = new Map<string, Book>();
+    manualFeaturedQueries.forEach((r, i) => {
+      const book = r.data?.data;
+      if (book) map.set(manualProductIds[i], book);
+    });
+    return map;
+  }, [manualFeaturedQueries, manualProductIds]);
 
   // ── Section-specific helpers ──────────────────────────────────────────────────
   // books array is already sorted newest-first from the API (orderBy createdAt desc)
@@ -139,17 +150,22 @@ export default function HomePage() {
     const filter = section.bookFilter ?? 'newArrivals';
 
     let pool = books;
-    if (catId)  pool = pool.filter((b) => b.categoryId === catId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === catId));
+    if (catId)  pool = pool.filter((b) => b.categoryId === catId || b.bookCategories?.some((bc) => bc.category?.id === catId) || b.bookSubcategories?.some((bs: any) => bs.subcategory?.categoryId === catId));
     if (subId)  pool = pool.filter((b) => b.subcategoryId === subId || b.bookSubcategories?.some((bs: any) => bs.subcategory?.id === subId));
 
     if (filter === 'featured' || filter === 'bestSellers') {
-      const apiFeatured = (featuredData?.data ?? []) as Book[];
       const ids = section.config?.selectedProductIds ?? [];
       if (ids.length && section.config?.useManual) {
-        return manualFeaturedBooks.slice(0, limit);
+        const picked = ids.map((id) => manualBooksById.get(id)).filter((b): b is Book => !!b);
+        return picked.slice(0, limit);
       }
+      // Global "featured" list is site-wide — only use it here when it's actually
+      // consistent with this section's own category/subcategory filter, otherwise
+      // a curated list from an unrelated section would silently replace it.
+      const poolIds     = new Set(pool.map((b) => b.id));
+      const apiFeatured = ((featuredData?.data ?? []) as Book[]).filter((b) => poolIds.has(b.id));
       if (apiFeatured.length) return apiFeatured.slice(0, limit);
-      return [...pool].sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0)).slice(0, limit);
+      return [...pool].sort((a, b) => b.stock - a.stock).slice(0, limit);
     }
     return pool.slice(0, limit);
   };
@@ -302,6 +318,10 @@ export default function HomePage() {
         const sub = section.subcategoryId ? cat?.subcategories?.find((s) => s.id === section.subcategoryId) : null;
         const subtitle = section.subtitle ?? (sub ? sub.name : cat ? cat.name : null);
         const viewHref = getSectionViewAllHref(section, categories);
+        // A manually-curated pick with no category/subcategory has nowhere sensible
+        // to send "View all" — /featured or /best-sellers would show an unrelated
+        // sitewide list instead of this section's own books.
+        const showViewAll = !(section.config?.useManual && (section.config?.selectedProductIds?.length ?? 0) > 0 && !cat && !sub);
         return (
           <section key={id} className="space-y-4">
             <div className="flex items-center justify-between">
@@ -309,9 +329,11 @@ export default function HomePage() {
                 <h2 className="font-serif text-xl text-text-primary sm:text-2xl">{section.title}</h2>
                 {subtitle && <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>}
               </div>
-              <Link to={viewHref} className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
-                View all <ArrowRight size={13} />
-              </Link>
+              {showViewAll && (
+                <Link to={viewHref} className="flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-primary transition-colors shrink-0">
+                  View all <ArrowRight size={13} />
+                </Link>
+              )}
             </div>
             <BookSlider books={sectionBooks} onAddToCart={(book) => handleAddToCart(book.id)}
               cartBookIds={cartBookIds}

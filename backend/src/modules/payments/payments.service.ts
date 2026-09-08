@@ -59,6 +59,39 @@ export const confirmCapturedPayment = async (razorpayOrderId: string, razorpayPa
   logger.info({ razorpayOrderId }, "[WEBHOOK] payment.captured — nothing to update (already confirmed or unknown order)");
 };
 
+// Webhook-driven cleanup for the `payment.failed` event — without this, a
+// customer whose card is declined (or who closes the Razorpay checkout after
+// Razorpay itself reports failure) leaves the order stuck PENDING with its
+// stock permanently decremented, since neither /verify nor cancelOrder ever
+// runs for a checkout the client-side flow never completes. Mirrors the
+// stock-restore + cancel done by /verify's own signature-mismatch branch.
+// Idempotent via the same conditional-updateMany pattern as confirmCapturedPayment.
+export const handlePaymentFailedWebhook = async (razorpayOrderId: string) => {
+  const payment = await prisma.payment.findFirst({
+    where: { razorpayOrderId },
+    include: { order: { include: { items: true } } },
+  });
+  if (!payment) return;
+
+  await prisma.$transaction(async (tx) => {
+    const paymentUpdate = await tx.payment.updateMany({
+      where: { razorpayOrderId, status: "PENDING" },
+      data:  { status: "FAILED" },
+    });
+    if (paymentUpdate.count === 0) return;
+
+    const orderUpdate = await tx.order.updateMany({
+      where: { id: payment.orderId, status: "PENDING" },
+      data:  { status: "CANCELLED" },
+    });
+    if (orderUpdate.count === 0) return;
+
+    for (const item of payment.order.items) {
+      await tx.book.update({ where: { id: item.bookId }, data: { stock: { increment: item.quantity } } });
+    }
+  });
+};
+
 export const verifyPayment = async (
   userId: string,
   razorpayOrderId: string,

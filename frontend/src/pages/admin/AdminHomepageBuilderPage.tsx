@@ -481,6 +481,7 @@ export default function AdminHomepageBuilderPage() {
   const [saveOk, setSaveOk] = useState(false);
   const [modalError, setModalError] = useState("");
   const [reorderError, setReorderError] = useState("");
+  const [pageError, setPageError] = useState("");
 
   // Queries
   const { data: rawSections = [], isLoading } = useQuery({
@@ -491,7 +492,10 @@ export default function AdminHomepageBuilderPage() {
   const categories: Category[] = categoriesData?.data ?? [];
 
   useEffect(() => {
-    if (rawSections.length) {
+    // Skip the resync while a drag-reorder is pending (isDirty) — otherwise an
+    // unrelated refetch (toggle/edit/delete/duplicate all invalidate this query)
+    // would silently overwrite the admin's unsaved local reorder.
+    if (rawSections.length && !isDirty) {
       setSections([...rawSections].sort((a, b) => a.order - b.order));
       setIsDirty(false);
     }
@@ -507,17 +511,21 @@ export default function AdminHomepageBuilderPage() {
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => adminUpdateSection(id, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }); setModalSection(null); setModalError(""); },
-    onError: (e: any) => setModalError(e?.response?.data?.message ?? "Update failed"),
+    // No onError here — the modal-save and inline-toggle call sites each pass
+    // their own onError so the failure surfaces in the right place (modal vs.
+    // page-level banner) instead of always writing into `modalError`.
   });
 
   const deleteMut = useMutation({
     mutationFn: adminDeleteSection,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }),
+    onError: (e: any) => setPageError(e?.response?.data?.message ?? "Delete failed"),
   });
 
   const dupMut = useMutation({
     mutationFn: adminDuplicateSection,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["homepage-sections-admin"] }),
+    onError: (e: any) => setPageError(e?.response?.data?.message ?? "Duplicate failed"),
   });
 
   const reorderMut = useMutation({
@@ -557,7 +565,10 @@ export default function AdminHomepageBuilderPage() {
 
   // Toggle enable inline
   const toggle = (id: string) => {
-    updateMut.mutate({ id, data: { isEnabled: !sections.find(s => s.id === id)?.isEnabled } });
+    updateMut.mutate(
+      { id, data: { isEnabled: !sections.find(s => s.id === id)?.isEnabled } },
+      { onError: (e: any) => setPageError(e?.response?.data?.message ?? "Failed to update visibility") },
+    );
   };
 
   // Save reorder
@@ -576,7 +587,13 @@ export default function AdminHomepageBuilderPage() {
     if (modalSection === "new") {
       createMut.mutate(data);
     } else if (modalSection) {
-      updateMut.mutate({ id: modalSection.id, data });
+      // Editing content/config should never move a section's position — strip
+      // `order` so a pending-but-unsaved drag reorder can't be clobbered by
+      // whatever (possibly stale) order value the modal's form was seeded with.
+      const { order, ...rest } = data;
+      updateMut.mutate({ id: modalSection.id, data: rest }, {
+        onError: (e: any) => setModalError(e?.response?.data?.message ?? "Update failed"),
+      });
     }
   };
 
@@ -600,6 +617,14 @@ export default function AdminHomepageBuilderPage() {
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600 flex items-center justify-between gap-3">
           <span>{reorderError}</span>
           <button onClick={() => setReorderError("")} className="shrink-0 text-red-400 hover:text-red-600"><X size={14} /></button>
+        </div>
+      )}
+
+      {/* ── Page-level error (delete / duplicate / toggle failures) ── */}
+      {pageError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600 flex items-center justify-between gap-3">
+          <span>{pageError}</span>
+          <button onClick={() => setPageError("")} className="shrink-0 text-red-400 hover:text-red-600"><X size={14} /></button>
         </div>
       )}
 

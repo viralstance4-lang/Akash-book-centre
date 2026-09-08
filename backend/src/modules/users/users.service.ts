@@ -148,6 +148,20 @@ export const deleteUser = async (id: string, requestingAdminId: string) => {
     include: { files: true },
   });
 
+  // A print order that got past checkout (i.e. isn't still awaiting/failed
+  // payment) is a real, paid transaction — treat it like a regular order and
+  // block deletion instead of silently destroying that financial history.
+  const hasPaidPrintOrders = printOrders.some(
+    (o) => o.status !== "AWAITING_PAYMENT" && o.status !== "PAYMENT_FAILED",
+  );
+  if (hasPaidPrintOrders) {
+    throw new AppError(
+      "Cannot delete user with print orders",
+      400,
+      "USER_HAS_PRINT_ORDERS",
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.refreshToken.deleteMany({ where: { userId: id } });
     await tx.otpCode.deleteMany({ where: { userId: id } });

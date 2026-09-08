@@ -488,8 +488,13 @@ export const getUserPrintOrders = async (userId: string) =>
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
+// Excludes pre-payment rows (AWAITING_PAYMENT / PAYMENT_FAILED) by default — these are
+// created before Razorpay checkout completes (see createPrintOrder) and aren't real, paid
+// orders an operator should act on. The admin UI's STATUS_OPTIONS also has no matching
+// option for them, so leaving them in makes the queue confusing.
 export const getAllPrintOrders = async () =>
   prisma.printOrder.findMany({
+    where: { status: { notIn: ["AWAITING_PAYMENT", "PAYMENT_FAILED"] } },
     include: {
       user:  { select: { id: true, name: true, email: true, phone: true } },
       files: { orderBy: { order: "asc" } },

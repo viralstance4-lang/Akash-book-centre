@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import {
   AlertTriangle, Check, ChevronDown, ChevronUp, Download,
   Eye, Loader2, Mail, MapPin, Phone, Settings, Share2, Trash2, User,
@@ -12,6 +13,7 @@ import {
   type PrintOrder,
 } from "../../api/print.api";
 import { markPrintOrderSeen } from "../../api/admin.api";
+import type { ApiErrorResponse } from "../../types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,11 +95,13 @@ function DeleteModal({
   onConfirm,
   onCancel,
   isPending,
+  error,
 }: {
   orderId: string;
   onConfirm: () => void;
   onCancel: () => void;
   isPending: boolean;
+  error?: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
@@ -110,6 +114,9 @@ function DeleteModal({
           Order <span className="font-mono font-semibold">#{orderId.slice(0, 8).toUpperCase()}</span> and
           all its uploaded PDFs will be permanently removed. This cannot be undone.
         </p>
+        {error && (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>
+        )}
         <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
@@ -142,6 +149,9 @@ export default function AdminPrintOrdersPage() {
   const [deleteTarget,  setDeleteTarget]  = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [viewingId,     setViewingId]     = useState<string | null>(null);
+  const [statusError,   setStatusError]   = useState("");
+  const [settingsError, setSettingsError] = useState("");
+  const [deleteError,   setDeleteError]   = useState("");
 
   const [settingsForm, setSettingsForm] = useState({
     bwSingleSide:         "1",
@@ -192,14 +202,26 @@ export default function AdminPrintOrdersPage() {
   const updateStatusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       updatePrintOrderStatus(id, status),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-print-orders"] }),
+    onSuccess: () => {
+      setStatusError("");
+      void queryClient.invalidateQueries({ queryKey: ["admin-print-orders"] });
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setStatusError(apiError.response?.data?.message ?? "Failed to update order status.");
+    },
   });
 
   const updateSettingsMut = useMutation({
     mutationFn: updatePrintSettings,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["print-settings"] });
+      setSettingsError("");
       setShowSettings(false);
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setSettingsError(apiError.response?.data?.message ?? "Failed to update print pricing settings.");
     },
   });
 
@@ -207,7 +229,12 @@ export default function AdminPrintOrdersPage() {
     mutationFn: (id: string) => deletePrintOrder(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-print-orders"] });
+      setDeleteError("");
       setDeleteTarget(null);
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setDeleteError(apiError.response?.data?.message ?? "Failed to delete print order.");
     },
   });
 
@@ -234,8 +261,9 @@ export default function AdminPrintOrdersPage() {
         <DeleteModal
           orderId={deleteTarget}
           isPending={deleteMut.isPending}
+          error={deleteError}
           onConfirm={() => deleteMut.mutate(deleteTarget)}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() => { setDeleteTarget(null); setDeleteError(""); }}
         />
       )}
 
@@ -249,7 +277,7 @@ export default function AdminPrintOrdersPage() {
           </div>
           <button
             type="button"
-            onClick={() => setShowSettings((v) => !v)}
+            onClick={() => { setShowSettings((v) => !v); setSettingsError(""); }}
             className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-text-primary transition-all hover:-translate-y-0.5 hover:border-black/20"
           >
             <Settings size={15} /> Print Pricing
@@ -260,6 +288,9 @@ export default function AdminPrintOrdersPage() {
         {showSettings && (
           <div className="rounded-2xl border border-black/10 bg-white p-5 space-y-6">
             <h3 className="font-serif text-xl text-text-primary">Print Pricing Settings</h3>
+            {settingsError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{settingsError}</div>
+            )}
 
             {/* B&W section */}
             <div>
@@ -332,7 +363,7 @@ export default function AdminPrintOrdersPage() {
             </div>
 
             <div className="flex justify-end gap-3 border-t border-black/8 pt-4">
-              <button type="button" onClick={() => setShowSettings(false)}
+              <button type="button" onClick={() => { setShowSettings(false); setSettingsError(""); }}
                 className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:text-text-primary">
                 Cancel
               </button>
@@ -357,6 +388,9 @@ export default function AdminPrintOrdersPage() {
         )}
 
         {/* ── Order List ────────────────────────────────────────────────── */}
+        {statusError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{statusError}</div>
+        )}
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
@@ -574,7 +608,7 @@ export default function AdminPrintOrdersPage() {
                         {/* Delete */}
                         <button
                           type="button"
-                          onClick={() => setDeleteTarget(order.id)}
+                          onClick={() => { setDeleteTarget(order.id); setDeleteError(""); }}
                           title="Delete order"
                           className="flex h-8 w-8 items-center justify-center rounded-full border border-red-100 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
                         >

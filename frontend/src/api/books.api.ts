@@ -9,6 +9,7 @@ type GetBooksParams = {
   author?: string;
   minPrice?: number;
   maxPrice?: number;
+  maxStock?: number;
   page?: number;
   limit?: number;
 };

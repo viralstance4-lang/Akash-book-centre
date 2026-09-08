@@ -56,6 +56,9 @@ export async function getAdminShippingConfig(_req: Request, res: Response, next:
       defaultKgRate:         Number(row.defaultKgRate),
       localZoneRate:         Number(row.localZoneRate),
       northEastRate:         Number(row.northEastRate),
+      localZoneAreaCharge:   Number(row.localZoneAreaCharge),
+      northEastAreaCharge:   Number(row.northEastAreaCharge),
+      defaultAreaCharge:     Number(row.defaultAreaCharge),
       stateRates:            row.stateRates,
       updatedAt:             row.updatedAt,
     });
@@ -81,6 +84,9 @@ export async function updateAdminShippingConfig(req: Request, res: Response, nex
       defaultKgRate:         Number(row.defaultKgRate),
       localZoneRate:         Number(row.localZoneRate),
       northEastRate:         Number(row.northEastRate),
+      localZoneAreaCharge:   Number(row.localZoneAreaCharge),
+      northEastAreaCharge:   Number(row.northEastAreaCharge),
+      defaultAreaCharge:     Number(row.defaultAreaCharge),
       stateRates:            row.stateRates,
       updatedAt:             row.updatedAt,
     });

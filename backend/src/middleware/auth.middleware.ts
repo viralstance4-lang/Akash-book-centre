@@ -8,6 +8,7 @@ import jwt, {
 
 import env from "../config/env";
 import AppError from "../lib/AppError";
+import prisma from "../lib/prisma";
 
 const JWT_ACCESS_SECRET: Secret = env.JWT_ACCESS_SECRET;
 
@@ -61,10 +62,18 @@ const authMiddleware: RequestHandler = (req, res, next) => {
   }
 };
 
-export const requireAdmin: RequestHandler = (req, res, next) => {
+// Re-checks the role against the DB (rather than trusting the JWT's baked-in
+// role) so a demoted/deleted admin loses access immediately instead of
+// retaining admin API access for the rest of their token's lifetime.
+export const requireAdmin: RequestHandler = async (req, res, next) => {
   void res;
 
   if (req.user?.role !== "ADMIN") {
+    throw new AppError("Forbidden", 403, "FORBIDDEN");
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
+  if (!user || user.role !== "ADMIN") {
     throw new AppError("Forbidden", 403, "FORBIDDEN");
   }
 

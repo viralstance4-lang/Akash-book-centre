@@ -140,9 +140,12 @@ export default function BookDetailPage() {
     return () => { document.body.style.overflow = prevOverflow; };
   }, [isZoomed]);
 
-  const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
+  // Only treat comparePrice as real when the admin actually set one — never fabricate a fake MRP.
+  const comparePrice = book?.comparePrice ? Number(book.comparePrice) : null;
   const originalPrice = comparePrice;
-  const discount = book && comparePrice > Number(book.price) ? Math.round(((comparePrice - Number(book.price)) / comparePrice) * 100) : 0;
+  const discount = comparePrice && comparePrice > Number(book?.price ?? 0)
+    ? Math.round(((comparePrice - Number(book?.price ?? 0)) / comparePrice) * 100)
+    : 0;
   const bindingExtra = bindingType === "SPIRAL" ? spiralBindingPrice : 0;
   const effectivePrice = Number(book?.price ?? 0) + bindingExtra;
 
@@ -449,8 +452,12 @@ export default function BookDetailPage() {
           {/* Price */}
           <div className="flex items-baseline gap-3">
             <span className="font-serif text-3xl font-bold text-text-primary">{formatPrice(effectivePrice)}</span>
-            <span className="text-base text-text-muted line-through">{formatPrice(originalPrice)}</span>
-            <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">{discount}% off</span>
+            {discount > 0 && originalPrice != null && (
+              <>
+                <span className="text-base text-text-muted line-through">{formatPrice(originalPrice)}</span>
+                <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">{discount}% off</span>
+              </>
+            )}
           </div>
           <p className="text-xs text-emerald-600 font-medium">✓ Inclusive of all taxes</p>
 

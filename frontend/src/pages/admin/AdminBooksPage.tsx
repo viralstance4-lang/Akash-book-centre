@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   GripVertical,
   ImagePlus,
   Pencil,
@@ -19,6 +21,7 @@ import {
   createBook,
   deleteBook,
   deleteBookImage,
+  getBook,
   getBooks,
   reorderBookImages,
   updateBook,
@@ -407,36 +410,62 @@ export default function AdminBooksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search,       setSearch]       = useState("");
   const [filterCatId,  setFilterCatId]  = useState("");
+  const [page,         setPage]         = useState(1);
   const [editingBook,  setEditingBook]  = useState<Book | null>(null);
   const [form,         setForm]         = useState<BookFormState>(initialForm);
   const [formError,    setFormError]    = useState("");
   const [managingImagesBook, setManagingImagesBook] = useState<Book | null>(null);
   const { toast, showToast } = useToast();
+  const BOOKS_PAGE_LIMIT = 50;
 
   const { data: booksData, isLoading } = useQuery({
-    queryKey: ["admin-books", search, filterCatId],
+    queryKey: ["admin-books", search, filterCatId, page],
     queryFn: () => getBooks({
       q:        search      || undefined,
       category: filterCatId || undefined,
-      limit: 50,
+      page,
+      limit: BOOKS_PAGE_LIMIT,
     }),
   });
   const { data: categoriesData } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
 
   const books:      Book[]     = booksData?.data.books ?? [];
   const categories: Category[] = categoriesData?.data ?? [];
+  const totalBooks  = booksData?.data.total ?? 0;
+  const totalPages  = booksData?.data.totalPages ?? 1;
 
-  // Auto-open edit form when arriving from a Restock link (?edit=<id>)
+  // Reset back to page 1 whenever the search/filter criteria change so the
+  // user isn't left staring at an out-of-range page of stale results.
+  useEffect(() => { setPage(1); }, [search, filterCatId]);
+
+  // Auto-open edit form when arriving from a Restock link (?edit=<id>).
+  // If the target book isn't in the currently-loaded page of results (e.g. it's
+  // outside the first 50 rows), fetch it directly instead of silently no-oping.
   useEffect(() => {
     const editId = searchParams.get("edit");
-    if (!editId || books.length === 0) return;
+    if (!editId) return;
+    if (books.length === 0 && isLoading) return;
     const target = books.find((b) => b.id === editId);
     if (target) {
       handleEdit(target);
       setSearchParams({}, { replace: true });
+      return;
     }
+    let cancelled = false;
+    getBook(editId)
+      .then((res) => {
+        if (cancelled) return;
+        handleEdit(res.data);
+        setSearchParams({}, { replace: true });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSearchParams({}, { replace: true });
+        showToast(false, "Could not find that book to edit.");
+      });
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [books, searchParams]);
+  }, [books, isLoading, searchParams]);
 
   const resetForm = () => { setEditingBook(null); setForm(initialForm); setFormError(""); };
 
@@ -633,6 +662,27 @@ export default function AdminBooksPage() {
                     );
                   })}
             </div>
+
+            {/* Pagination */}
+            {!isLoading && totalBooks > 0 && (
+              <div className="mt-4 flex items-center justify-between border-t border-black/8 pt-4">
+                <p className="text-xs text-text-muted">
+                  Page {page} of {totalPages} · {totalBooks} book{totalBooks === 1 ? "" : "s"}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button type="button" disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs text-text-primary hover:border-black/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                    <ChevronLeft size={13} /> Prev
+                  </button>
+                  <button type="button" disabled={page * BOOKS_PAGE_LIMIT >= totalBooks}
+                    onClick={() => setPage((p) => p + 1)}
+                    className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs text-text-primary hover:border-black/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                    Next <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -671,7 +721,7 @@ export default function AdminBooksPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1 block text-xs text-text-muted">Sale Price (₹) *</label>
-                <input value={form.price}        onChange={(e) => setForm((c) => ({ ...c, price:        e.target.value }))} placeholder="e.g. 299" className={inp} />
+                <input type="number" inputMode="decimal" min={0.01} step="0.01" value={form.price}        onChange={(e) => setForm((c) => ({ ...c, price:        e.target.value }))} placeholder="e.g. 299" className={inp} />
               </div>
               <div>
                 <label className="mb-1 block text-xs text-text-muted">Compare Price (₹)</label>
@@ -679,26 +729,40 @@ export default function AdminBooksPage() {
               </div>
             </div>
 
-            <input value={form.stock} onChange={(e) => setForm((c) => ({ ...c, stock: e.target.value }))} placeholder="Stock *" className={inp} />
+            <input type="number" inputMode="numeric" min={0} step="1" value={form.stock} onChange={(e) => setForm((c) => ({ ...c, stock: e.target.value }))} placeholder="Stock *" className={inp} />
 
             {/* ── Categories multi-select ──────────────────────────────── */}
             <MultiSelect
               label="Categories"
               items={categories.map((c) => ({ id: c.id, name: c.name }))}
               selectedIds={form.categoryIds}
-              onChange={(ids) => setForm((f) => ({ ...f, categoryIds: ids }))}
+              onChange={(ids) =>
+                setForm((f) => {
+                  // Dropping a category must also drop any already-selected subcategory
+                  // that belonged only to it — otherwise the form holds a dangling
+                  // subcategory whose parent category is no longer selected.
+                  const allowedSubcategoryIds = new Set(
+                    categories.filter((c) => ids.includes(c.id)).flatMap((c) => c.subcategories.map((s) => s.id)),
+                  );
+                  return {
+                    ...f,
+                    categoryIds: ids,
+                    subcategoryIds: f.subcategoryIds.filter((id) => allowedSubcategoryIds.has(id)),
+                  };
+                })
+              }
               placeholder="Select categories…"
             />
 
             {/* ── Subcategories multi-select ───────────────────────────── */}
             <MultiSelect
               label="Subcategories"
-              items={categories.flatMap((c) =>
-                c.subcategories.map((s) => ({ id: s.id, name: s.name, meta: c.name }))
-              )}
+              items={categories
+                .filter((c) => form.categoryIds.includes(c.id))
+                .flatMap((c) => c.subcategories.map((s) => ({ id: s.id, name: s.name, meta: c.name })))}
               selectedIds={form.subcategoryIds}
               onChange={(ids) => setForm((f) => ({ ...f, subcategoryIds: ids }))}
-              placeholder="Select subcategories…"
+              placeholder={form.categoryIds.length === 0 ? "Select a category first…" : "Select subcategories…"}
             />
 
             <div className="grid grid-cols-2 gap-3">

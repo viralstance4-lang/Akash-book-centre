@@ -4,8 +4,7 @@ import { type RequestHandler } from "express";
 import AppError from "../../lib/AppError";
 import env from "../../config/env";
 import logger from "../../config/logger";
-import { verifyPayment as verifyPaymentService, confirmCapturedPayment } from "./payments.service";
-import prisma from "../../lib/prisma";
+import { verifyPayment as verifyPaymentService, confirmCapturedPayment, handlePaymentFailedWebhook } from "./payments.service";
 
 const getUserIdOrThrow = (userId?: string) => {
   if (!userId) {
@@ -63,11 +62,8 @@ export const handleWebhook: RequestHandler = async (req, res) => {
     const razorpayOrderId = paymentEntity?.order_id as string | undefined;
     if (razorpayOrderId) {
       try {
-        await prisma.payment.updateMany({
-          where: { razorpayOrderId, status: "PENDING" },
-          data:  { status: "FAILED" },
-        });
-        logger.info({ razorpayOrderId }, "[WEBHOOK] Marked payment FAILED via webhook");
+        await handlePaymentFailedWebhook(razorpayOrderId);
+        logger.info({ razorpayOrderId }, "[WEBHOOK] Marked payment FAILED and restored stock via webhook");
       } catch (err) {
         logger.error({ err, razorpayOrderId }, "[WEBHOOK] Failed to update payment status");
       }

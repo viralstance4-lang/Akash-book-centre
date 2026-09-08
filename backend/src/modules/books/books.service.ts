@@ -58,15 +58,26 @@ const validateCategoryIds = async (ids: string[]): Promise<void> => {
     throw new AppError("One or more categories not found", 404, "CATEGORY_NOT_FOUND");
 };
 
-const validateSubcategoryIds = async (ids: string[]): Promise<void> => {
+// Validates that every subcategoryId exists AND that its parent category is among
+// the categoryIds submitted alongside it — prevents a book being tagged with a
+// subcategory whose parent category was never selected (via the API directly,
+// bypassing the admin UI's own filtering).
+const validateSubcategoryIds = async (ids: string[], categoryIds: string[]): Promise<void> => {
   if (ids.length === 0) return;
-  const found = await prisma.subcategory.count({ where: { id: { in: ids } } });
-  if (found !== ids.length)
+  const subcategories = await prisma.subcategory.findMany({ where: { id: { in: ids } } });
+  if (subcategories.length !== ids.length)
     throw new AppError("One or more subcategories not found", 404, "SUBCATEGORY_NOT_FOUND");
+  const orphan = subcategories.find((s) => !categoryIds.includes(s.categoryId));
+  if (orphan)
+    throw new AppError(
+      `Subcategory "${orphan.name}" does not belong to any of the selected categories`,
+      400,
+      "SUBCATEGORY_CATEGORY_MISMATCH",
+    );
 };
 
 export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
-  const { q, category, subcategory, author, minPrice, maxPrice, page = 1, limit = 10 } = query;
+  const { q, category, subcategory, author, minPrice, maxPrice, maxStock, page = 1, limit = 10 } = query;
   const where: Prisma.BookWhereInput = {};
 
   if (q?.trim()) {
@@ -88,6 +99,7 @@ export const getAllBooks = async (query: Partial<GetBooksQueryInput> = {}) => {
     if (minPrice !== undefined) (where.price as Prisma.DecimalFilter).gte = minPrice;
     if (maxPrice !== undefined) (where.price as Prisma.DecimalFilter).lte = maxPrice;
   }
+  if (maxStock !== undefined) where.stock = { lte: maxStock };
 
   const [books, total] = await Promise.all([
     prisma.book.findMany({ where, include: bookListInclude, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
@@ -105,9 +117,9 @@ export const createBook = async (data: CreateBookInput, files?: FileLike[], cove
   const subcategoryIds = data.subcategoryIds ?? [];
 
   await validateCategoryIds(categoryIds);
-  await validateSubcategoryIds(subcategoryIds);
+  await validateSubcategoryIds(subcategoryIds, categoryIds);
 
-  const existingBook = await prisma.book.findFirst({ where: { isbn: data.isbn } });
+  const existingBook = await prisma.book.findFirst({ where: { isbn: { equals: data.isbn, mode: "insensitive" } } });
   if (existingBook) throw new AppError("Book already exists", 409, "BOOK_ALREADY_EXISTS");
 
   const safeIndex = Math.min(Math.max(coverIndex, 0), files.length - 1);
@@ -164,10 +176,17 @@ export const updateBook = async (id: string, data: UpdateBookInput, file?: FileL
   const subcategoryIds = data.subcategoryIds !== undefined ? (data.subcategoryIds ?? []) : undefined;
 
   if (categoryIds    !== undefined) await validateCategoryIds(categoryIds);
-  if (subcategoryIds !== undefined) await validateSubcategoryIds(subcategoryIds);
+  if (subcategoryIds !== undefined) {
+    // categoryIds may not be part of this update — fall back to the book's current
+    // categories so a subcategory-only update is still checked against its real parent.
+    const effectiveCategoryIds = categoryIds !== undefined
+      ? categoryIds
+      : existingBook.bookCategories.map((bc) => bc.categoryId);
+    await validateSubcategoryIds(subcategoryIds, effectiveCategoryIds);
+  }
 
-  if (data.isbn && data.isbn !== existingBook.isbn) {
-    const dup = await prisma.book.findFirst({ where: { isbn: data.isbn, NOT: { id } } });
+  if (data.isbn && data.isbn.toLowerCase() !== existingBook.isbn.toLowerCase()) {
+    const dup = await prisma.book.findFirst({ where: { isbn: { equals: data.isbn, mode: "insensitive" }, NOT: { id } } });
     if (dup) throw new AppError("Book with this ISBN already exists", 409, "BOOK_ALREADY_EXISTS");
   }
 
