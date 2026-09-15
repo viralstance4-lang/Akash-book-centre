@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import AppError from "../../lib/AppError";
 import * as mediaService from "./media.service";
+import { bulkDeleteMediaSchema } from "./media.schema";
 
 const parseResourceType = (raw: unknown): "image" | "video" => (raw === "video" ? "video" : "image");
 const str = (raw: unknown): string | undefined => (typeof raw === "string" && raw ? raw : undefined);
@@ -42,6 +43,14 @@ export const deleteMedia = async (req: Request, res: Response, next: NextFunctio
 
     await mediaService.deleteMediaAsset(publicId, resourceType);
     res.json({ success: true, message: "Media deleted" });
+  } catch (err) { next(err); }
+};
+
+export const bulkDeleteMedia = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { publicIds, type } = bulkDeleteMediaSchema.parse(req.body);
+    const result = await mediaService.deleteMediaAssets(publicIds, type);
+    res.json({ success: true, message: "Media deleted", data: result });
   } catch (err) { next(err); }
 };
 

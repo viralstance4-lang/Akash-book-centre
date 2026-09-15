@@ -49,6 +49,16 @@ export const deleteMedia = async (publicId: string, type: MediaResourceType) => 
   return response.data;
 };
 
+export type BulkDeleteResult = { deleted: string[]; notFound: string[] };
+
+export const bulkDeleteMedia = async (publicIds: string[], type: MediaResourceType) => {
+  const response = await api.post<ApiSuccessResponse<BulkDeleteResult>>("/admin/media/bulk-delete", {
+    publicIds,
+    type,
+  });
+  return response.data;
+};
+
 export type MediaUsage = {
   plan: string;
   storageBytes: number;

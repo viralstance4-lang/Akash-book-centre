@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 import { AlertTriangle, CalendarArrowDown, CalendarArrowUp, Copy, Film, HardDrive, ImageIcon, Loader2, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { deleteMedia, getMedia, getMediaUsage, type MediaItem, type MediaResourceType, type MediaSort } from "../../api/media.api";
+import { bulkDeleteMedia, deleteMedia, getMedia, getMediaUsage, type MediaItem, type MediaResourceType, type MediaSort } from "../../api/media.api";
 import { useToast, ToastViewport } from "../../components/ui/Toast";
 import type { ApiErrorResponse } from "../../types";
 
@@ -64,6 +64,62 @@ function DeleteModal({
           <button type="button" disabled={isPending} onClick={onConfirm}
             className="rounded-full bg-red-600 px-5 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60">
             {isPending ? "Deleting…" : item.inUse ? "Delete anyway" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkDeleteModal({
+  count,
+  inUseCount,
+  isPending,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  count: number;
+  inUseCount: number;
+  isPending: boolean;
+  error: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
+      <div
+        className="w-full max-w-sm rounded-3xl border border-black/10 bg-white p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-serif text-xl text-text-primary">Delete {count} file{count === 1 ? "" : "s"}?</h3>
+
+        {inUseCount > 0 ? (
+          <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>
+              <strong>{inUseCount}</strong> of these {inUseCount === 1 ? "is" : "are"} currently used somewhere on
+              your site. Deleting them will leave broken images there.
+            </span>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-text-muted">
+            None of these are referenced by anything on the site right now — safe to remove.
+          </p>
+        )}
+
+        {error && (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{error}</div>
+        )}
+
+        <div className="mt-5 flex justify-end gap-3">
+          <button type="button" onClick={onCancel}
+            className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted hover:text-text-primary">
+            Cancel
+          </button>
+          <button type="button" disabled={isPending} onClick={onConfirm}
+            className="rounded-full bg-red-600 px-5 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60">
+            {isPending ? "Deleting…" : inUseCount > 0 ? "Delete anyway" : `Delete ${count}`}
           </button>
         </div>
       </div>
@@ -143,6 +199,9 @@ export default function AdminMediaPage() {
   const [previewTarget, setPreviewTarget] = useState<MediaItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState("");
   const { toast, showToast } = useToast();
 
   const cursor = cursors[pageIndex] ?? null;
@@ -175,7 +234,20 @@ export default function AdminMediaPage() {
   const resetPaging = () => {
     setCursors([null]);
     setPageIndex(0);
+    setSelectedIds(new Set());
   };
+
+  const toggleSelected = (publicId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(publicId)) next.delete(publicId); else next.add(publicId);
+      return next;
+    });
+  };
+
+  const selectAllOnPage = () => setSelectedIds(new Set(items.map((i) => i.publicId)));
+  const clearSelection  = () => setSelectedIds(new Set());
+  const selectedInUseCount = items.filter((i) => selectedIds.has(i.publicId) && i.inUse).length;
 
   const switchType = (next: MediaResourceType) => {
     setType(next);
@@ -199,9 +271,13 @@ export default function AdminMediaPage() {
       return copy;
     });
     setPageIndex((p) => p + 1);
+    setSelectedIds(new Set());
   };
 
-  const goPrev = () => setPageIndex((p) => Math.max(0, p - 1));
+  const goPrev = () => {
+    setPageIndex((p) => Math.max(0, p - 1));
+    setSelectedIds(new Set());
+  };
 
   const deleteMut = useMutation({
     mutationFn: ({ publicId, resourceType }: { publicId: string; resourceType: MediaResourceType }) =>
@@ -214,6 +290,24 @@ export default function AdminMediaPage() {
     onError: (mutationError) => {
       const apiError = mutationError as AxiosError<ApiErrorResponse>;
       setDeleteError(apiError.response?.data?.message ?? "Failed to delete this file.");
+    },
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (publicIds: string[]) => bulkDeleteMedia(publicIds, type),
+    onSuccess: (res) => {
+      setBulkDeleteError("");
+      setShowBulkDelete(false);
+      setSelectedIds(new Set());
+      void queryClient.invalidateQueries({ queryKey: ["admin-media"] });
+      const { deleted, notFound } = res.data;
+      showToast(true, notFound.length > 0
+        ? `${deleted.length} deleted, ${notFound.length} were already gone`
+        : `${deleted.length} file${deleted.length === 1 ? "" : "s"} deleted`);
+    },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setBulkDeleteError(apiError.response?.data?.message ?? "Failed to delete selected files.");
     },
   });
 
@@ -237,6 +331,17 @@ export default function AdminMediaPage() {
           error={deleteError}
           onConfirm={() => deleteMut.mutate({ publicId: deleteTarget.publicId, resourceType: type })}
           onCancel={() => { setDeleteTarget(null); setDeleteError(""); }}
+        />
+      )}
+
+      {showBulkDelete && (
+        <BulkDeleteModal
+          count={selectedIds.size}
+          inUseCount={selectedInUseCount}
+          isPending={bulkDeleteMut.isPending}
+          error={bulkDeleteError}
+          onConfirm={() => bulkDeleteMut.mutate(Array.from(selectedIds))}
+          onCancel={() => { setShowBulkDelete(false); setBulkDeleteError(""); }}
         />
       )}
 
@@ -321,6 +426,27 @@ export default function AdminMediaPage() {
           )}
         </div>
 
+        {items.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-black/8 bg-white px-4 py-2.5 text-sm">
+            {selectedIds.size > 0 ? (
+              <>
+                <span className="font-medium text-text-primary">{selectedIds.size} selected</span>
+                <button type="button" onClick={clearSelection} className="text-xs text-text-muted underline hover:text-text-primary">
+                  Clear
+                </button>
+                <button type="button" onClick={() => setShowBulkDelete(true)}
+                  className="ml-auto inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700">
+                  <Trash2 size={13} /> Delete selected
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={selectAllOnPage} className="text-xs text-text-muted underline hover:text-text-primary">
+                Select all on this page
+              </button>
+            )}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -335,7 +461,9 @@ export default function AdminMediaPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {items.map((item) => (
-              <div key={item.publicId} className="group relative overflow-hidden rounded-2xl border border-black/8 bg-white">
+              <div key={item.publicId} className={`group relative overflow-hidden rounded-2xl border bg-white ${
+                selectedIds.has(item.publicId) ? "border-[#1d1a17] ring-2 ring-[#1d1a17]/20" : "border-black/8"
+              }`}>
                 <button
                   type="button"
                   onClick={() => setPreviewTarget(item)}
@@ -348,11 +476,19 @@ export default function AdminMediaPage() {
                     <video src={item.url} className="h-full w-full object-cover" muted preload="metadata" />
                   )}
                   {item.inUse && (
-                    <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-primary shadow">
+                    <span className="absolute left-8 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-primary shadow">
                       In use
                     </span>
                   )}
                 </button>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(item.publicId)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleSelected(item.publicId)}
+                  className="absolute left-2 top-2 h-5 w-5 cursor-pointer accent-[#1d1a17]"
+                  aria-label="Select file"
+                />
                 <div className="absolute right-2 top-2 flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     type="button"

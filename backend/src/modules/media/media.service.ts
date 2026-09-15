@@ -86,6 +86,30 @@ export const deleteMediaAsset = async (publicId: string, resourceType: ResourceT
 };
 
 /**
+ * Deletes many assets in one go via Cloudinary's delete_resources — chunked to 100
+ * ids per call (Cloudinary's own cap on that endpoint) even though callers today
+ * never select more than one page (60) at a time.
+ */
+export const deleteMediaAssets = async (
+  publicIds: string[],
+  resourceType: ResourceType,
+): Promise<{ deleted: string[]; notFound: string[] }> => {
+  const deleted: string[] = [];
+  const notFound: string[] = [];
+
+  for (let i = 0; i < publicIds.length; i += 100) {
+    const chunk = publicIds.slice(i, i + 100);
+    const result = await cloudinary.api.delete_resources(chunk, { resource_type: resourceType });
+    const statuses = result.deleted as Record<string, string>;
+    for (const [id, status] of Object.entries(statuses)) {
+      (status === "deleted" ? deleted : notFound).push(id);
+    }
+  }
+
+  return { deleted, notFound };
+};
+
+/**
  * Cloudinary's account-wide usage for this billing cycle. On the Free plan storage,
  * bandwidth and transformations all draw from one shared "credits" pool rather than
  * having their own hard caps, so creditsUsedPercent is the number that actually

@@ -11,6 +11,7 @@ adminRouter.use(authMiddleware, requireAdmin);
 
 adminRouter.get("/", mediaController.listMedia);
 adminRouter.get("/usage", mediaController.getUsage);
+adminRouter.post("/bulk-delete", mediaController.bulkDeleteMedia);
 // publicId is URL-encoded by the client (Cloudinary ids contain "/", sent as %2F)
 // so it arrives here as a single path segment and Express decodes it back for us.
 adminRouter.delete("/:publicId", mediaController.deleteMedia);
