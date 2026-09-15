@@ -557,6 +557,8 @@ model ShippingSettings {
   id                    String   @id @default(uuid()) @db.Uuid
   /// Master kill-switch: when false calculateShipping always returns 0
   isShippingEnabled     Boolean  @default(true)
+  /// COD kill-switch: when false, Cash on Delivery is hidden on checkout and rejected server-side
+  isCodEnabled          Boolean  @default(true)
   /// KM radius within which distance-based (per-km) pricing applies; beyond this, weight/zone-based pricing kicks in
   distanceThreshold     Float    @default(3.0)
   /// Charge per km for orders within the distanceThreshold

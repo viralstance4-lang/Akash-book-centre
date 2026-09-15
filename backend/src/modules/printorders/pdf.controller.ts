@@ -1,7 +1,8 @@
 import { type RequestHandler } from "express";
+import { Readable } from "stream";
 import prisma from "../../lib/prisma";
 import AppError from "../../lib/AppError";
-import { getFile } from "../../lib/s3";
+import { getFileStream } from "../../lib/s3";
 
 type Disposition = "inline" | "attachment";
 
@@ -37,16 +38,23 @@ const serveFile = async (
       throw new AppError("Forbidden", 403, "FORBIDDEN");
     }
 
-    // Fetch the file's bytes from wherever it actually lives
-    let buffer: Buffer;
+    // Fetch the file's bytes as a stream from wherever it actually lives — piped
+    // straight through to the client instead of buffered fully in server memory,
+    // so the browser starts receiving bytes as soon as the source does.
+    let stream: Readable;
+    let contentLength: number | undefined;
     if (file.storageProvider === "S3") {
-      buffer = await getFile(file.filePublicId);
+      const result = await getFileStream(file.filePublicId);
+      stream = result.stream;
+      contentLength = result.contentLength;
     } else {
       const cloudRes = await fetch(file.fileUrl, { redirect: "follow" });
-      if (!cloudRes.ok) {
+      if (!cloudRes.ok || !cloudRes.body) {
         throw new AppError("Could not retrieve file from storage", 502, "FETCH_FAILED");
       }
-      buffer = Buffer.from(await cloudRes.arrayBuffer());
+      stream = Readable.fromWeb(cloudRes.body as import("stream/web").ReadableStream);
+      const len = cloudRes.headers.get("content-length");
+      if (len) contentLength = Number(len);
     }
 
     // Sanitize filename: ensure .pdf extension
@@ -56,10 +64,15 @@ const serveFile = async (
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`);
-    res.setHeader("Content-Length", buffer.byteLength);
+    if (contentLength !== undefined) res.setHeader("Content-Length", contentLength);
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.end(buffer);
+
+    stream.on("error", (err) => {
+      if (!res.headersSent) next(err);
+      else res.destroy(err);
+    });
+    stream.pipe(res);
   } catch (error) {
     next(error);
   }

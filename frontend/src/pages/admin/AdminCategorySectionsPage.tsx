@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown, ChevronUp, GripVertical, Pencil, Plus, Save, Trash2, X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   adminCreateCategorySection,
   adminDeleteCategorySection,
@@ -48,7 +48,11 @@ export default function AdminCategorySectionsPage() {
     queryFn: () => getBooks({ limit: 500 }),
   });
 
-  const sections: CategorySection[] = sectionsData?.data ?? [];
+  // Memoized so this stays referentially stable while the query is loading —
+  // otherwise `sectionsData?.data ?? []` hands the effect below a brand new
+  // array every render (since `sectionsData` is undefined until the fetch
+  // resolves), which re-triggers the effect, which re-renders, forever.
+  const sections: CategorySection[] = useMemo(() => sectionsData?.data ?? [], [sectionsData]);
   const allCategories: Category[]   = categoriesData?.data ?? [];
   const allBooks: Book[]             = booksData?.data?.books ?? [];
 

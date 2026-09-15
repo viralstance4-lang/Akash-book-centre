@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import * as svc from "./category-sections.service";
+import type { CreateCategorySectionInput, UpdateCategorySectionInput } from "./category-sections.schema";
 
 // ── Public ───────────────────────────────────────────────────────────────────
 
@@ -29,17 +30,17 @@ export const adminListSections = async (req: Request, res: Response, next: NextF
 
 export const createSection = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const body = req.body;
-    const bookIds = body.bookIds ? JSON.parse(body.bookIds) : [];
-    const subcategoryIds = body.subcategoryIds ? JSON.parse(body.subcategoryIds) : [];
+    // req.body has already been coerced + validated by createCategorySectionSchema
+    // (booleans/numbers/JSON id-arrays parsed out of the multipart string fields).
+    const body = req.body as CreateCategorySectionInput;
     const data = await svc.createSection(
       {
         heading: body.heading,
         contentType: body.contentType ?? "category",
-        categoryId: body.categoryId || null,
-        subcategoryIds,
-        bookIds,
-        sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : undefined,
+        categoryId: body.categoryId ?? null,
+        subcategoryIds: body.subcategoryIds ?? [],
+        bookIds: body.bookIds ?? [],
+        sortOrder: body.sortOrder,
       },
       req.file,
     );
@@ -49,20 +50,19 @@ export const createSection = async (req: Request, res: Response, next: NextFunct
 
 export const updateSection = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const body = req.body;
-    const bookIds = body.bookIds !== undefined ? JSON.parse(body.bookIds) : undefined;
-    const subcategoryIds = body.subcategoryIds !== undefined ? JSON.parse(body.subcategoryIds) : undefined;
+    // req.body has already been coerced + validated by updateCategorySectionSchema.
+    const body = req.body as UpdateCategorySectionInput;
     const data = await svc.updateSection(
       req.params.id as string,
       {
         heading: body.heading,
         contentType: body.contentType,
-        categoryId: body.categoryId !== undefined ? (body.categoryId || null) : undefined,
-        subcategoryIds,
-        bookIds,
-        sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : undefined,
-        isActive: body.isActive !== undefined ? body.isActive === "true" : undefined,
-        removeImage: body.removeImage === "true",
+        categoryId: body.categoryId,
+        subcategoryIds: body.subcategoryIds,
+        bookIds: body.bookIds,
+        sortOrder: body.sortOrder,
+        isActive: body.isActive,
+        removeImage: body.removeImage,
       },
       req.file,
     );

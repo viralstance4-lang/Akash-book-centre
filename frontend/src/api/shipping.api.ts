@@ -10,6 +10,7 @@ export interface ShippingSettings {
   prepaidDiscountType: "PERCENT" | "FLAT";
   prepaidDiscountValue: number;
   isShippingEnabled: boolean;
+  isCodEnabled: boolean;
   freeDeliveryThreshold: number;
   // Regional zone rates (added for checkout estimate)
   localZoneRate: number;
@@ -35,6 +36,7 @@ export const getShippingSettings = async (): Promise<ShippingSettings> => {
     prepaidDiscountType:   (c.prepaidDiscountType as "PERCENT" | "FLAT") ?? "PERCENT",
     prepaidDiscountValue:  c.prepaidDiscountValue ?? 0,
     isShippingEnabled:     c.isShippingEnabled,
+    isCodEnabled:          c.isCodEnabled ?? true,
     freeDeliveryThreshold: c.freeDeliveryThreshold,
     localZoneRate:         c.localZoneRate        ?? 50,
     northEastRate:         c.northEastRate        ?? 80,
@@ -61,6 +63,7 @@ export interface StateRate {
 export interface ShippingConfig {
   id:                    string;
   isShippingEnabled:     boolean;
+  isCodEnabled:          boolean;
   distanceThreshold:     number;
   perKmRate:             number;
   freeDeliveryThreshold: number;

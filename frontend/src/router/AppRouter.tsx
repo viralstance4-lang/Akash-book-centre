@@ -1,51 +1,64 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import AdminLayout from "../components/layout/AdminLayout";
 import StorefrontLayout from "../components/layout/StorefrontLayout";
 import { getMe, refreshToken } from "../api/auth.api";
-import AdminBannersPage from "../pages/admin/AdminBannersPage";
-import AdminCategorySectionsPage from "../pages/admin/AdminCategorySectionsPage";
-import AdminHomepageBuilderPage from "../pages/admin/AdminHomepageBuilderPage";
-import AdminBooksPage from "../pages/admin/AdminBooksPage";
-import AdminCategoriesPage from "../pages/admin/AdminCategoriesPage";
-import AdminCouponsPage from "../pages/admin/AdminCouponsPage";
-import AdminDashboardPage from "../pages/admin/AdminDashboardPage";
-import AdminFeaturedPage from "../pages/admin/AdminFeaturedPage";
-import AdminOrdersPage from "../pages/admin/AdminOrdersPage";
-import AdminPagesPage from "../pages/admin/AdminPagesPage";
-import AdminPrintOrdersPage from "../pages/admin/AdminPrintOrdersPage";
-import AdminReturnsPage from "../pages/admin/AdminReturnsPage";
-import AdminReviewsPage from "../pages/admin/AdminReviewsPage";
-import AdminSettingsPage from "../pages/admin/AdminSettingsPage";
-import AdminShippingPage from "../pages/admin/AdminShippingPage";
-import AdminUsersPage from "../pages/admin/AdminUsersPage";
-import LoginPage from "../pages/auth/LoginPage";
-import RegisterPage from "../pages/auth/RegisterPage";
-import VerifyEmailPage from "../pages/auth/VerifyEmailPage";
 import NotFoundPage from "../pages/NotFoundPage";
-import BookDetailPage from "../pages/storefront/BookDetailPage";
-import CartPage from "../pages/storefront/CartPage";
-import CategoriesPage from "../pages/storefront/CategoriesPage";
-import CategoryPage from "../pages/storefront/CategoryPage";
-import CheckoutPage from "../pages/storefront/CheckoutPage";
-import DynamicPage from "../pages/storefront/DynamicPage";
-import HomePage from "../pages/storefront/HomePage";
-import OrderDetailPage from "../pages/storefront/OrderDetailPage";
-import SubcategoryPage from "../pages/storefront/SubcategoryPage";
-import OrdersPage from "../pages/storefront/OrdersPage";
-import AllBooksPage from "../pages/storefront/AllBooksPage";
-import BestSellersPage from "../pages/storefront/BestSellersPage";
-import FeaturedBooksPage from "../pages/storefront/FeaturedBooksPage";
-import PrintBookPage from "../pages/storefront/PrintBookPage";
-import ReturnsPage from "../pages/storefront/ReturnsPage";
-import MyReturnsPage from "../pages/storefront/MyReturnsPage";
-import SectionBooksPage from "../pages/storefront/SectionBooksPage";
 import { useAuthStore } from "../store/auth.store";
 import AdminRoute from "./AdminRoute";
 import ProtectedRoute from "./ProtectedRoute";
 import { SessionRestoreSkeleton } from "../components/ui/SkeletonLoader";
+
+// Every page below is only fetched when its route is actually visited, instead of
+// all being bundled into one JS file that every visitor downloads up front — this
+// is what previously shipped the whole admin dashboard (and PrintBookPage's heavy
+// pdfjs-dist dependency) to every storefront visitor on first load.
+const AdminBannersPage          = lazy(() => import("../pages/admin/AdminBannersPage"));
+const AdminCategorySectionsPage = lazy(() => import("../pages/admin/AdminCategorySectionsPage"));
+const AdminHomepageBuilderPage  = lazy(() => import("../pages/admin/AdminHomepageBuilderPage"));
+const AdminBooksPage            = lazy(() => import("../pages/admin/AdminBooksPage"));
+const AdminCategoriesPage       = lazy(() => import("../pages/admin/AdminCategoriesPage"));
+const AdminCouponsPage          = lazy(() => import("../pages/admin/AdminCouponsPage"));
+const AdminDashboardPage        = lazy(() => import("../pages/admin/AdminDashboardPage"));
+const AdminFeaturedPage         = lazy(() => import("../pages/admin/AdminFeaturedPage"));
+const AdminOrdersPage           = lazy(() => import("../pages/admin/AdminOrdersPage"));
+const AdminPagesPage            = lazy(() => import("../pages/admin/AdminPagesPage"));
+const AdminPrintOrdersPage      = lazy(() => import("../pages/admin/AdminPrintOrdersPage"));
+const AdminReturnsPage          = lazy(() => import("../pages/admin/AdminReturnsPage"));
+const AdminReviewsPage          = lazy(() => import("../pages/admin/AdminReviewsPage"));
+const AdminSettingsPage         = lazy(() => import("../pages/admin/AdminSettingsPage"));
+const AdminShippingPage         = lazy(() => import("../pages/admin/AdminShippingPage"));
+const AdminUsersPage            = lazy(() => import("../pages/admin/AdminUsersPage"));
+const LoginPage                 = lazy(() => import("../pages/auth/LoginPage"));
+const RegisterPage              = lazy(() => import("../pages/auth/RegisterPage"));
+const VerifyEmailPage           = lazy(() => import("../pages/auth/VerifyEmailPage"));
+const BookDetailPage            = lazy(() => import("../pages/storefront/BookDetailPage"));
+const CartPage                  = lazy(() => import("../pages/storefront/CartPage"));
+const CategoriesPage            = lazy(() => import("../pages/storefront/CategoriesPage"));
+const CategoryPage              = lazy(() => import("../pages/storefront/CategoryPage"));
+const CheckoutPage              = lazy(() => import("../pages/storefront/CheckoutPage"));
+const DynamicPage               = lazy(() => import("../pages/storefront/DynamicPage"));
+const HomePage                  = lazy(() => import("../pages/storefront/HomePage"));
+const OrderDetailPage           = lazy(() => import("../pages/storefront/OrderDetailPage"));
+const SubcategoryPage           = lazy(() => import("../pages/storefront/SubcategoryPage"));
+const OrdersPage                = lazy(() => import("../pages/storefront/OrdersPage"));
+const AllBooksPage              = lazy(() => import("../pages/storefront/AllBooksPage"));
+const BestSellersPage           = lazy(() => import("../pages/storefront/BestSellersPage"));
+const FeaturedBooksPage         = lazy(() => import("../pages/storefront/FeaturedBooksPage"));
+const PrintBookPage             = lazy(() => import("../pages/storefront/PrintBookPage"));
+const ReturnsPage               = lazy(() => import("../pages/storefront/ReturnsPage"));
+const MyReturnsPage             = lazy(() => import("../pages/storefront/MyReturnsPage"));
+const SectionBooksPage          = lazy(() => import("../pages/storefront/SectionBooksPage"));
+
+function RouteLoadingFallback() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center bg-[#f5f1ea]">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-black/15 border-t-[#1d1a17]" />
+    </div>
+  );
+}
 
 /** Inactivity check interval — every 5 minutes, fires setSessionExpired if idle 10 h */
 const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -141,6 +154,7 @@ export default function AppRouter() {
     <div className={`transition-opacity duration-500 ease-out ${isRouterVisible ? "opacity-100" : "opacity-0"}`}>
       <BrowserRouter>
         <ScrollToTop />
+        <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route element={<StorefrontLayout />}>
           <Route path="/"                       element={<HomePage />} />
@@ -191,6 +205,7 @@ export default function AppRouter() {
 
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   </div>
   );

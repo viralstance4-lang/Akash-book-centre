@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import { Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { getAdminCoupons, createCoupon, updateCoupon, deleteCoupon, type Coupon } from "../../api/coupons.api";
+import type { ApiErrorResponse } from "../../types";
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -10,6 +12,7 @@ export default function AdminCouponsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [editError, setEditError] = useState("");
   const [newForm, setNewForm] = useState({
     code: "", discountType: "percentage" as "percentage" | "fixed",
     discountValue: "", minOrderAmount: "", maxUses: "", isActive: true, expiresAt: "",
@@ -27,12 +30,20 @@ export default function AdminCouponsPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => updateCoupon(id, data),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-coupons"] }); setEditingId(null); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-coupons"] }); setEditingId(null); setEditError(""); },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setEditError(apiError.response?.data?.message ?? "Failed to update coupon");
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteCoupon,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-coupons"] }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-coupons"] }); setEditError(""); },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setEditError(apiError.response?.data?.message ?? "Failed to delete coupon");
+    },
   });
 
   const handleCreate = () => {
@@ -133,6 +144,8 @@ export default function AdminCouponsPage() {
         </div>
       )}
 
+      {editError && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{editError}</div>}
+
       {coupons.length === 0 && !isAdding ? (
         <div className="rounded-2xl border border-dashed border-black/10 bg-white px-6 py-12 text-center">
           <p className="font-serif text-xl text-text-primary">No coupons yet</p>
@@ -154,12 +167,12 @@ export default function AdminCouponsPage() {
                     </div>
                     <div>
                       <label className="mb-1.5 block text-xs uppercase tracking-widest text-text-muted">Max Uses</label>
-                      <input type="number" value={editForm.maxUses ?? ""} onChange={(e) => setEditForm(f => ({ ...f, maxUses: Number(e.target.value) }))}
+                      <input type="number" min={0} value={editForm.maxUses ?? ""} onChange={(e) => setEditForm(f => ({ ...f, maxUses: Number(e.target.value) }))}
                         className="w-full rounded-xl border border-black/10 bg-[#f8f4ee] px-4 py-2.5 text-sm outline-none focus:bg-white" />
                     </div>
                   </div>
                   <div className="flex justify-end gap-3">
-                    <button type="button" onClick={() => setEditingId(null)} className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted">Cancel</button>
+                    <button type="button" onClick={() => { setEditingId(null); setEditError(""); }} className="rounded-full border border-black/10 px-4 py-2 text-sm text-text-muted">Cancel</button>
                     <button type="button" onClick={() => updateMutation.mutate({ id: coupon.id, data: editForm })} disabled={updateMutation.isPending}
                       className="inline-flex items-center gap-2 rounded-full bg-[#1d1a17] px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-60">
                       <Save size={14} />{updateMutation.isPending ? "Saving..." : "Save"}
@@ -185,11 +198,11 @@ export default function AdminCouponsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button type="button" onClick={() => { setEditingId(coupon.id); setEditForm({ isActive: coupon.isActive, maxUses: coupon.maxUses }); }}
+                    <button type="button" onClick={() => { setEditingId(coupon.id); setEditForm({ isActive: coupon.isActive, maxUses: coupon.maxUses }); setEditError(""); }}
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-text-muted hover:text-text-primary">
                       <Pencil size={14} />
                     </button>
-                    <button type="button" onClick={() => { if (window.confirm(`Delete coupon "${coupon.code}"? Customers will no longer be able to use it.`)) deleteMutation.mutate(coupon.id); }} disabled={deleteMutation.isPending}
+                    <button type="button" onClick={() => { if (window.confirm(`Delete coupon "${coupon.code}"? Customers will no longer be able to use it.`)) { setEditError(""); deleteMutation.mutate(coupon.id); } }} disabled={deleteMutation.isPending}
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
                       <Trash2 size={14} />
                     </button>

@@ -23,17 +23,21 @@ const formatDate = (v: string) =>
 const LOW_STOCK_THRESHOLD = 5;
 
 export default function AdminDashboardPage() {
-  const { data: booksData } = useQuery({ queryKey: ["admin-dashboard", "books"], queryFn: () => getBooks({ limit: 200 }) });
+  // Total book count comes from a separate, unfiltered call — the stock alert
+  // list below is filtered server-side by maxStock so it stays complete (not
+  // just the newest 200 books) no matter how large the catalog grows.
+  const { data: totalBooksData } = useQuery({ queryKey: ["admin-dashboard", "books-total"], queryFn: () => getBooks({ limit: 1 }) });
+  const { data: stockAlertData } = useQuery({ queryKey: ["admin-dashboard", "stock-alerts"], queryFn: () => getBooks({ maxStock: LOW_STOCK_THRESHOLD, limit: 100 }) });
   const { data: ordersData } = useQuery({ queryKey: ["admin-dashboard", "orders"], queryFn: () => getAdminOrders(1, 5) });
   const { data: usersData } = useQuery({ queryKey: ["admin-dashboard", "users"], queryFn: () => getUsers(1, 1) });
   const { data: categoriesData } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
 
-  const allBooks = booksData?.data?.books ?? [];
-  const lowStockBooks = allBooks.filter((b) => b.stock <= LOW_STOCK_THRESHOLD && b.stock > 0);
-  const outOfStockBooks = allBooks.filter((b) => b.stock === 0);
+  const stockAlertBooks = stockAlertData?.data?.books ?? [];
+  const lowStockBooks = stockAlertBooks.filter((b) => b.stock > 0);
+  const outOfStockBooks = stockAlertBooks.filter((b) => b.stock === 0);
 
   const stats = [
-    { label: "Books", value: booksData?.data?.total ?? 0, icon: BookOpen, href: "/admin/books", color: "bg-blue-50 text-blue-600" },
+    { label: "Books", value: totalBooksData?.data?.total ?? 0, icon: BookOpen, href: "/admin/books", color: "bg-blue-50 text-blue-600" },
     { label: "Orders", value: ordersData?.data?.total ?? 0, icon: Receipt, href: "/admin/orders", color: "bg-amber-50 text-amber-600" },
     { label: "Users", value: usersData?.data?.total ?? 0, icon: Users, href: "/admin/users", color: "bg-emerald-50 text-emerald-600" },
     { label: "Categories", value: categoriesData?.data?.length ?? 0, icon: Layers3, href: "/admin/categories", color: "bg-violet-50 text-violet-600" },

@@ -1,19 +1,31 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import { Check, Star, Trash2 } from "lucide-react";
 import { getAdminReviews, approveReview, deleteReview } from "../../api/reviews.api";
+import type { ApiErrorResponse } from "../../types";
 
 export default function AdminReviewsPage() {
   const queryClient = useQueryClient();
+  const [error, setError] = useState("");
   const { data, isLoading } = useQuery({ queryKey: ["admin-reviews"], queryFn: getAdminReviews });
 
   const approveMutation = useMutation({
     mutationFn: approveReview,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] }),
+    onSuccess: () => { setError(""); void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] }); },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setError(apiError.response?.data?.message ?? "Unable to approve this review.");
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteReview,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] }),
+    onSuccess: () => { setError(""); void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] }); },
+    onError: (mutationError) => {
+      const apiError = mutationError as AxiosError<ApiErrorResponse>;
+      setError(apiError.response?.data?.message ?? "Unable to delete this review.");
+    },
   });
 
   const reviews = data?.data ?? [];
@@ -29,6 +41,10 @@ export default function AdminReviewsPage() {
         <h2 className="font-serif text-2xl text-text-primary">Reviews</h2>
         <p className="mt-1 text-sm text-text-muted">{pending.length} pending approval · {approved.length} published</p>
       </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
 
       {pending.length > 0 && (
         <div className="space-y-3">

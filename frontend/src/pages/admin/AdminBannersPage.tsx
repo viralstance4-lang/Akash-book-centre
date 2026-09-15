@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import { ImagePlus, Monitor, Pencil, Plus, Save, Smartphone, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { getAdminBanners, createBanner, updateBanner, deleteBanner, type Banner } from "../../api/banners.api";
+import type { ApiErrorResponse } from "../../types";
+
+function errMsg(e: unknown, fallback: string) {
+  const ae = e as AxiosError<ApiErrorResponse>;
+  return ae.response?.data?.message ?? fallback;
+}
 
 type EditingBanner = {
   id: string;
@@ -57,7 +64,7 @@ export default function AdminBannersPage() {
       setNewForm({ redirectUrl: "", title: "", isActive: true, order: 0 });
       setError("");
     },
-    onError: (e: any) => setError(e?.response?.data?.message ?? "Failed to create banner"),
+    onError: (e: unknown) => setError(errMsg(e, "Failed to create banner")),
   });
 
   const updateMutation = useMutation({
@@ -68,7 +75,9 @@ export default function AdminBannersPage() {
       setEditingId(null);
       setEditing(null);
       setEditImages(emptyImagePair());
+      setError("");
     },
+    onError: (e: unknown) => setError(errMsg(e, "Failed to update banner")),
   });
 
   const deleteMutation = useMutation({
@@ -126,10 +135,13 @@ export default function AdminBannersPage() {
       order: banner.order,
     });
     setEditImages(emptyImagePair());
+    setError("");
   };
 
   const handleUpdate = () => {
     if (!editing) return;
+    if (!editing.redirectUrl.trim()) { setError("Please enter a redirect URL"); return; }
+    setError("");
     const fd = new FormData();
     if (editImages.desktopFile) fd.append("desktopImage", editImages.desktopFile);
     if (editImages.mobileFile)  fd.append("mobileImage",  editImages.mobileFile);
@@ -144,6 +156,7 @@ export default function AdminBannersPage() {
     setEditingId(null);
     setEditing(null);
     setEditImages(emptyImagePair());
+    setError("");
   };
 
   if (isLoading) return (
@@ -257,6 +270,7 @@ export default function AdminBannersPage() {
               {editingId === banner.id && editing ? (
                 /* ── Inline Edit Form ── */
                 <div className="p-5 space-y-4">
+                  {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">{error}</div>}
                   {/* Optional image re-upload */}
                   <p className="text-xs uppercase tracking-widest text-text-muted">Replace Images (optional)</p>
                   <div className="grid gap-4 sm:grid-cols-2">

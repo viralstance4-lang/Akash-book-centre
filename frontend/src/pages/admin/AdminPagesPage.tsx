@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import { Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getAdminPages, createPage, updatePage, deletePage, type Page } from "../../api/pages.api";
+import type { ApiErrorResponse } from "../../types";
+
+function errMsg(e: unknown, fallback: string) {
+  const ae = e as AxiosError<ApiErrorResponse>;
+  return ae.response?.data?.message ?? fallback;
+}
 
 // Simple rich text toolbar
 const TOOLBAR = [
@@ -71,12 +78,13 @@ export default function AdminPagesPage() {
   const createMutation = useMutation({
     mutationFn: createPage,
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-pages"] }); setIsAdding(false); setForm({ title: "", slug: "", content: "", isActive: true, showInFooter: true }); setError(""); },
-    onError: (e: any) => setError(e?.response?.data?.message ?? "Failed"),
+    onError: (e: unknown) => setError(errMsg(e, "Failed")),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => updatePage(id, data),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-pages"] }); setEditingPage(null); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["admin-pages"] }); setEditingPage(null); setError(""); },
+    onError: (e: unknown) => setError(errMsg(e, "Failed to update page")),
   });
 
   const deleteMutation = useMutation({
@@ -189,7 +197,7 @@ export default function AdminPagesPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button type="button" onClick={() => { setEditingPage(page); setIsAdding(false); }}
+                <button type="button" onClick={() => { setEditingPage(page); setIsAdding(false); setError(""); }}
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-text-muted hover:text-text-primary transition-colors">
                   <Pencil size={14} />
                 </button>

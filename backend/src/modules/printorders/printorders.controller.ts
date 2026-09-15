@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import * as printService from "./printorders.service";
-import { createPrintOrderSchema, createPrintSettingsSchema } from "./printorders.schema";
+import { createPrintOrderSchema, createPrintSettingsSchema, updatePrintOrderStatusSchema } from "./printorders.schema";
 
 export const getPrintSettings = async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -64,9 +64,11 @@ export const getUserPrintOrders = async (req: Request, res: Response, next: Next
   } catch (err) { next(err); }
 };
 
-export const getAllPrintOrders = async (_req: Request, res: Response, next: NextFunction) => {
+export const getAllPrintOrders = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orders = await printService.getAllPrintOrders();
+    const page  = Number(req.query.page ?? 1);
+    const limit = Number(req.query.limit ?? 10);
+    const orders = await printService.getAllPrintOrders(page, limit);
     res.json({ success: true, message: "Orders fetched", data: orders });
   } catch (err) { next(err); }
 };
@@ -74,7 +76,7 @@ export const getAllPrintOrders = async (_req: Request, res: Response, next: Next
 export const updatePrintOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id     = req.params["id"] as string;
-    const { status } = req.body as { status: string };
+    const { status } = updatePrintOrderStatusSchema.parse(req.body);
     const order  = await printService.updatePrintOrderStatus(id, status);
     res.json({ success: true, message: "Status updated", data: order });
   } catch (err) { next(err); }

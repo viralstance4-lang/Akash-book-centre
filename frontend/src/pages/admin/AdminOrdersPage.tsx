@@ -25,6 +25,17 @@ const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
   RETURNED:         "bg-gray-100 text-gray-700",
 };
 
+// Mirrors the backend's ADMIN_STATUS_TRANSITIONS (orders.service.ts) so
+// buttons for a transition the server would reject are actually disabled,
+// not just faded.
+const ADMIN_STATUS_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  PENDING:   ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["SHIPPED", "CANCELLED"],
+  SHIPPED:   ["DELIVERED", "CANCELLED"],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
 const SM_STATUS_COLORS: Record<string, string> = {
   NOT_CREATED:     "bg-gray-100 text-gray-500",
   CREATED:         "bg-blue-100 text-blue-700",
@@ -598,18 +609,32 @@ export default function AdminOrdersPage() {
               )}
               <div className="mt-3 flex flex-wrap gap-2">
                 {(["CONFIRMED", "SHIPPED", "DELIVERED"] as OrderStatus[]).map((nextStatus) => {
-                  const isCurrent    = selectedOrder.status === nextStatus;
-                  const isStatusSet  = ["CONFIRMED","SHIPPED","DELIVERED"].includes(selectedOrder.status);
+                  const isCurrent = selectedOrder.status === nextStatus;
+                  const canMoveTo = ADMIN_STATUS_TRANSITIONS[selectedOrder.status]?.includes(nextStatus) ?? false;
+                  const isDisabled = updateStatusMutation.isPending || isCurrent || !canMoveTo;
                   return (
                     <button key={nextStatus} type="button"
                       onClick={() => updateStatusMutation.mutate({ id: selectedOrder.id, nextStatus })}
-                      disabled={updateStatusMutation.isPending || isCurrent}
-                      className={`rounded-full border px-3 py-2 text-xs transition-all ${isCurrent ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:bg-[#eae4d9]"} ${updateStatusMutation.isPending || (isStatusSet && !isCurrent) ? "opacity-40" : ""}`}
+                      disabled={isDisabled}
+                      className={`rounded-full border px-3 py-2 text-xs transition-all ${isCurrent ? "border-[#1d1a17] bg-[#1d1a17] text-white" : "border-black/10 bg-[#f8f4ee] text-text-primary hover:bg-[#eae4d9]"} ${isDisabled && !isCurrent ? "opacity-40 cursor-not-allowed" : ""}`}
                     >
                       {nextStatus}
                     </button>
                   );
                 })}
+                {(ADMIN_STATUS_TRANSITIONS[selectedOrder.status]?.includes("CANCELLED") ?? false) && (
+                  <button type="button"
+                    onClick={() => {
+                      if (window.confirm("Cancel this order? If it was paid online, the customer is refunded automatically.")) {
+                        updateStatusMutation.mutate({ id: selectedOrder.id, nextStatus: "CANCELLED" });
+                      }
+                    }}
+                    disabled={updateStatusMutation.isPending}
+                    className="rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 transition-all hover:bg-rose-100 disabled:opacity-40"
+                  >
+                    Cancel Order
+                  </button>
+                )}
               </div>
             </div>
 

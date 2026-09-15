@@ -1,3 +1,4 @@
+import compression from "compression";
 import cors from "cors";
 import express, { type RequestHandler } from "express";
 import helmet from "helmet";
@@ -81,6 +82,8 @@ const requestTimeout: RequestHandler = (req, res, next) => {
 
 // ── Middleware stack ───────────────────────────────────────────────────────────
 app.use(helmet());
+// Gzips JSON/text/HTML responses; leaves already-compressed binaries (PDFs, images) alone.
+app.use(compression());
 app.use(requestTimeout);
 app.use(globalRateLimiter);
 app.use(

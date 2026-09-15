@@ -66,6 +66,18 @@ export const createPrintOrderSchema = z.object({
   customerLongitude: z.union([z.number(), z.string()]).transform(Number).optional(),
 });
 
+export const updatePrintOrderStatusSchema = z.object({
+  status: z.enum([
+    "PENDING",
+    "PROCESSING",
+    "PRINTED",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+    "COMPLETED",
+    "CANCELLED",
+  ]),
+});
+
 export type CreatePrintOrderInput = z.infer<typeof createPrintOrderSchema>;
 
 export type PricingSettings = {

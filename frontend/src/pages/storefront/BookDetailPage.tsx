@@ -10,6 +10,7 @@ import { getSettings } from "../../api/settings.api";
 import { previewShippingCharge } from "../../api/shipping.api";
 import { geocodePincode } from "../../components/checkout/AddressAutocomplete";
 import { SHOP, haversineKm } from "../../utils/deliveryUtils";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 import { useAuthStore } from "../../store/auth.store";
 import BookCard from "../../components/ui/BookCard";
 import type { ApiErrorResponse } from "../../types";
@@ -140,9 +141,12 @@ export default function BookDetailPage() {
     return () => { document.body.style.overflow = prevOverflow; };
   }, [isZoomed]);
 
-  const comparePrice = (book as any)?.comparePrice ? Number((book as any).comparePrice) : Math.round(Number(book?.price ?? 0) * 1.2);
+  // Only treat comparePrice as real when the admin actually set one — never fabricate a fake MRP.
+  const comparePrice = book?.comparePrice ? Number(book.comparePrice) : null;
   const originalPrice = comparePrice;
-  const discount = book && comparePrice > Number(book.price) ? Math.round(((comparePrice - Number(book.price)) / comparePrice) * 100) : 0;
+  const discount = comparePrice && comparePrice > Number(book?.price ?? 0)
+    ? Math.round(((comparePrice - Number(book?.price ?? 0)) / comparePrice) * 100)
+    : 0;
   const bindingExtra = bindingType === "SPIRAL" ? spiralBindingPrice : 0;
   const effectivePrice = Number(book?.price ?? 0) + bindingExtra;
 
@@ -256,7 +260,7 @@ export default function BookDetailPage() {
                   ) : (
                     <img
                       key={activeUrl}
-                      src={activeUrl}
+                      src={optimizeImage(activeUrl, 700)}
                       alt={book.title}
                       className="mx-auto block aspect-[3/4] w-full max-w-[280px] cursor-zoom-in object-cover transition-all duration-300 lg:max-w-full"
                       onClick={() => setIsZoomed(true)}
@@ -324,7 +328,7 @@ export default function BookDetailPage() {
                         onClick={() => { setCurrentIndex(idx); setCoverBroken(false); }}
                         className={`shrink-0 h-16 w-12 overflow-hidden rounded-lg border-2 transition-all duration-200 ${idx === safeIndex ? "border-[#1d1a17] opacity-100 scale-105" : "border-transparent opacity-55 hover:opacity-90 hover:scale-105"}`}
                       >
-                        <img src={img.imageUrl} alt={`View ${idx + 1}`} className="h-full w-full object-cover" />
+                        <img src={optimizeImage(img.imageUrl, 100)} alt={`View ${idx + 1}`} loading="lazy" className="h-full w-full object-cover" />
                       </button>
                     ))}
                   </div>
@@ -365,7 +369,7 @@ export default function BookDetailPage() {
                     )}
 
                     <img
-                      src={activeUrl}
+                      src={optimizeImage(activeUrl)}
                       alt={book.title}
                       className="max-h-[85vh] max-w-[90vw] object-contain"
                       onClick={(e) => e.stopPropagation()}
@@ -449,8 +453,12 @@ export default function BookDetailPage() {
           {/* Price */}
           <div className="flex items-baseline gap-3">
             <span className="font-serif text-3xl font-bold text-text-primary">{formatPrice(effectivePrice)}</span>
-            <span className="text-base text-text-muted line-through">{formatPrice(originalPrice)}</span>
-            <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">{discount}% off</span>
+            {discount > 0 && originalPrice != null && (
+              <>
+                <span className="text-base text-text-muted line-through">{formatPrice(originalPrice)}</span>
+                <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">{discount}% off</span>
+              </>
+            )}
           </div>
           <p className="text-xs text-emerald-600 font-medium">✓ Inclusive of all taxes</p>
 

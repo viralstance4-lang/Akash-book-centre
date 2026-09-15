@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { Banner } from "../../api/banners.api";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 type BannerSliderProps = {
   banners: Banner[];
 };
 
 /** Resolve the correct src for each viewport, falling back to the legacy imageUrl. */
-const desktopSrc = (b: Banner) => b.desktopImageUrl ?? b.imageUrl;
-const mobileSrc  = (b: Banner) => b.mobileImageUrl  ?? b.imageUrl;
+const desktopSrc = (b: Banner) => optimizeImage(b.desktopImageUrl ?? b.imageUrl, 1600);
+const mobileSrc  = (b: Banner) => optimizeImage(b.mobileImageUrl  ?? b.imageUrl, 800);
 
 export default function BannerSlider({ banners }: BannerSliderProps) {
   const [current, setCurrent] = useState(0);

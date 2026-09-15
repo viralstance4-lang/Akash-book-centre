@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import * as couponsService from "./coupons.service";
-import { createCouponSchema, validateCouponSchema } from "./coupons.schema";
+import { createCouponSchema, updateCouponSchema, validateCouponSchema } from "./coupons.schema";
 
 export const validateCoupon = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -29,7 +29,8 @@ export const createCoupon = async (req: Request, res: Response, next: NextFuncti
 export const updateCoupon = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params["id"] as string;
-    const coupon = await couponsService.updateCoupon(id, req.body);
+    const data = updateCouponSchema.parse(req.body);
+    const coupon = await couponsService.updateCoupon(id, data);
     res.json({ success: true, message: "Coupon updated", data: coupon });
   } catch (err) { next(err); }
 };

@@ -112,8 +112,18 @@ export const getMyPrintOrders = async () => {
   return response.data;
 };
 
-export const getAdminPrintOrders = async () => {
-  const response = await api.get<ApiSuccessResponse<PrintOrder[]>>("/admin/print");
+export type AdminPrintOrdersPage = {
+  orders: PrintOrder[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export const getAdminPrintOrders = async (page = 1, limit = 10) => {
+  const response = await api.get<ApiSuccessResponse<AdminPrintOrdersPage>>("/admin/print", {
+    params: { page, limit },
+  });
   return response.data;
 };
 

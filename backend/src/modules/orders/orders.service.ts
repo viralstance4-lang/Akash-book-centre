@@ -39,6 +39,13 @@ export const placeOrder = async (
   const hasPrintBook    = cart.items.some((item) => (item.book as any).isPrintBook === true);
   const hasSpiralBinding = cart.items.some((item) => item.bindingType === "SPIRAL");
 
+  if (paymentMethod === "COD") {
+    const shippingSettings = await ShippingService.getShippingSettings();
+    if (!shippingSettings.isCodEnabled) {
+      throw new AppError("Cash on Delivery is currently unavailable. Please use online payment.", 400, "COD_NOT_ALLOWED");
+    }
+  }
+
   if ((hasPrintBook || hasSpiralBinding) && paymentMethod === "COD") {
     const reason = hasPrintBook
       ? "Cash on Delivery is not available for Print Books. Please use online payment."
@@ -335,10 +342,11 @@ export const getOrderById = async (userId: string, orderId: string) => {
   return order;
 };
 
-export const cancelOrder = async (userId: string, orderId: string) => {
-  const order = await getOrderById(userId, orderId);
-  if (!["PENDING", "CONFIRMED"].includes(order.status)) throw new AppError("Order cannot be cancelled", 400, "ORDER_NOT_CANCELLABLE");
-
+// Shared by the customer-facing cancel flow and the admin status-update
+// endpoint so a paid order can never be marked CANCELLED without either
+// refunding it (if money was actually captured) or restoring its stock.
+const cancelOrderInternal = async (order: NonNullable<Awaited<ReturnType<typeof getOrderWithDetails>>>) => {
+  const orderId = order.id;
   const payment = order.payment;
   // Money only actually moved for a captured online payment — COD orders and
   // ONLINE orders that never completed checkout (payment still PENDING) have
@@ -389,6 +397,12 @@ export const cancelOrder = async (userId: string, orderId: string) => {
   });
 };
 
+export const cancelOrder = async (userId: string, orderId: string) => {
+  const order = await getOrderById(userId, orderId);
+  if (!["PENDING", "CONFIRMED"].includes(order.status)) throw new AppError("Order cannot be cancelled", 400, "ORDER_NOT_CANCELLABLE");
+  return cancelOrderInternal(order);
+};
+
 export const requestReturn = async (userId: string, orderId: string) => {
   const order = await getOrderById(userId, orderId);
   if (order.status !== "DELIVERED") throw new AppError("Only delivered orders can be returned", 400, "NOT_DELIVERED");
@@ -423,9 +437,29 @@ export const getAdminOrderById = async (orderId: string) => {
   return order;
 };
 
+// Forward-only fulfillment flow, plus CANCELLED as an exit from anywhere
+// before DELIVERED. DELIVERED and CANCELLED are terminal here — a delivered
+// order can only move on via the separate return flow, and re-cancelling is
+// meaningless.
+const ADMIN_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PENDING:   ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["SHIPPED", "CANCELLED"],
+  SHIPPED:   ["DELIVERED", "CANCELLED"],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
 export const updateOrderStatus = async (orderId: string, status: string) => {
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  const order = await getOrderWithDetails(orderId);
   if (!order) throw new AppError("Order not found", 404, "ORDER_NOT_FOUND");
+
+  if (status === order.status) throw new AppError(`Order is already ${status}`, 400, "INVALID_STATUS_TRANSITION");
+  if (!ADMIN_STATUS_TRANSITIONS[order.status]?.includes(status)) {
+    throw new AppError(`Cannot move an order from ${order.status} to ${status}`, 400, "INVALID_STATUS_TRANSITION");
+  }
+
+  if (status === "CANCELLED") return cancelOrderInternal(order);
+
   return prisma.order.update({ where: { id: orderId }, data: { status: status as any }, include: { user: { select: { id: true, name: true, email: true, role: true } }, items: { include: { book: { select: { id: true, title: true, author: true, coverImageUrl: true, stock: true } } } }, payment: true } });
 };
 

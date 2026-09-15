@@ -2,6 +2,7 @@ import { Layers3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getCategories, type Category } from "../../api/categories.api";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 interface Props {
   activeCategorySlug?: string;
@@ -31,7 +32,7 @@ export default function CategorySidebar({ activeCategorySlug }: Props) {
           >
             <div className="h-10 w-10 rounded-xl overflow-hidden bg-[#f4efe7] shrink-0 flex items-center justify-center">
               {cat.imageUrl ? (
-                <img src={cat.imageUrl} alt={cat.name} loading="lazy" className="h-full w-full object-cover" />
+                <img src={optimizeImage(cat.imageUrl, 80)} alt={cat.name} loading="lazy" className="h-full w-full object-cover" />
               ) : (
                 <Layers3 size={15} className="text-text-muted/50" strokeWidth={1.4} />
               )}

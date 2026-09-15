@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { cancelOrder, getOrder } from "../../api/orders.api";
 import type { ApiErrorResponse, OrderStatus, PaymentStatus } from "../../types";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
   PENDING: "bg-amber-100 text-amber-800",
@@ -132,8 +133,9 @@ export default function OrderDetailPage() {
               className="grid gap-4 rounded-3xl border border-black/8 bg-[#fbf8f2] p-4 sm:grid-cols-[5rem_minmax(0,1fr)_auto]"
             >
               <img
-                src={item.book.coverImageUrl}
+                src={optimizeImage(item.book.coverImageUrl, 160)}
                 alt={item.book.title}
+                loading="lazy"
                 className="aspect-3/4 w-20 rounded-2xl object-cover"
               />
               <div className="min-w-0">
