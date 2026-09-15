@@ -48,3 +48,19 @@ export const deleteMedia = async (publicId: string, type: MediaResourceType) => 
   );
   return response.data;
 };
+
+export type MediaUsage = {
+  plan: string;
+  storageBytes: number;
+  bandwidthBytes: number;
+  resourceCount: number;
+  creditsUsed?: number;
+  creditsLimit?: number;
+  creditsUsedPercent?: number;
+  lastUpdated?: string;
+};
+
+export const getMediaUsage = async () => {
+  const response = await api.get<ApiSuccessResponse<MediaUsage>>("/admin/media/usage");
+  return response.data;
+};

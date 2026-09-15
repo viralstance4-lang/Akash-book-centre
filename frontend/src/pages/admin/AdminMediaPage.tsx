@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { AlertTriangle, CalendarArrowDown, CalendarArrowUp, Film, ImageIcon, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarArrowDown, CalendarArrowUp, Copy, Film, HardDrive, ImageIcon, Loader2, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { deleteMedia, getMedia, type MediaItem, type MediaResourceType, type MediaSort } from "../../api/media.api";
+import { deleteMedia, getMedia, getMediaUsage, type MediaItem, type MediaResourceType, type MediaSort } from "../../api/media.api";
+import { useToast, ToastViewport } from "../../components/ui/Toast";
 import type { ApiErrorResponse } from "../../types";
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
 const formatDate = (iso: string) =>
@@ -69,6 +71,67 @@ function DeleteModal({
   );
 }
 
+function PreviewModal({
+  item,
+  onClose,
+  onCopy,
+  onDelete,
+}: {
+  item: MediaItem;
+  onClose: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative flex items-center justify-center bg-[#f8f4ee] p-4">
+          <button
+            type="button" onClick={onClose}
+            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-text-primary shadow"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+          {item.resourceType === "video" ? (
+            <video src={item.url} controls className="max-h-[60vh] max-w-full rounded-xl" />
+          ) : (
+            <img src={item.url} alt={item.publicId} className="max-h-[60vh] max-w-full rounded-xl object-contain" />
+          )}
+        </div>
+
+        <div className="space-y-3 overflow-y-auto p-5">
+          <p className="break-all font-mono text-xs text-text-muted">{item.publicId}</p>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-text-muted">
+            {item.inUse && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                In use
+              </span>
+            )}
+            <span>{formatBytes(item.bytes)}</span>
+            {item.width && <span>· {item.width}×{item.height}</span>}
+            <span>· {formatDate(item.createdAt)}</span>
+          </div>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <button type="button" onClick={onCopy}
+              className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm text-text-primary hover:border-black/20">
+              <Copy size={14} /> Copy URL
+            </button>
+            <button type="button" onClick={onDelete}
+              className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600 hover:bg-red-100">
+              <Trash2 size={14} /> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminMediaPage() {
   const queryClient = useQueryClient();
   const [type, setType] = useState<MediaResourceType>("image");
@@ -77,8 +140,10 @@ export default function AdminMediaPage() {
   const [dateTo, setDateTo] = useState("");
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [pageIndex, setPageIndex] = useState(0);
+  const [previewTarget, setPreviewTarget] = useState<MediaItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const { toast, showToast } = useToast();
 
   const cursor = cursors[pageIndex] ?? null;
 
@@ -87,9 +152,25 @@ export default function AdminMediaPage() {
     queryFn: () => getMedia({ type, sort, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, cursor }),
   });
 
+  const { data: usageData } = useQuery({
+    queryKey: ["admin-media-usage"],
+    queryFn: getMediaUsage,
+    staleTime: 5 * 60 * 1000,
+  });
+  const usage = usageData?.data;
+
   const items = data?.data.items ?? [];
   const nextCursor = data?.data.nextCursor ?? null;
   const totalCount = data?.data.totalCount ?? null;
+
+  const copyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast(true, "Image URL copied");
+    } catch {
+      showToast(false, "Couldn't copy — your browser blocked clipboard access");
+    }
+  };
 
   const resetPaging = () => {
     setCursors([null]);
@@ -138,6 +219,17 @@ export default function AdminMediaPage() {
 
   return (
     <>
+      <ToastViewport toast={toast} />
+
+      {previewTarget && (
+        <PreviewModal
+          item={previewTarget}
+          onClose={() => setPreviewTarget(null)}
+          onCopy={() => copyUrl(previewTarget.url)}
+          onDelete={() => { setDeleteTarget(previewTarget); setPreviewTarget(null); }}
+        />
+      )}
+
       {deleteTarget && (
         <DeleteModal
           item={deleteTarget}
@@ -156,6 +248,34 @@ export default function AdminMediaPage() {
             Everything actually stored on Cloudinary — delete unused files here to free up storage.
           </p>
         </div>
+
+        {usage && (
+          <div className="rounded-2xl border border-black/8 bg-white p-4">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <HardDrive size={15} className="text-text-muted" />
+              <span className="font-medium text-text-primary">{formatBytes(usage.storageBytes)}</span>
+              <span className="text-text-muted">storage used · {usage.resourceCount} files · {usage.plan} plan</span>
+              {usage.creditsUsedPercent !== undefined && (
+                <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  usage.creditsUsedPercent >= 100
+                    ? "bg-red-100 text-red-700"
+                    : usage.creditsUsedPercent >= 80
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {usage.creditsUsedPercent}% of monthly credits used
+                </span>
+              )}
+            </div>
+            {usage.creditsUsedPercent !== undefined && usage.creditsUsedPercent >= 100 && (
+              <p className="mt-2 text-xs text-red-700">
+                This Cloudinary account is over its {usage.plan} plan's monthly credit allowance
+                (storage + bandwidth + transformations combined) — deleting unused files here helps,
+                but heavy traffic/bandwidth is usually the bigger driver.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => switchType("image")}
@@ -216,7 +336,12 @@ export default function AdminMediaPage() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {items.map((item) => (
               <div key={item.publicId} className="group relative overflow-hidden rounded-2xl border border-black/8 bg-white">
-                <div className="relative aspect-square overflow-hidden bg-[#f8f4ee]">
+                <button
+                  type="button"
+                  onClick={() => setPreviewTarget(item)}
+                  className="relative block aspect-square w-full overflow-hidden bg-[#f8f4ee]"
+                  aria-label="Preview file"
+                >
                   {type === "image" ? (
                     <img src={item.url} alt={item.publicId} loading="lazy" className="h-full w-full object-cover" />
                   ) : (
@@ -227,10 +352,20 @@ export default function AdminMediaPage() {
                       In use
                     </span>
                   )}
+                </button>
+                <div className="absolute right-2 top-2 flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => copyUrl(item.url)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-text-primary shadow"
+                    aria-label="Copy URL"
+                  >
+                    <Copy size={14} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => setDeleteTarget(item)}
-                    className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-red-600 opacity-0 shadow transition-opacity group-hover:opacity-100"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-red-600 shadow"
                     aria-label="Delete file"
                   >
                     <Trash2 size={14} />

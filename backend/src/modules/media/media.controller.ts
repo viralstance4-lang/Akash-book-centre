@@ -44,3 +44,10 @@ export const deleteMedia = async (req: Request, res: Response, next: NextFunctio
     res.json({ success: true, message: "Media deleted" });
   } catch (err) { next(err); }
 };
+
+export const getUsage = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const usage = await mediaService.getUsage();
+    res.json({ success: true, message: "Usage fetched", data: usage });
+  } catch (err) { next(err); }
+};

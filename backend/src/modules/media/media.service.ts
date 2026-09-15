@@ -84,3 +84,23 @@ export const getInUsePublicIds = async (): Promise<Set<string>> => {
 export const deleteMediaAsset = async (publicId: string, resourceType: ResourceType): Promise<void> => {
   await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
 };
+
+/**
+ * Cloudinary's account-wide usage for this billing cycle. On the Free plan storage,
+ * bandwidth and transformations all draw from one shared "credits" pool rather than
+ * having their own hard caps, so creditsUsedPercent is the number that actually
+ * matters — storageBytes alone can look small while the account is still over quota.
+ */
+export const getUsage = async () => {
+  const usage = await cloudinary.api.usage();
+  return {
+    plan:               usage.plan as string,
+    storageBytes:       (usage.storage?.usage as number | undefined) ?? 0,
+    bandwidthBytes:     (usage.bandwidth?.usage as number | undefined) ?? 0,
+    resourceCount:      (usage.resources as number | undefined) ?? 0,
+    creditsUsed:         usage.credits?.usage as number | undefined,
+    creditsLimit:        usage.credits?.limit as number | undefined,
+    creditsUsedPercent:  usage.credits?.used_percent as number | undefined,
+    lastUpdated:         usage.last_updated as string | undefined,
+  };
+};
