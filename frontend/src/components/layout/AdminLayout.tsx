@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Image, LayoutDashboard, Layers3, LayoutGrid, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Truck, Users, X } from "lucide-react";
+import { BookOpen, FileText, Image, Images, LayoutDashboard, Layers3, LayoutGrid, LogOut, Menu, MessageSquare, PanelTop, Receipt, RotateCcw, Settings, Star, Tag, Truck, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -20,6 +20,7 @@ const navItems = [
   { label: "Featured", path: "/admin/featured", icon: MessageSquare, title: "Featured Section", exact: false },
   { label: "Pages", path: "/admin/pages", icon: FileText, title: "Pages", exact: false },
   { label: "Print Orders", path: "/admin/print-orders", icon: FileText, title: "Print Orders", exact: false },
+  { label: "Media", path: "/admin/media", icon: Images, title: "Media Library", exact: false },
   { label: "Returns", path: "/admin/returns", icon: RotateCcw, title: "Returns", exact: false },
   { label: "Homepage Builder", path: "/admin/homepage-builder", icon: PanelTop, title: "Homepage Builder", exact: false },
   { label: "Shipping", path: "/admin/shipping", icon: Truck, title: "Shipping Settings", exact: false },

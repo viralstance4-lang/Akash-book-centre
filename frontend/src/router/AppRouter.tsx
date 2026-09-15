@@ -18,6 +18,7 @@ import { SessionRestoreSkeleton } from "../components/ui/SkeletonLoader";
 const AdminBannersPage          = lazy(() => import("../pages/admin/AdminBannersPage"));
 const AdminCategorySectionsPage = lazy(() => import("../pages/admin/AdminCategorySectionsPage"));
 const AdminHomepageBuilderPage  = lazy(() => import("../pages/admin/AdminHomepageBuilderPage"));
+const AdminMediaPage            = lazy(() => import("../pages/admin/AdminMediaPage"));
 const AdminBooksPage            = lazy(() => import("../pages/admin/AdminBooksPage"));
 const AdminCategoriesPage       = lazy(() => import("../pages/admin/AdminCategoriesPage"));
 const AdminCouponsPage          = lazy(() => import("../pages/admin/AdminCouponsPage"));
@@ -195,6 +196,7 @@ export default function AppRouter() {
             <Route path="/admin/featured"     element={<AdminFeaturedPage />} />
             <Route path="/admin/pages"        element={<AdminPagesPage />} />
             <Route path="/admin/print-orders" element={<AdminPrintOrdersPage />} />
+            <Route path="/admin/media"        element={<AdminMediaPage />} />
             <Route path="/admin/returns"      element={<AdminReturnsPage />} />
             <Route path="/admin/shipping"         element={<AdminShippingPage />} />
             <Route path="/admin/settings"          element={<AdminSettingsPage />} />

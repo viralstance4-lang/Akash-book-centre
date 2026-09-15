@@ -22,6 +22,7 @@ import pagesRouter, { adminPagesRouter } from "./modules/pages/pages.routes";
 import paymentsRouter from "./modules/payments/payments.routes";
 import printRouter, { adminPrintRouter } from "./modules/printorders/printorders.routes";
 import pdfRouter from "./modules/printorders/pdf.routes";
+import { adminMediaRouter } from "./modules/media/media.routes";
 import reviewsRouter, { adminReviewsRouter } from "./modules/reviews/reviews.routes";
 import settingsRouter from "./modules/settings/settings.routes";
 import shippingRouter, { adminShippingRouter } from "./modules/shipping/shipping.routes";
@@ -177,6 +178,7 @@ app.use("/api/v1/admin/category-sections",  adminCategorySectionsRouter);
 app.use("/api/v1/admin/returns",          adminReturnsRouter);
 app.use("/api/v1/admin/shipping",         adminShippingRouter);
 app.use("/api/v1/admin/shipmozo",         adminShipmozoRouter);
+app.use("/api/v1/admin/media",            adminMediaRouter);
 app.use("/api/v1/admin",                  adminUtilsRouter);
 app.use("/api/v1/diag",                   diagRouter);
 
