@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
-import { AlertTriangle, Film, ImageIcon, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarArrowDown, CalendarArrowUp, Film, ImageIcon, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { deleteMedia, getMedia, type MediaItem, type MediaResourceType } from "../../api/media.api";
+import { deleteMedia, getMedia, type MediaItem, type MediaResourceType, type MediaSort } from "../../api/media.api";
 import type { ApiErrorResponse } from "../../types";
 
 const formatBytes = (bytes: number) => {
@@ -10,6 +10,9 @@ const formatBytes = (bytes: number) => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 function DeleteModal({
   item,
@@ -69,6 +72,9 @@ function DeleteModal({
 export default function AdminMediaPage() {
   const queryClient = useQueryClient();
   const [type, setType] = useState<MediaResourceType>("image");
+  const [sort, setSort] = useState<MediaSort>("asc");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [pageIndex, setPageIndex] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
@@ -77,18 +83,32 @@ export default function AdminMediaPage() {
   const cursor = cursors[pageIndex] ?? null;
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["admin-media", type, cursor],
-    queryFn: () => getMedia(type, cursor),
+    queryKey: ["admin-media", type, sort, dateFrom, dateTo, cursor],
+    queryFn: () => getMedia({ type, sort, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, cursor }),
   });
 
   const items = data?.data.items ?? [];
   const nextCursor = data?.data.nextCursor ?? null;
+  const totalCount = data?.data.totalCount ?? null;
 
-  const switchType = (next: MediaResourceType) => {
-    setType(next);
+  const resetPaging = () => {
     setCursors([null]);
     setPageIndex(0);
   };
+
+  const switchType = (next: MediaResourceType) => {
+    setType(next);
+    resetPaging();
+  };
+
+  const toggleSort = () => {
+    setSort((s) => (s === "asc" ? "desc" : "asc"));
+    resetPaging();
+  };
+
+  const applyDateFrom = (v: string) => { setDateFrom(v); resetPaging(); };
+  const applyDateTo   = (v: string) => { setDateTo(v);   resetPaging(); };
+  const clearDates    = () => { setDateFrom(""); setDateTo(""); resetPaging(); };
 
   const goNext = () => {
     if (!nextCursor) return;
@@ -137,7 +157,7 @@ export default function AdminMediaPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => switchType("image")}
             className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors ${
               type === "image" ? "border-black/20 bg-[#1d1a17] text-white" : "border-black/10 bg-white text-text-primary hover:border-black/20"
@@ -150,6 +170,35 @@ export default function AdminMediaPage() {
             }`}>
             <Film size={14} /> Videos
           </button>
+
+          <div className="mx-1 h-6 w-px bg-black/10" />
+
+          <button type="button" onClick={toggleSort}
+            title={sort === "asc" ? "Showing oldest first" : "Showing newest first"}
+            className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm text-text-primary hover:border-black/20">
+            {sort === "asc" ? <CalendarArrowUp size={14} /> : <CalendarArrowDown size={14} />}
+            {sort === "asc" ? "Oldest first" : "Newest first"}
+          </button>
+
+          <label className="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-2 text-xs text-text-muted">
+            From
+            <input type="date" value={dateFrom} onChange={(e) => applyDateFrom(e.target.value)}
+              className="bg-transparent text-sm text-text-primary outline-none" />
+          </label>
+          <label className="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-2 text-xs text-text-muted">
+            To
+            <input type="date" value={dateTo} onChange={(e) => applyDateTo(e.target.value)}
+              className="bg-transparent text-sm text-text-primary outline-none" />
+          </label>
+          {(dateFrom || dateTo) && (
+            <button type="button" onClick={clearDates} className="text-xs text-text-muted underline hover:text-text-primary">
+              Clear dates
+            </button>
+          )}
+
+          {totalCount !== null && (
+            <span className="ml-auto text-xs text-text-muted">{totalCount} {type}{totalCount === 1 ? "" : "s"} total</span>
+          )}
         </div>
 
         {isLoading ? (
@@ -190,6 +239,7 @@ export default function AdminMediaPage() {
                 <div className="px-2.5 py-2 text-[11px] text-text-muted">
                   <p className="truncate" title={item.publicId}>{item.publicId.split("/").pop()}</p>
                   <p>{formatBytes(item.bytes)}{item.width ? ` · ${item.width}×${item.height}` : ""}</p>
+                  <p className="mt-0.5 text-text-primary/70">{formatDate(item.createdAt)}</p>
                 </div>
               </div>
             ))}

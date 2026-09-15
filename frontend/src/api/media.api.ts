@@ -19,11 +19,24 @@ export type MediaItem = {
 export type MediaPage = {
   items: MediaItem[];
   nextCursor: string | null;
+  totalCount: number | null;
 };
 
-export const getMedia = async (type: MediaResourceType, cursor?: string | null) => {
+export type MediaSort = "asc" | "desc";
+
+export type GetMediaParams = {
+  type: MediaResourceType;
+  cursor?: string | null;
+  /** "asc" = oldest first — the default, since finding old files to clean up is the point. */
+  sort?: MediaSort;
+  /** "YYYY-MM-DD" */
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export const getMedia = async ({ type, cursor, sort, dateFrom, dateTo }: GetMediaParams) => {
   const response = await api.get<ApiSuccessResponse<MediaPage>>("/admin/media", {
-    params: { type, cursor: cursor ?? undefined },
+    params: { type, cursor: cursor ?? undefined, sort, from: dateFrom, to: dateTo },
   });
   return response.data;
 };

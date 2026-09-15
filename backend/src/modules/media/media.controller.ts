@@ -3,14 +3,18 @@ import AppError from "../../lib/AppError";
 import * as mediaService from "./media.service";
 
 const parseResourceType = (raw: unknown): "image" | "video" => (raw === "video" ? "video" : "image");
+const str = (raw: unknown): string | undefined => (typeof raw === "string" && raw ? raw : undefined);
 
 export const listMedia = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const resourceType = parseResourceType(req.query.type);
-    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    const cursor   = str(req.query.cursor);
+    const sort     = req.query.sort === "desc" ? "desc" : "asc";
+    const dateFrom = str(req.query.from);
+    const dateTo   = str(req.query.to);
 
-    const [{ resources, nextCursor }, inUseIds] = await Promise.all([
-      mediaService.listMedia(resourceType, cursor),
+    const [{ resources, nextCursor, totalCount }, inUseIds] = await Promise.all([
+      mediaService.listMedia({ resourceType, nextCursor: cursor, sort, dateFrom, dateTo }),
       mediaService.getInUsePublicIds(),
     ]);
 
@@ -26,7 +30,7 @@ export const listMedia = async (req: Request, res: Response, next: NextFunction)
       inUse:        inUseIds.has(r.public_id),
     }));
 
-    res.json({ success: true, message: "Media fetched", data: { items, nextCursor } });
+    res.json({ success: true, message: "Media fetched", data: { items, nextCursor, totalCount } });
   } catch (err) { next(err); }
 };
 

@@ -2,20 +2,37 @@ import cloudinary from "../../lib/cloudinary";
 import prisma from "../../lib/prisma";
 
 type ResourceType = "image" | "video";
+type SortDirection = "asc" | "desc";
 
 /** Every Cloudinary asset lives under this folder prefix (see lib/cloudinary.ts's
  * uploadImage) — scoping listMedia to it keeps the library to this app's own
  * uploads even if the Cloudinary account is ever shared with something else. */
 const FOLDER_PREFIX = "bookstore/";
 
-export const listMedia = async (resourceType: ResourceType, nextCursor?: string) => {
-  const result = await cloudinary.api.resources({
-    type: "upload",
-    resource_type: resourceType,
-    prefix: FOLDER_PREFIX,
-    max_results: 60,
-    next_cursor: nextCursor,
-  });
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export type ListMediaParams = {
+  resourceType: ResourceType;
+  nextCursor?: string;
+  /** "asc" = oldest first — the default, since finding old files to clean up is the point. */
+  sort?: SortDirection;
+  /** Both inclusive-ish, "YYYY-MM-DD". Silently ignored if not in that shape. */
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export const listMedia = async ({ resourceType, nextCursor, sort = "asc", dateFrom, dateTo }: ListMediaParams) => {
+  const clauses = [`resource_type:${resourceType}`, `folder=${FOLDER_PREFIX}*`];
+  if (dateFrom && DATE_RE.test(dateFrom)) clauses.push(`uploaded_at>${dateFrom}`);
+  if (dateTo && DATE_RE.test(dateTo)) clauses.push(`uploaded_at<${dateTo}`);
+
+  const result = await cloudinary.search
+    .expression(clauses.join(" AND "))
+    .sort_by("created_at", sort)
+    .max_results(60)
+    .next_cursor(nextCursor)
+    .execute();
+
   return {
     resources: result.resources as Array<{
       public_id: string;
@@ -28,6 +45,7 @@ export const listMedia = async (resourceType: ResourceType, nextCursor?: string)
       created_at: string;
     }>,
     nextCursor: (result.next_cursor as string | undefined) ?? null,
+    totalCount: (result.total_count as number | undefined) ?? null,
   };
 };
 
