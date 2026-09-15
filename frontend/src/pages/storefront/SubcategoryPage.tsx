@@ -9,6 +9,7 @@ import ProductListingGrid from "../../components/ui/ProductListingGrid";
 import { getErrorMessage, useToast, ToastViewport } from "../../components/ui/Toast";
 import { useAuthStore } from "../../store/auth.store";
 import type { Book } from "../../types";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 export default function SubcategoryPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -148,7 +149,7 @@ export default function SubcategoryPage() {
                   >
                     <div className="h-11 w-11 rounded-xl overflow-hidden bg-[#f4efe7] shrink-0 flex items-center justify-center">
                       {sub.imageUrl ? (
-                        <img src={sub.imageUrl} alt={sub.name} loading="lazy" className="h-full w-full object-cover" />
+                        <img src={optimizeImage(sub.imageUrl, 88)} alt={sub.name} loading="lazy" className="h-full w-full object-cover" />
                       ) : (
                         <Layers3 size={16} className="text-text-muted/50" strokeWidth={1.4} />
                       )}

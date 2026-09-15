@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { getCart, removeCartItem, updateCartItem } from "../../api/cart.api";
 import { getSettings } from "../../api/settings.api";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
@@ -79,7 +80,7 @@ export default function CartPage() {
             return (
               <article key={item.id} className="flex gap-3 rounded-2xl border border-black/8 bg-[#fbf8f2] p-3 sm:gap-4 sm:rounded-3xl sm:p-4">
                 <Link to={`/books/${item.book.id}`} className="shrink-0">
-                  <img src={item.book.coverImageUrl} alt={item.book.title}
+                  <img src={optimizeImage(item.book.coverImageUrl, 160)} alt={item.book.title}
                     className="h-20 w-16 rounded-xl object-cover bg-[#efe6d8] transition-transform duration-200 hover:scale-[1.02] sm:h-24 sm:w-20 sm:rounded-2xl" />
                 </Link>
 

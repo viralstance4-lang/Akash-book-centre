@@ -19,6 +19,7 @@ import {
 import AddressAutocomplete, { reverseGeocode, geocodePincode, type PlaceSelection } from "../../components/checkout/AddressAutocomplete";
 import MapPinPicker from "../../components/checkout/MapPinPicker";
 import { loadRazorpayScript } from "../../utils/loadRazorpay";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 type ShippingField = keyof ShippingAddress;
 type CheckoutOrder = { id: string; razorpayOrderId?: string };
@@ -739,7 +740,7 @@ export default function CheckoutPage() {
           <div className="mt-4 max-h-64 space-y-3 overflow-y-auto">
             {items.map((item) => (
               <div key={item.id} className="flex gap-3 rounded-xl bg-[#f8f4ee] p-3">
-                <img src={item.book.coverImageUrl} alt={item.book.title} className="h-14 w-11 rounded-lg object-cover shrink-0" />
+                <img src={optimizeImage(item.book.coverImageUrl, 100)} alt={item.book.title} loading="lazy" className="h-14 w-11 rounded-lg object-cover shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-text-primary">{item.book.title}</p>
                   <p className="text-xs text-text-muted">Qty: {item.quantity}</p>

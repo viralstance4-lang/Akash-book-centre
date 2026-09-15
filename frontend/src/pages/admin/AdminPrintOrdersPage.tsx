@@ -145,6 +145,7 @@ export default function AdminPrintOrdersPage() {
   const queryClient = useQueryClient();
 
   const [showSettings,  setShowSettings]  = useState(false);
+  const [page,          setPage]          = useState(1);
   const [expandedId,    setExpandedId]    = useState<string | null>(null);
   const [deleteTarget,  setDeleteTarget]  = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -167,8 +168,8 @@ export default function AdminPrintOrdersPage() {
   });
 
   const { data: ordersData, isLoading } = useQuery({
-    queryKey: ["admin-print-orders"],
-    queryFn:  getAdminPrintOrders,
+    queryKey: ["admin-print-orders", page],
+    queryFn:  () => getAdminPrintOrders(page, 10),
   });
   const { data: printSettingsData } = useQuery({
     queryKey: ["print-settings"],
@@ -238,7 +239,8 @@ export default function AdminPrintOrdersPage() {
     },
   });
 
-  const orders: PrintOrder[] = ordersData?.data ?? [];
+  const orders: PrintOrder[] = ordersData?.data.orders ?? [];
+  const totalPages = ordersData?.data.totalPages ?? 1;
   const toggle = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
 
   const handleView = async (fileId: string) => {
@@ -718,6 +720,18 @@ export default function AdminPrintOrdersPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!isLoading && orders.length > 0 && (
+          <div className="flex items-center justify-between border-t border-black/8 pt-5">
+            <p className="text-sm text-text-muted">Page {page} of {totalPages}</p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setPage((c) => Math.max(1, c - 1))} disabled={page <= 1}
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm disabled:opacity-45">Previous</button>
+              <button type="button" onClick={() => setPage((c) => Math.min(totalPages, c + 1))} disabled={page >= totalPages}
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm disabled:opacity-45">Next</button>
+            </div>
           </div>
         )}
       </div>

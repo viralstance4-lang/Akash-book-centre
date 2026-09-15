@@ -2,6 +2,7 @@ import { ArrowRight, BookOpen, ShoppingBag } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Book } from "../../types";
+import { optimizeImage } from "../../utils/cloudinaryImage";
 
 type BookCardProps = {
   book: Book;
@@ -61,7 +62,7 @@ export default function BookCard({
           </div>
         ) : (
           <img
-            src={book.coverImageUrl}
+            src={optimizeImage(book.coverImageUrl, 400)}
             alt={book.title}
             loading="lazy"
             className="aspect-[3/4] w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"

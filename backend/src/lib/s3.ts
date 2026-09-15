@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import type { Readable } from "stream";
 import {
   S3Client,
   PutObjectCommand,
@@ -44,18 +45,23 @@ export const uploadFile = async (file: MulterFileLike, folder = "print-orders") 
   };
 };
 
-/** Streams an object's bytes back for the authenticated pdf.controller.ts proxy. */
-export const getFile = async (key: string): Promise<Buffer> => {
+/**
+ * Returns an object's bytes as a live stream (plus its known size) for the
+ * authenticated pdf.controller.ts proxy to pipe straight through to the client,
+ * instead of buffering the whole file in server memory first.
+ */
+export const getFileStream = async (
+  key: string,
+): Promise<{ stream: Readable; contentLength?: number }> => {
   const result = await s3.send(new GetObjectCommand({
     Bucket: env.AWS_S3_BUCKET,
     Key:    key,
   }));
-  const chunks: Buffer[] = [];
-  // @ts-expect-error — Body is a Node Readable stream at runtime in this SDK's Node build
-  for await (const chunk of result.Body) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
+  return {
+    // Body is a Node Readable stream at runtime in this SDK's Node build
+    stream: result.Body as Readable,
+    contentLength: result.ContentLength,
+  };
 };
 
 export const deleteFile = async (key: string): Promise<void> => {
