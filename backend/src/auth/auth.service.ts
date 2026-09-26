@@ -15,6 +15,11 @@ type LoginUserInput    = { email: string; password: string };
 const ACCESS_TOKEN_EXPIRES_IN = env.JWT_ACCESS_EXPIRES_IN as SignOptions["expiresIn"];
 const SESSION_TTL_HOURS   = 10;
 const REFRESH_TOKEN_TTL_DAYS = 7;
+// Refresh tokens rotate on every use. Several requests from the same session can race
+// in (e.g. multiple dashboard queries hitting an expired access token at once), so the
+// token just rotated away from stays valid for this long — long enough to absorb that,
+// short enough to keep the rotation's replay protection meaningful.
+const REFRESH_TOKEN_GRACE_MS = 10_000;
 const SALT_ROUNDS = 12;
 const JWT_ACCESS_SECRET: Secret = env.JWT_ACCESS_SECRET;
 
@@ -68,7 +73,11 @@ const getSafeUser = (user: {
 };
 
 const storeRefreshToken = async (userId: string, refreshToken: string) => {
-  await prisma.refreshToken.deleteMany({ where: { userId } });
+  // Multiple sessions (tabs, browsers, devices) are allowed to coexist — only clean up
+  // rows that have already hard-expired, never an active session from elsewhere.
+  await prisma.refreshToken.deleteMany({
+    where: { userId, sessionExpiresAt: { lt: new Date() } },
+  });
   await prisma.refreshToken.create({
     data: {
       userId,
@@ -259,28 +268,39 @@ export const otpLoginUser = async (target: string, code: string) => {
 
 export const refreshAccessToken = async (token: string) => {
   const tokenHash = hashRefreshToken(token);
-  const stored = await prisma.refreshToken.findFirst({
+  const now = new Date();
+
+  let stored = await prisma.refreshToken.findFirst({
     where: { tokenHash },
     include: { user: true },
   });
 
+  // Not the current token — it may belong to a request that raced in right after this
+  // same session rotated (see REFRESH_TOKEN_GRACE_MS above). Accept it if so instead of
+  // forcing a logout for what is actually still a valid, active session.
+  if (!stored) {
+    stored = await prisma.refreshToken.findFirst({
+      where: { previousTokenHash: tokenHash, previousTokenExpiresAt: { gt: now } },
+      include: { user: true },
+    });
+  }
+
   if (!stored) throw new AppError("Invalid refresh token", 401, "INVALID_REFRESH_TOKEN");
 
-  const now = new Date();
   if (stored.expiresAt < now || stored.sessionExpiresAt < now) {
     await prisma.refreshToken.delete({ where: { id: stored.id } });
     throw new AppError("Session expired. Please log in again.", 401, "SESSION_EXPIRED");
   }
 
-  await prisma.refreshToken.delete({ where: { id: stored.id } });
-
   const newRefreshToken = generateRefreshToken();
-  await prisma.refreshToken.create({
+  await prisma.refreshToken.update({
+    where: { id: stored.id },
     data: {
-      userId: stored.userId,
       tokenHash: hashRefreshToken(newRefreshToken),
       expiresAt: getRefreshTokenExpiry(),
       sessionExpiresAt: getSessionExpiry(),
+      previousTokenHash: tokenHash,
+      previousTokenExpiresAt: new Date(now.getTime() + REFRESH_TOKEN_GRACE_MS),
     },
   });
 
